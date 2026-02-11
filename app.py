@@ -428,6 +428,18 @@ def clear_memory():
         'cleared': cleared
     })
 
+@app.route('/api/managed-satellites')
+def get_managed_satellites():
+    """Get managed satellites data."""
+    try:
+        with open('data/managed_satellites.toon', 'r') as f:
+            data = json.load(f)
+        return jsonify(data)
+    except FileNotFoundError:
+        return jsonify({'error': 'Managed satellites data not found'}), 404
+    except json.JSONDecodeError as e:
+        return jsonify({'error': f'Invalid JSON: {str(e)}'}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)

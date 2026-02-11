@@ -210,64 +210,150 @@ async def predict_position(params):
 
 
 async def calculate_passes(params):
-    """Calculate visibility passes for a satellite over a ground location using Orekit."""
-    norad_id = params.get('norad_id')
+    """Calculate visibility passes for a satellite over a ground location using Orekit.
+    
+    Flexible input options:
+    1. TLE directly: tle_line1, tle_line2 (optional: tle_epoch)
+    2. Orbital elements: semi_major_axis_km, eccentricity, inclination_deg, etc. (required: epoch)
+    3. NORAD ID: norad_id (fetches TLE from API)
+    
+    Ground station options:
+    1. Location name: location='ottobrunn' or 'oberpfaffenhofen'
+    2. Coordinates: ground_lat, ground_lon (or sensor_lat, sensor_lon)
+    3. Ground station dict: ground_station={'lat': X, 'lon': Y}
+    """
     hours_ahead = params.get('hours_ahead', 24)
     min_elevation = params.get('min_elevation', 10)
     
     # Known locations
     LOCATIONS = {
-        'munich': (48.1351, 11.5820),
-        'ottobrunn': (48.0693, 11.6453),
-        'garching': (48.2489, 11.6530),
+        'ottobrunn': (48.052453328999675, 11.654863033454957),
+        'oberpfaffenhofen': (48.0864, 11.2800),
     }
     
-    # Get coordinates from location name or direct params
-    location = params.get('location', '').lower()
-    if location in LOCATIONS:
-        ground_lat, ground_lon = LOCATIONS[location]
+    # Get ground station coordinates
+    ground_station = params.get('ground_station')
+    location_name = None
+    if isinstance(ground_station, dict):
+        ground_lat = ground_station.get('lat') or ground_station.get('latitude')
+        ground_lon = ground_station.get('lon') or ground_station.get('longitude')
+        location_name = ground_station.get('name', 'custom')
     else:
-        ground_lat = params.get('sensor_lat') or params.get('ground_lat')
-        ground_lon = params.get('sensor_lon') or params.get('ground_lon')
+        location = params.get('location', '').lower()
+        if location in LOCATIONS:
+            ground_lat, ground_lon = LOCATIONS[location]
+            location_name = location
+        else:
+            ground_lat = params.get('sensor_lat') or params.get('ground_lat') or params.get('latitude')
+            ground_lon = params.get('sensor_lon') or params.get('ground_lon') or params.get('longitude')
+            location_name = 'custom'
     
-    if not norad_id:
-        return {'error': 'norad_id parameter required'}
     if ground_lat is None or ground_lon is None:
-        return {'error': 'Location required: use location parameter (munich, ottobrunn, garching) or sensor_lat/sensor_lon'}
+        return {'error': 'Ground station required: use location parameter (ottobrunn, oberpfaffenhofen), ground_lat/ground_lon, or ground_station dict'}
     
     if not OREKIT_AVAILABLE:
         return {'error': 'Orekit not available. Install with: uv pip install orekit-jpype'}
     
     try:
-        # Get TLE for the satellite
-        resp = requests.get(f"{API_BASE_URL}/tle/{norad_id}/history", params={'days': 1}, timeout=5.0)
-        resp.raise_for_status()
-        data = resp.json()
+        from tools.orekit_propagation_tool import compute_visibility, compute_visibility_from_orbit
+        from datetime import datetime
         
-        if not data.get('history'):
-            return {'error': f'No TLE found for NORAD ID {norad_id}'}
+        # Determine input type and compute passes
+        tle_line1 = params.get('tle_line1')
+        tle_line2 = params.get('tle_line2')
+        norad_id = params.get('norad_id')
         
-        tle = data['history'][0]
+        # Option 1: TLE provided directly
+        if tle_line1 and tle_line2:
+            result = compute_visibility(
+                tle_line1, tle_line2,
+                ground_lat, ground_lon,
+                min_elevation, hours_ahead
+            )
+            if result.get('status') == 'success':
+                return {
+                    'status': 'success',
+                    'input_type': 'tle',
+                    'ground_station': {'lat': ground_lat, 'lon': ground_lon, 'name': location_name},
+                    'hours_ahead': hours_ahead,
+                    'min_elevation_deg': min_elevation,
+                    'passes': result.get('passes', []),
+                    'tle_epoch': params.get('tle_epoch')
+                }
+            return result
         
-        # Use Orekit compute_visibility
-        from tools.orekit_propagation_tool import compute_visibility
-        result = compute_visibility(
-            tle['tle_line1'], tle['tle_line2'],
-            ground_lat, ground_lon,
-            min_elevation, hours_ahead
-        )
+        # Option 2: Orbital elements provided
+        orbit_elements = params.get('orbital_elements') or params.get('orbit_elements')
+        if orbit_elements or any(k in params for k in ['semi_major_axis_km', 'a_km', 'inclination_deg', 'i_deg']):
+            if orbit_elements:
+                elements = orbit_elements
+            else:
+                elements = {
+                    'semi_major_axis_km': params.get('semi_major_axis_km') or params.get('a_km'),
+                    'eccentricity': params.get('eccentricity') or params.get('e', 0),
+                    'inclination_deg': params.get('inclination_deg') or params.get('i_deg'),
+                    'raan_deg': params.get('raan_deg') or params.get('omega_deg'),
+                    'arg_perigee_deg': params.get('arg_perigee_deg') or params.get('w_deg'),
+                    'true_anomaly_deg': params.get('true_anomaly_deg') or params.get('ta_deg') or params.get('mean_anomaly_deg', 0)
+                }
+            
+            epoch_str = params.get('epoch') or params.get('tle_epoch')
+            if isinstance(epoch_str, str):
+                epoch = datetime.fromisoformat(epoch_str.replace('Z', '+00:00'))
+            elif isinstance(epoch_str, datetime):
+                epoch = epoch_str
+            else:
+                return {'error': 'epoch required when using orbital elements'}
+            
+            force_models = params.get('force_models')
+            result = compute_visibility_from_orbit(
+                elements, epoch, ground_lat, ground_lon,
+                min_elevation, hours_ahead, force_models
+            )
+            
+            if result.get('status') == 'success':
+                return {
+                    'status': 'success',
+                    'input_type': 'orbital_elements',
+                    'ground_station': {'lat': ground_lat, 'lon': ground_lon, 'name': location if 'location' in locals() else 'custom'},
+                    'hours_ahead': hours_ahead,
+                    'min_elevation_deg': min_elevation,
+                    'passes': result.get('passes', []),
+                    'epoch': epoch_str
+                }
+            return result
         
-        if result.get('status') == 'success':
-            return {
-                'status': 'success',
-                'norad_id': norad_id,
-                'ground_station': {'lat': ground_lat, 'lon': ground_lon, 'name': location or 'custom'},
-                'hours_ahead': hours_ahead,
-                'min_elevation_deg': min_elevation,
-                'passes': result.get('passes', []),
-                'tle_epoch': tle.get('epoch')
-            }
-        return result
+        # Option 3: NORAD ID (fetch TLE from API)
+        if norad_id:
+            resp = requests.get(f"{API_BASE_URL}/tle/{norad_id}/history", params={'days': 1}, timeout=5.0)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if not data.get('history'):
+                return {'error': f'No TLE found for NORAD ID {norad_id}'}
+            
+            tle = data['history'][0]
+            result = compute_visibility(
+                tle['tle_line1'], tle['tle_line2'],
+                ground_lat, ground_lon,
+                min_elevation, hours_ahead
+            )
+            
+            if result.get('status') == 'success':
+                return {
+                    'status': 'success',
+                    'input_type': 'norad_id',
+                    'norad_id': norad_id,
+                    'ground_station': {'lat': ground_lat, 'lon': ground_lon, 'name': location_name},
+                    'hours_ahead': hours_ahead,
+                    'min_elevation_deg': min_elevation,
+                    'passes': result.get('passes', []),
+                    'tle_epoch': tle.get('epoch')
+                }
+            return result
+        
+        return {'error': 'No valid input provided. Use tle_line1/tle_line2, orbital_elements with epoch, or norad_id'}
+        
     except requests.exceptions.ConnectionError:
         return {'error': 'Satellite API server not running. Start with: python run_satellite_api.py'}
     except Exception as e:

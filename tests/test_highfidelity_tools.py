@@ -113,19 +113,76 @@ def test_visibility():
     """Test visibility computation from ground station."""
     from tools.orekit_propagation_tool import compute_visibility
     
-    # Munich coordinates
+    # Ottobrunn coordinates
     result = compute_visibility(
         ISS_TLE1, ISS_TLE2,
-        ground_lat=48.1351,
-        ground_lon=11.5820,
+        ground_lat=48.052453328999675,
+        ground_lon=11.654863033454957,
         min_elevation_deg=10,
         duration_hours=24
     )
     
     assert result.get('status') == 'success', f"Error: {result.get('error')}"
-    print(f"Visibility passes from Munich: {len(result['passes'])}")
+    print(f"Visibility passes from Ottobrunn: {len(result['passes'])}")
     for p in result['passes'][:3]:
         print(f"  Pass: {p['duration_sec']/60:.1f} min, max el: {p['max_elevation_deg']:.1f} deg")
+
+
+async def test_calculate_passes_flexible():
+    """Test flexible calculate_passes with different input methods."""
+    from tools.satellite_data_tool import calculate_passes
+    from datetime import datetime, timezone
+    
+    print("\n=== Testing Flexible Overpass Calculation ===")
+    
+    # Test 1: Direct TLE input
+    print("\n1. Testing with direct TLE input...")
+    result1 = await calculate_passes({
+        'action': 'calculate_passes',
+        'tle_line1': ISS_TLE1,
+        'tle_line2': ISS_TLE2,
+        'location': 'ottobrunn',
+        'hours_ahead': 24,
+        'min_elevation': 10
+    })
+    assert result1.get('status') == 'success', f"Error: {result1.get('error')}"
+    assert result1.get('input_type') == 'tle'
+    print(f"   ✓ TLE input: {len(result1.get('passes', []))} passes found")
+    
+    # Test 2: Orbital elements input
+    print("\n2. Testing with orbital elements input...")
+    result2 = await calculate_passes({
+        'action': 'calculate_passes',
+        'semi_major_axis_km': 6778.0,
+        'eccentricity': 0.0007,
+        'inclination_deg': 51.64,
+        'raan_deg': 100.0,
+        'arg_perigee_deg': 90.0,
+        'true_anomaly_deg': 0.0,
+        'epoch': '2024-01-15T12:00:00Z',
+        'ground_lat': 48.052453328999675,
+        'ground_lon': 11.654863033454957,
+        'hours_ahead': 24,
+        'min_elevation': 10
+    })
+    assert result2.get('status') == 'success', f"Error: {result2.get('error')}"
+    assert result2.get('input_type') == 'orbital_elements'
+    print(f"   ✓ Orbital elements input: {len(result2.get('passes', []))} passes found")
+    
+    # Test 3: Ground station as dict
+    print("\n3. Testing with ground station dict...")
+    result3 = await calculate_passes({
+        'action': 'calculate_passes',
+        'tle_line1': ISS_TLE1,
+        'tle_line2': ISS_TLE2,
+        'ground_station': {'lat': 48.052453328999675, 'lon': 11.654863033454957},
+        'hours_ahead': 24,
+        'min_elevation': 10
+    })
+    assert result3.get('status') == 'success', f"Error: {result3.get('error')}"
+    print(f"   ✓ Ground station dict: {len(result3.get('passes', []))} passes found")
+    
+    print("\n=== All flexibility tests passed! ===")
 
 
 async def test_execute_function():
@@ -153,6 +210,7 @@ if __name__ == "__main__":
         ("Bi-elliptic Transfer", test_bielliptic_transfer),
         ("Ground Track", test_ground_track),
         ("Visibility", test_visibility),
+        ("Flexible Overpass Calculation", lambda: asyncio.run(test_calculate_passes_flexible())),
         ("Execute Function", lambda: asyncio.run(test_execute_function())),
     ]
     

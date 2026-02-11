@@ -543,6 +543,104 @@ def compute_visibility(tle_line1: str, tle_line2: str, ground_lat: float, ground
         return {'error': str(e)}
 
 
+def compute_visibility_from_orbit(orbit_elements: Dict[str, Any], epoch: datetime,
+                                   ground_lat: float, ground_lon: float,
+                                   min_elevation_deg: float = 10, duration_hours: float = 24,
+                                   force_models: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Compute visibility windows from orbital elements (Keplerian or Cartesian)."""
+    if not OREKIT_AVAILABLE:
+        return {'error': 'Orekit not available'}
+    
+    try:
+        frame = FramesFactory.getEME2000()
+        earth = get_earth()
+        date = datetime_to_absolute(epoch)
+        
+        # Determine if input is Keplerian or Cartesian
+        if 'semi_major_axis_km' in orbit_elements or 'a_km' in orbit_elements:
+            # Keplerian elements
+            a_km = orbit_elements.get('semi_major_axis_km') or orbit_elements.get('a_km')
+            e = orbit_elements.get('eccentricity') or orbit_elements.get('e', 0)
+            i_deg = orbit_elements.get('inclination_deg') or orbit_elements.get('i_deg')
+            raan_deg = orbit_elements.get('raan_deg') or orbit_elements.get('omega_deg')
+            argp_deg = orbit_elements.get('arg_perigee_deg') or orbit_elements.get('w_deg')
+            ta_deg = orbit_elements.get('true_anomaly_deg') or orbit_elements.get('ta_deg') or orbit_elements.get('mean_anomaly_deg', 0)
+            
+            orbit = KeplerianOrbit(
+                a_km * 1000, e, math.radians(i_deg), math.radians(raan_deg),
+                math.radians(argp_deg), math.radians(ta_deg),
+                PositionAngleType.TRUE, frame, date, Constants.WGS84_EARTH_MU
+            )
+        elif 'position_km' in orbit_elements or 'pos_km' in orbit_elements:
+            # Cartesian elements
+            pos = orbit_elements.get('position_km') or orbit_elements.get('pos_km')
+            vel = orbit_elements.get('velocity_km_s') or orbit_elements.get('vel_km_s')
+            
+            pv = PVCoordinates(
+                Vector3D(float(pos['x']) * 1000, float(pos['y']) * 1000, float(pos['z']) * 1000),
+                Vector3D(float(vel['x']) * 1000, float(vel['y']) * 1000, float(vel['z']) * 1000)
+            )
+            orbit = CartesianOrbit(pv, frame, date, Constants.WGS84_EARTH_MU)
+        else:
+            return {'error': 'Invalid orbit elements. Provide Keplerian (semi_major_axis_km, eccentricity, etc.) or Cartesian (position_km, velocity_km_s)'}
+        
+        # Create propagator
+        if force_models:
+            initial_state = SpacecraftState(orbit)
+            propagator = create_numerical_propagator(initial_state, force_models)
+        else:
+            propagator = KeplerianPropagator(orbit)
+        
+        # Ground station
+        station_point = GeodeticPoint(math.radians(ground_lat), math.radians(ground_lon), 0.0)
+        station_frame = TopocentricFrame(earth, station_point, "station")
+        
+        start = propagator.getInitialState().getDate()
+        passes = []
+        in_pass = False
+        pass_start = None
+        max_el = 0
+        
+        t = 0.0
+        step = 30.0
+        end = duration_hours * 3600
+        
+        while t <= end:
+            state = propagator.propagate(start.shiftedBy(t))
+            pos = state.getPVCoordinates().getPosition()
+            
+            topo = station_frame.getTrackingCoordinates(pos, state.getFrame(), state.getDate())
+            elevation = math.degrees(topo.getElevation())
+            
+            if elevation >= min_elevation_deg:
+                if not in_pass:
+                    in_pass = True
+                    pass_start = t
+                    max_el = elevation
+                else:
+                    max_el = max(max_el, elevation)
+            else:
+                if in_pass:
+                    passes.append({
+                        'start_offset_sec': pass_start,
+                        'end_offset_sec': t,
+                        'duration_sec': t - pass_start,
+                        'max_elevation_deg': max_el
+                    })
+                    in_pass = False
+            
+            t += step
+        
+        return {
+            'status': 'success',
+            'ground_station': {'lat': ground_lat, 'lon': ground_lon},
+            'min_elevation_deg': min_elevation_deg,
+            'passes': passes
+        }
+    except Exception as e:
+        return {'error': str(e)}
+
+
 async def execute(params: Dict[str, Any]) -> Dict[str, Any]:
     """Execute Orekit propagation tool."""
     action = params.get('action', 'propagate')
