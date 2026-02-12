@@ -1,10 +1,11 @@
 [project]
 name = "autops-demo"
-version = "0.1.0"
-description = "Autonomous Satellite Operations Assistant with AI-powered reasoning"
+version = "0.2.0"
+description = "Cognitive Architecture Experiments for Satellite Constellation Autonomy"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    # Existing dependencies from autops-demo
     "flask",
     "openai",
     "ollama",
@@ -20,6 +21,32 @@ dependencies = [
     "apscheduler",
     "orekit-jpype",
     "orekitdata",
+
+    # Experimental framework dependencies
+    "pyyaml",           # Configuration
+    "pytest",           # Testing
+    "pytest-cov",       # Coverage
+    "pydantic>=2.0",    # Data validation
+    "networkx",         # Graph topologies for distributed org
+    "pandas",           # Results analysis
+    "matplotlib",       # Visualization
+    "seaborn",          # Statistical plots
+    "scipy",            # Statistical tests
+]
+
+[project.optional-dependencies]
+dev = [
+    "black",
+    "isort",
+    "ruff",
+    "mypy",
+    "ipython",
+    "jupyter",
+]
+
+rl = [
+    "torch",           # For neural representations (optional)
+    "gymnasium",       # Standard RL interface (optional)
 ]
 
 [build-system]
@@ -27,9 +54,25 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["agent", "tools", "simulation"]
+packages = ["agent", "tools", "simulation", "src"]
 
 [tool.uv.sources]
 toon-format = { git = "https://github.com/toon-format/toon-python.git" }
 orekitdata = { git = "https://gitlab.orekit.org/orekit/orekit-data.git" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "--cov=src --cov-report=html --cov-report=term"
+
+[tool.black]
+line-length = 100
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.ruff]
+line-length = 100
 

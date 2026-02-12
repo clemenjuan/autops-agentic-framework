@@ -1,0 +1,460 @@
+"""
+Experiment Runner — Main Orchestrator.
+
+Configuration-driven experiment execution with comprehensive logging
+and reproducibility. Loads a YAML configuration, initialises all
+components, executes episodes with metrics collection, and saves
+results with full provenance.
+
+Usage::
+
+    runner = ExperimentRunner("configs/experiments/my_experiment.yaml")
+    stats = runner.run()
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import random
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import numpy as np
+
+from src.orchestration.config_loader import ExperimentConfig, load_config
+
+logger = logging.getLogger(__name__)
+
+
+class ExperimentRunner:
+    """Orchestrates a single experiment from configuration to results.
+
+    Attributes:
+        config: Validated experiment configuration.
+        output_dir: Path where results and logs are saved.
+    """
+
+    def __init__(
+        self,
+        config_path: str | Path | None = None,
+        config: ExperimentConfig | None = None,
+    ) -> None:
+        """Initialise the experiment runner.
+
+        Provide either a path to a YAML config file or a pre-built
+        :class:`ExperimentConfig` object.
+
+        Args:
+            config_path: Path to the YAML configuration file.
+            config: Pre-built configuration object (takes precedence).
+
+        Raises:
+            ValueError: If neither ``config_path`` nor ``config`` is supplied.
+        """
+        if config is not None:
+            self.config = config
+        elif config_path is not None:
+            self.config = load_config(config_path)
+        else:
+            raise ValueError("Provide either config_path or config.")
+
+        self.output_dir = Path(self.config.output_dir)
+
+        # Component placeholders — populated in ``_initialize_components``
+        self._environment: Any = None
+        self._organization: Any = None
+        self._decision_loops: Dict[str, Any] = {}  # agent_id → loop
+        self._memory: Any = None
+        self._metrics_collector: Any = None
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def run(self) -> Dict[str, Any]:
+        """Execute the full experiment.
+
+        Returns:
+            Dictionary containing experiment statistics and metadata.
+        """
+        self._setup_logging()
+        self._set_seeds(self.config.seed)
+
+        logger.info(
+            "Starting experiment '%s' — %d episodes, seed=%d",
+            self.config.experiment_id,
+            self.config.num_episodes,
+            self.config.seed,
+        )
+
+        self._initialize_components()
+
+        all_episode_metrics: List[Dict[str, Any]] = []
+
+        for episode in range(self.config.num_episodes):
+            logger.info("Episode %d / %d", episode + 1, self.config.num_episodes)
+            episode_result = self._run_episode(episode)
+            all_episode_metrics.append(episode_result)
+
+            if self.config.save_checkpoints:
+                self._save_checkpoint(episode, episode_result)
+
+        results = self._compile_results(all_episode_metrics)
+        self._save_results(results)
+
+        logger.info("Experiment '%s' complete.", self.config.experiment_id)
+        return results
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    def _setup_logging(self) -> None:
+        """Configure logging for the experiment."""
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        log_file = self.output_dir / "experiment.log"
+
+        # Root logger for the experiment
+        exp_logger = logging.getLogger("src")
+        exp_logger.setLevel(getattr(logging, self.config.log_level, logging.INFO))
+
+        # File handler
+        fh = logging.FileHandler(log_file, mode="w", encoding="utf-8")
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter(
+            "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        )
+        fh.setFormatter(formatter)
+        exp_logger.addHandler(fh)
+
+        # Console handler
+        ch = logging.StreamHandler()
+        ch.setLevel(getattr(logging, self.config.log_level, logging.INFO))
+        ch.setFormatter(formatter)
+        exp_logger.addHandler(ch)
+
+    @staticmethod
+    def _set_seeds(seed: int) -> None:
+        """Set random seeds for reproducibility.
+
+        Args:
+            seed: Integer seed.
+        """
+        random.seed(seed)
+        np.random.seed(seed)
+        # torch seed would go here if using neural representations
+        logger.debug("Random seeds set to %d", seed)
+
+    def _initialize_components(self) -> None:
+        """Instantiate all experiment components from configuration.
+
+        This is the integration point where the morphological matrix
+        dimensions are wired together. Each component factory will be
+        plugged in as implementations are added.
+
+        Raises:
+            NotImplementedError: Until concrete component factories exist.
+        """
+        logger.info(
+            "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s",
+            self.config.agent_organization,
+            self.config.decision_loop,
+            self.config.representation,
+            self.config.emergence_mode,
+        )
+
+        # ----------------------------------------------------------
+        # Component instantiation stubs
+        # Replace with factory calls as implementations are added.
+        # ----------------------------------------------------------
+
+        # Environment
+        self._environment = self._create_environment()
+
+        # Memory (fixed design)
+        self._memory = self._create_memory()
+
+        # Agent organization
+        self._organization = self._create_organization()
+
+        # Decision loops (one per agent)
+        self._decision_loops = self._create_decision_loops()
+
+        # Metrics collector
+        self._metrics_collector = self._create_metrics_collector()
+
+        logger.info("All components initialised.")
+
+    def _create_environment(self) -> Any:
+        """Factory for the satellite environment.
+
+        Returns:
+            An initialised ``SatelliteEnvironment`` subclass.
+
+        Raises:
+            NotImplementedError: Until a scenario is selected and implemented.
+        """
+        logger.warning(
+            "Environment factory not yet implemented (scenario TBD). "
+            "Returning None placeholder."
+        )
+        return None
+
+    def _create_memory(self) -> Any:
+        """Factory for the fixed memory system.
+
+        Returns:
+            An initialised ``FixedMemory`` instance.
+        """
+        from src.memory.fixed_memory import FixedMemory
+
+        return FixedMemory(config=self.config.memory_config)
+
+    def _create_organization(self) -> Any:
+        """Factory for the agent organization.
+
+        Returns:
+            An initialised ``AgentOrganization`` subclass.
+        """
+        from src.agent_organization.centralized import CentralizedOrganization
+        from src.agent_organization.distributed import DistributedOrganization
+        from src.agent_organization.hierarchical import HierarchicalOrganization
+
+        org_map = {
+            "centralized": CentralizedOrganization,
+            "hierarchical": HierarchicalOrganization,
+            "distributed": DistributedOrganization,
+        }
+
+        org_cls = org_map.get(self.config.agent_organization)
+        if org_cls is None:
+            raise ValueError(
+                f"Unknown agent_organization: '{self.config.agent_organization}'"
+            )
+
+        org = org_cls(config=self.config.agent_organization_config)
+        org.initialize(
+            constellation_size=self.config.environment.constellation_size,
+        )
+        return org
+
+    def _create_decision_loops(self) -> Dict[str, Any]:
+        """Factory for decision loop instances (one per agent).
+
+        Returns:
+            Mapping of agent_id → ``DecisionLoop`` instance.
+
+        Raises:
+            NotImplementedError: Until decision loops are implemented.
+        """
+        logger.warning(
+            "Decision loop factory not yet implemented (loop='%s'). "
+            "Returning empty dict.",
+            self.config.decision_loop,
+        )
+        return {}
+
+    def _create_metrics_collector(self) -> Any:
+        """Factory for the metrics collector.
+
+        Returns:
+            A ``MetricsCollector`` subclass instance, or ``None``.
+        """
+        logger.warning(
+            "Metrics collector factory not yet implemented. "
+            "Returning None placeholder."
+        )
+        return None
+
+    def _run_episode(self, episode_id: int) -> Dict[str, Any]:
+        """Execute a single episode.
+
+        Args:
+            episode_id: Episode index.
+
+        Returns:
+            Dictionary of episode-level metrics and info.
+        """
+        episode_start = time.perf_counter()
+
+        # --- Reset phase ---
+        if self._environment is not None:
+            observation = self._environment.reset(seed=self.config.seed + episode_id)
+        else:
+            observation = None
+
+        if self._memory is not None:
+            self._memory.reset()
+
+        for loop in self._decision_loops.values():
+            loop.reset()
+
+        # --- Step loop ---
+        max_steps = self.config.max_steps
+        step_data: List[Dict[str, Any]] = []
+
+        for step in range(max_steps):
+            step_info = self._run_step(step, observation)
+            step_data.append(step_info)
+
+            # Check termination
+            if self._environment is not None and self._environment.is_done():
+                break
+            # Update observation for next step
+            observation = step_info.get("observation")
+
+        episode_duration = time.perf_counter() - episode_start
+
+        return {
+            "episode_id": episode_id,
+            "num_steps": len(step_data),
+            "wall_clock_seconds": episode_duration,
+            "steps": step_data,
+        }
+
+    def _run_step(self, step: int, observation: Any) -> Dict[str, Any]:
+        """Execute a single simulation step.
+
+        The canonical flow is:
+        1. Organization distributes observation to agents.
+        2. Each agent's decision loop produces an action.
+        3. Organization collects actions.
+        4. Environment executes actions and returns results.
+        5. Metrics are collected.
+
+        Args:
+            step: Current step index.
+            observation: Current environment observation.
+
+        Returns:
+            Dictionary of step-level data.
+        """
+        step_start = time.perf_counter()
+
+        # 1. Distribute observations
+        if self._organization is not None and observation is not None:
+            agent_obs = self._organization.distribute_observation(observation)
+        else:
+            agent_obs = {}
+
+        # 2. Decision loops
+        agent_actions = {}
+        for agent_id, loop in self._decision_loops.items():
+            obs = agent_obs.get(agent_id)
+            action, self._memory = loop.process(obs, self._memory)
+            from src.agent_organization.base import AgentAction
+
+            agent_actions[agent_id] = AgentAction(agent_id=agent_id, action=action)
+
+        # 3. Collect actions
+        if self._organization is not None:
+            env_actions = self._organization.collect_actions(agent_actions)
+        else:
+            env_actions = {}
+
+        # 4. Environment step
+        rewards: Dict[str, float] = {}
+        info: Dict[str, Any] = {}
+        new_observation = observation
+
+        if self._environment is not None:
+            step_result = self._environment.step(env_actions)
+            new_observation = step_result.observation
+            rewards = step_result.rewards
+            info = step_result.info
+
+        step_duration = time.perf_counter() - step_start
+
+        return {
+            "step": step,
+            "wall_clock_seconds": step_duration,
+            "rewards": rewards,
+            "info": info,
+            "observation": new_observation,
+        }
+
+    def _compile_results(
+        self,
+        all_episode_metrics: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Compile final experiment results.
+
+        Args:
+            all_episode_metrics: List of per-episode result dicts.
+
+        Returns:
+            Full results dictionary with configuration provenance.
+        """
+        return {
+            "experiment_id": self.config.experiment_id,
+            "description": self.config.description,
+            "config": self.config.model_dump(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "num_episodes": len(all_episode_metrics),
+            "episodes": all_episode_metrics,
+        }
+
+    def _save_results(self, results: Dict[str, Any]) -> None:
+        """Save experiment results to disk.
+
+        Args:
+            results: Full results dictionary.
+        """
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        results_file = self.output_dir / "results.json"
+
+        # Remove non-serialisable observation objects from step data
+        serialisable = self._make_serialisable(results)
+
+        with open(results_file, "w", encoding="utf-8") as f:
+            json.dump(serialisable, f, indent=2, default=str)
+
+        logger.info("Results saved to %s", results_file)
+
+        # Also save a copy of the configuration
+        config_copy = self.output_dir / "config.json"
+        with open(config_copy, "w", encoding="utf-8") as f:
+            json.dump(self.config.model_dump(), f, indent=2, default=str)
+
+    def _save_checkpoint(
+        self,
+        episode_id: int,
+        episode_result: Dict[str, Any],
+    ) -> None:
+        """Save a checkpoint after an episode.
+
+        Args:
+            episode_id: Episode index.
+            episode_result: Episode result dictionary.
+        """
+        checkpoint_dir = self.output_dir / "checkpoints"
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint_file = checkpoint_dir / f"episode_{episode_id:04d}.json"
+
+        serialisable = self._make_serialisable(episode_result)
+        with open(checkpoint_file, "w", encoding="utf-8") as f:
+            json.dump(serialisable, f, indent=2, default=str)
+
+    @staticmethod
+    def _make_serialisable(obj: Any) -> Any:
+        """Recursively convert an object to a JSON-serialisable form.
+
+        Strips non-serialisable entries (e.g. observation data classes)
+        by converting them to their ``__dict__`` or string representation.
+        """
+        if isinstance(obj, dict):
+            return {
+                k: ExperimentRunner._make_serialisable(v) for k, v in obj.items()
+            }
+        elif isinstance(obj, (list, tuple)):
+            return [ExperimentRunner._make_serialisable(v) for v in obj]
+        elif isinstance(obj, (int, float, str, bool, type(None))):
+            return obj
+        elif hasattr(obj, "__dict__"):
+            return ExperimentRunner._make_serialisable(obj.__dict__)
+        else:
+            return str(obj)

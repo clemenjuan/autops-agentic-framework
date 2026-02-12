@@ -1,0 +1,84 @@
+# Experiment Configuration Template
+#
+# Copy this file and modify for each experiment.
+# All experimental choices must be specified here — no hardcoded decisions.
+
+# ─── Experiment Identification ───────────────────────────────────────
+experiment_id: "exp_XXX_description"
+description: "Brief description of experimental configuration"
+
+# ─── Reproducibility ────────────────────────────────────────────────
+seed: 42
+
+# ─── Morphological Matrix Dimensions ────────────────────────────────
+# agent_organization: centralized | hierarchical | distributed
+agent_organization: "centralized"
+
+# decision_loop: sda | ooda | coala | <custom>
+decision_loop: "sda"
+
+# representation: symbolic | hybrid | neural
+representation: "symbolic"
+
+# emergence_mode: hand_designed | learned
+emergence_mode: "hand_designed"
+
+# ─── Component-Specific Configuration ───────────────────────────────
+
+agent_organization_config:
+  # Centralized: no extra params needed
+  # Hierarchical: define manager/local split
+  # Distributed: define topology (ring | mesh | visibility)
+  {}
+
+decision_loop_config:
+  # Loop-specific parameters (e.g. max_iterations, timeout)
+  {}
+
+representation_config:
+  # Representation-specific parameters
+  # Symbolic: rule set config
+  # Hybrid: LLM model name, tool list
+  # Neural: network architecture, checkpoint path
+  {}
+
+emergence_config:
+  # mode is inferred from top-level emergence_mode
+  # For learned: training_checkpoint, policy_type
+  {}
+
+# ─── Environment Configuration ──────────────────────────────────────
+
+environment:
+  constellation_size: 5
+  timestep_seconds: 60
+  max_steps: 1440          # 24 hours at 1-minute timesteps
+  scenario: "to_be_defined"   # space_data_centers | communications | ssa
+  scenario_config: {}
+
+# ─── Memory Configuration (fixed across all experiments) ────────────
+
+memory_config:
+  history_depth: 50
+
+# ─── Execution Parameters ───────────────────────────────────────────
+
+num_episodes: 100
+max_steps: 1440            # Mirrors environment.max_steps
+
+# ─── Metrics Configuration ──────────────────────────────────────────
+
+metrics:
+  enabled:
+    - utility
+    - latency
+    - robustness
+    - resource_efficiency
+    - operator_load
+  collection_frequency: "per_step"   # per_step | per_episode
+
+# ─── Output Configuration ───────────────────────────────────────────
+
+output_dir: "data/results/${experiment_id}"
+save_checkpoints: false
+log_level: "INFO"

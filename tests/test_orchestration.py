@@ -1,0 +1,192 @@
+"""
+Tests for the Orchestration layer: config loading, experiment runner, metrics.
+"""
+
+from __future__ import annotations
+
+import tempfile
+from pathlib import Path
+
+import pytest
+import yaml
+
+from src.memory.fixed_memory import FixedMemory
+from src.orchestration.analysis import compute_pareto_frontier, compare_experiments
+from src.orchestration.config_loader import (
+    ExperimentConfig,
+    EnvironmentConfig,
+    MetricsConfig,
+    load_config,
+    save_config,
+)
+from src.orchestration.experiment_runner import ExperimentRunner
+
+
+# ======================================================================
+# Configuration tests
+# ======================================================================
+
+
+class TestExperimentConfig:
+    def test_default_values(self) -> None:
+        cfg = ExperimentConfig()
+        assert cfg.seed == 42
+        assert cfg.agent_organization == "centralized"
+        assert cfg.decision_loop == "sda"
+        assert cfg.representation == "symbolic"
+        assert cfg.emergence_mode == "hand_designed"
+        assert cfg.num_episodes == 100
+
+    def test_invalid_organization_raises(self) -> None:
+        with pytest.raises(ValueError, match="agent_organization"):
+            ExperimentConfig(agent_organization="swarm")
+
+    def test_invalid_representation_raises(self) -> None:
+        with pytest.raises(ValueError, match="representation"):
+            ExperimentConfig(representation="quantum")
+
+    def test_invalid_emergence_mode_raises(self) -> None:
+        with pytest.raises(ValueError, match="emergence_mode"):
+            ExperimentConfig(emergence_mode="magic")
+
+    def test_invalid_log_level_raises(self) -> None:
+        with pytest.raises(ValueError, match="log_level"):
+            ExperimentConfig(log_level="VERBOSE")
+
+
+class TestConfigLoaderSaveLoad:
+    def test_round_trip(self, tmp_path: Path) -> None:
+        original = ExperimentConfig(
+            experiment_id="test_round_trip",
+            seed=123,
+            agent_organization="distributed",
+        )
+        yaml_path = tmp_path / "test.yaml"
+        save_config(original, yaml_path)
+
+        loaded = load_config(yaml_path)
+        assert loaded.experiment_id == "test_round_trip"
+        assert loaded.seed == 123
+        assert loaded.agent_organization == "distributed"
+
+    def test_load_nonexistent_raises(self) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_config("nonexistent.yaml")
+
+    def test_template_variable_resolution(self, tmp_path: Path) -> None:
+        yaml_path = tmp_path / "test.yaml"
+        data = {
+            "experiment_id": "exp_001",
+            "output_dir": "data/results/${experiment_id}",
+        }
+        with open(yaml_path, "w") as f:
+            yaml.dump(data, f)
+
+        cfg = load_config(yaml_path)
+        assert cfg.output_dir == "data/results/exp_001"
+
+
+# ======================================================================
+# Memory tests
+# ======================================================================
+
+
+class TestFixedMemory:
+    def test_reset(self) -> None:
+        mem = FixedMemory()
+        mem.update("constellation_state", {"sat_0": "ok"})
+        mem.reset()
+        assert mem.query("constellation_state") == {}
+
+    def test_update_and_query(self) -> None:
+        mem = FixedMemory()
+        mem.update("task_queue", [{"task": "observe"}])
+        assert mem.query("task_queue") == [{"task": "observe"}]
+
+    def test_history_sliding_window(self) -> None:
+        mem = FixedMemory(config={"history_depth": 3})
+        for i in range(5):
+            mem.update("constellation_state", {"step": i})
+        history = mem.query("history")
+        # Depth 3 → only last 3 previous states (steps 1, 2, 3)
+        assert len(history) == 3
+
+    def test_unknown_key_raises(self) -> None:
+        mem = FixedMemory()
+        with pytest.raises(KeyError):
+            mem.update("nonexistent", {})
+
+
+# ======================================================================
+# Analysis tests
+# ======================================================================
+
+
+class TestParetoFrontier:
+    def test_simple_pareto(self) -> None:
+        points = [
+            {"utility": 10, "latency": 5},
+            {"utility": 8, "latency": 3},
+            {"utility": 6, "latency": 2},
+            {"utility": 5, "latency": 8},
+        ]
+        # Maximise utility, minimise latency
+        frontier = compute_pareto_frontier(
+            points,
+            objectives=["utility", "latency"],
+            maximise=[True, False],
+        )
+        # Point 0 (10, 5) and point 2 (6, 2) are Pareto-optimal
+        assert 0 in frontier
+        assert 2 in frontier
+        # Point 3 (5, 8) is dominated
+        assert 3 not in frontier
+
+    def test_empty_input(self) -> None:
+        assert compute_pareto_frontier([], ["a"]) == []
+
+
+class TestCompareExperiments:
+    def test_ranking(self) -> None:
+        stats = [
+            {"experiment_id": "a", "mean": {"utility": 10.0}, "std": {"utility": 1.0}},
+            {"experiment_id": "b", "mean": {"utility": 15.0}, "std": {"utility": 2.0}},
+        ]
+        result = compare_experiments(stats, "utility")
+        assert result["ranking"][0]["experiment_id"] == "b"
+
+
+# ======================================================================
+# Experiment runner (smoke test)
+# ======================================================================
+
+
+class TestExperimentRunner:
+    def test_init_from_config_object(self) -> None:
+        cfg = ExperimentConfig(
+            experiment_id="smoke_test",
+            num_episodes=1,
+            max_steps=2,
+        )
+        runner = ExperimentRunner(config=cfg)
+        assert runner.config.experiment_id == "smoke_test"
+
+    def test_init_requires_config(self) -> None:
+        with pytest.raises(ValueError):
+            ExperimentRunner()
+
+    def test_run_smoke(self, tmp_path: Path) -> None:
+        """Run a minimal experiment with placeholder components."""
+        cfg = ExperimentConfig(
+            experiment_id="smoke_test",
+            num_episodes=1,
+            max_steps=2,
+            output_dir=str(tmp_path / "results"),
+        )
+        runner = ExperimentRunner(config=cfg)
+        results = runner.run()
+
+        assert results["experiment_id"] == "smoke_test"
+        assert results["num_episodes"] == 1
+        assert (tmp_path / "results" / "results.json").exists()
+        assert (tmp_path / "results" / "config.json").exists()
