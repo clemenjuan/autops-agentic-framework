@@ -41,50 +41,7 @@ The first iteration of research questions I came up with are:
 
 ## 2. System Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Experiment Orchestration Layer                      │
-│  - Configuration Management (YAML/JSON per experiment)          │
-│  - Metrics Collection (utility, latency, robustness, op load)   │
-│  - Reproducibility (seed control, logging, checkpointing)       │
-│  - Statistical Analysis & Pareto Frontier Computation           │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐  ┌────────────────┐  ┌────────────────┐
-│  Agent Org    │  │  Decision Loop │  │ Representation │
-│  Controller   │  │  Engine        │  │ Module         │
-│               │  │                │  │                │
-│ - Centralized │  │ - SDA          │  │ - Symbolic     │
-│ - Hierarchical│  │ - OODA         │  │ - Hybrid       │
-│ - Distributed │  │ - CoALA        │  │ - Neural       │
-└───────────────┘  └────────────────┘  └────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    ▼               ▼
-            ┌──────────────┐ ┌──────────────┐
-            │  Emergence   │ │   Memory     │
-            │  Controller  │ │   System     │
-            │              │ │   (Fixed)    │
-            │ - Hand-coded │ │              │
-            │ - Learned    │ │ All designs  │
-            └──────────────┘ │ access same  │
-                            │ information  │
-                            └──────────────┘
-                            │
-                ┌───────────┴───────────┐
-                ▼                       ▼
-        ┌────────────────┐      ┌────────────────┐
-        │   Satellite    │      │  Tool/Action   │
-        │  Environment   │◄─────┤   Interface    │
-        │                │      │                │
-        │ - Orbital sim  │      │ - Operational  │
-        │ - Task gen     │      │   scenario     │
-        │ - Constraints  │      │   specific     │
-        │ - Scalable     │      │   (TBD)        │
-        └────────────────┘      └────────────────┘
-```
+![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
 
 ***
@@ -540,12 +497,12 @@ class MetricsCollector(ABC):
 ### Technology Stack
 
 - **Python**: 3.11+
-- **Dependency Management**: `uv` (existing in autops-demo)
+- **Dependency Management**: `uv` (existing)
 - **Testing**: pytest
 - **Type Hints**: Required for all public APIs
 - **Docstrings**: Google style
 - **Formatting**: black, isort, ruff
-- **Configuration**: YAML via PyYAML or OmegaConf
+- **Configuration**: YAML via PyYAML
 
 
 ### uv Configuration

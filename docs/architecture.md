@@ -11,50 +11,7 @@ This framework enables systematic comparison of cognitive architectures for auto
 
 ## Architecture Diagram
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│              Experiment Orchestration Layer                      │
-│  - Configuration Management (YAML/JSON per experiment)          │
-│  - Metrics Collection (utility, latency, robustness, op load)   │
-│  - Reproducibility (seed control, logging, checkpointing)       │
-│  - Statistical Analysis & Pareto Frontier Computation           │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-        ┌───────────────────┼───────────────────┐
-        ▼                   ▼                   ▼
-┌───────────────┐  ┌────────────────┐  ┌────────────────┐
-│  Agent Org    │  │  Decision Loop │  │ Representation │
-│  Controller   │  │  Engine        │  │ Module         │
-│               │  │                │  │                │
-│ - Centralized │  │ - SDA          │  │ - Symbolic     │
-│ - Hierarchical│  │ - OODA         │  │ - Hybrid       │
-│ - Distributed │  │ - CoALA        │  │ - Neural       │
-└───────────────┘  └────────────────┘  └────────────────┘
-                            │
-                    ┌───────┴───────┐
-                    ▼               ▼
-            ┌──────────────┐ ┌──────────────┐
-            │  Emergence   │ │   Memory     │
-            │  Controller  │ │   System     │
-            │              │ │   (Fixed)    │
-            │ - Hand-coded │ │              │
-            │ - Learned    │ │ All designs  │
-            └──────────────┘ │ access same  │
-                             │ information  │
-                             └──────────────┘
-                            │
-                ┌───────────┴───────────┐
-                ▼                       ▼
-        ┌────────────────┐      ┌────────────────┐
-        │   Satellite    │      │  Tool/Action   │
-        │  Environment   │◄─────┤   Interface    │
-        │                │      │                │
-        │ - Orbital sim  │      │ - Operational  │
-        │ - Task gen     │      │   scenario     │
-        │ - Constraints  │      │   specific     │
-        │ - Scalable     │      │   (TBD)        │
-        └────────────────┘      └────────────────┘
-```
+![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
 ## Design Principles
 
