@@ -529,9 +529,11 @@ class CoALAReasoningEngine:
         """Format tool descriptions for LLM."""
         tools_list = []
         for tool in self.tools_metadata.get('tools', []):
+            if not isinstance(tool, dict):
+                continue
             tools_list.append({
-                "name": tool['name'],
-                "description": tool['description'],
+                "name": tool.get('name', 'unknown'),
+                "description": tool.get('description', ''),
                 "parameters": tool.get('parameters', {})
             })
         return ToonFormatter.dumps(tools_list)

@@ -2,24 +2,24 @@
   "satellites": [
     {
       "id": "sat-001",
-      "name": "TUM-SAT-1",
+      "name": "EventSat",
       "norad_id": 99001,
-      "cospar_id": "2024-001A",
-      "description": "TUM Chair of Spacecraft Systems demonstration satellite",
+      "cospar_id": "2027-001A",
+      "description": "TUM Chair of Spacecraft Systems event camera demonstration satellite",
       
       "propulsion": {
-        "type": "electric",
-        "thrust_n": 0.015,
-        "isp_s": 1500,
-        "fuel_mass_kg": 2.5,
-        "fuel_remaining_kg": 2.1,
-        "max_delta_v_m_s": 150,
-        "min_burn_duration_s": 60,
-        "max_burn_duration_s": 3600
+        "type": "none",
+        "thrust_n": 0,
+        "isp_s": 0,
+        "fuel_mass_kg": 0,
+        "fuel_remaining_kg": 0,
+        "max_delta_v_m_s": 0,
+        "min_burn_duration_s": 0,
+        "max_burn_duration_s": 0
       },
       
       "spacecraft": {
-        "dry_mass_kg": 12.0,
+        "dry_mass_kg": 4.0,
         "wet_mass_kg": 14.5,
         "drag_area_m2": 0.25,
         "drag_cd": 2.2,
@@ -38,19 +38,19 @@
       },
       
       "operations": {
-        "ground_stations": ["munich", "garching"],
+        "ground_stations": ["ottobrunn", "oberpfaffenhofen"],
         "min_elevation_deg": 10,
         "active": true,
-        "mission_start": "2024-01-15",
-        "mission_end_planned": "2027-01-15"
+        "mission_start": "2027-01-01",
+        "mission_end_planned": "2030-01-01"
       }
     },
     {
       "id": "sat-002",
-      "name": "TUM-SAT-2",
+      "name": "MOVE VI",
       "norad_id": 99002,
-      "cospar_id": "2024-002A",
-      "description": "TUM Earth observation microsatellite",
+      "cospar_id": "2035-002A",
+      "description": "TUM WARR Move team 6th generation",
       
       "propulsion": {
         "type": "chemical",
@@ -83,28 +83,28 @@
       },
       
       "operations": {
-        "ground_stations": ["munich"],
+        "ground_stations": ["ottobrunn", "oberpfaffenhofen"],
         "min_elevation_deg": 15,
         "active": true,
-        "mission_start": "2024-03-01",
-        "mission_end_planned": "2029-03-01"
+        "mission_start": "2035-01-01",
+        "mission_end_planned": "2040-01-01"
       }
     }
   ],
   
   "ground_stations": {
-    "munich": {
-      "name": "TUM Munich Ground Station",
-      "latitude_deg": 48.1351,
-      "longitude_deg": 11.5820,
-      "altitude_m": 520,
+    "ottobrunn": {
+      "name": "TUM Ottobrunn Chair of Spacecraft Systems Antenna",
+      "latitude_deg": 48.052453328999675,
+      "longitude_deg": 11.654863033454957,
+      "altitude_m": 300,
       "min_elevation_deg": 10
     },
-    "ottorbunn": {
-      "name": "TUM  Ottobrunn Chair of Spacecraft Systems Antenna",
-      "latitude_deg": 48.06925,
-      "longitude_deg": 11.64530,
-      "altitude_m": 300,
+    "oberpfaffenhofen": {
+      "name": "DLR Oberpfaffenhofen Ground Station",
+      "latitude_deg": 48.0864,
+      "longitude_deg": 11.2800,
+      "altitude_m": 580,
       "min_elevation_deg": 10
     }
   },
