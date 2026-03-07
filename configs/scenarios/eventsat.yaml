@@ -1,0 +1,145 @@
+# EventSat Scenario Definition
+# ============================
+# Source: EventSat PDR (TUM Chair of Spacecraft Systems, Nov 2025)
+#
+# This file defines the physical parameters and operational constraints
+# for the EventSat 6U CubeSat. It is loaded by the EventSatEnvironment
+# and can be referenced by any experiment YAML via scenario_config.
+#
+# Design intent: keep scenario parameters separate from experiment config
+# so the same scenario feeds multiple architecture experiments.
+
+scenario_name: eventsat
+scenario_version: "1.0"
+description: >
+  EventSat 6U CubeSat technology demonstration mission for space-based
+  event camera observation. Single satellite, SSO orbit, TUM mission.
+
+# -- Orbit ---------------------------------------------------------------
+orbit:
+  type: SSO                       # Sun-synchronous orbit
+  altitude_km: 500                # Nominal altitude (PDR: 400-550 km range)
+  inclination_deg: 97.4           # PDR Section 1.1
+  raan_deg: 0.0
+  arg_perigee_deg: 0.0
+  orbital_period_s: 5676          # ~94.6 min at 500 km
+  eclipse_fraction: 0.36          # ~34 min eclipse / 94.6 min orbit
+
+# -- Satellite Physical Parameters ----------------------------------------
+satellite:
+  form_factor: "6U"
+  mass_kg: 6.789                  # PDR Table 6.1 (without contingency)
+  mass_with_contingency_kg: 7.646 # PDR Table 6.1
+  max_mass_kg: 7.980              # Deployer limit
+
+# -- Power System ----------------------------------------------------------
+# PDR Table 6.2: Power consumption per mode (Watts)
+power:
+  solar_panels:
+    config: "2x6U + 2x3U body-mounted"
+    generation_sun_w: 24.0        # Estimated from panel area & efficiency
+  battery:
+    count: 2
+    capacity_wh: 84.0             # Combined capacity 2 x 42 Wh
+    initial_soc: 0.8              # State of charge at episode start
+    min_soc: 0.2                  # Minimum safe SoC
+    max_soc: 1.0
+    charge_efficiency: 0.9
+
+  # Consumption by mode (total Watts from PDR Table 6.2)
+  consumption:
+    charging:
+      sun_w: 4.72
+      eclipse_w: 4.32
+    communication:
+      sun_w: 33.65
+      eclipse_w: 33.24
+    payload_observe:
+      sun_w: 17.94
+      eclipse_w: 17.55
+    payload_compress:
+      sun_w: 12.77
+      eclipse_w: 12.37
+    safe:
+      sun_w: 9.58
+      eclipse_w: 9.58
+    detumbling:
+      sun_w: 2.66
+      eclipse_w: 2.33
+
+# -- Communications -------------------------------------------------------
+# PDR Section 6.2
+communications:
+  sband:
+    downlink_rate_kbps: 128       # Conservative estimate
+    uplink_rate_kbps: 64
+  uhf:
+    downlink_rate_kbps: 9.6
+    uplink_rate_kbps: 9.6
+  ground_station:
+    name: "Ottobrunn"
+    latitude_deg: 48.0483
+    longitude_deg: 11.6567
+  passes:
+    min_per_day: 2
+    max_per_day: 3
+    min_duration_s: 22             # PDR Table 6.4
+    max_duration_s: 422            # PDR Table 6.4
+    avg_data_per_day_mb: 12.0      # Between 9.25 and 15.54 MB/day
+
+# -- Data Storage ----------------------------------------------------------
+storage:
+  obc_capacity_mb: 512            # Estimated
+  jetson_capacity_mb: 2048        # Jetson Orin Nano storage
+  observation_size_mb: 2.0        # Conservative per-observation (PDR 6.2.3)
+
+# -- Payload ---------------------------------------------------------------
+payload:
+  event_camera:
+    resolution: [720, 1280]
+    type: "Prophesee"
+  frame_camera:
+    type: "context_camera"
+  jetson:
+    model: "Orin Nano"
+    power_observe_w: 11.5         # PDR Table 6.2 (payload column)
+    power_compress_w: 7.0
+  observation_duration_s: 60      # PDR: 60s panning at 1 deg/min
+  compression_time_factor: 2.0    # ~2x observation time for compression
+  calibration_duration_s: 120     # ~2 min
+
+# -- Operational Modes -----------------------------------------------------
+# From PDR Chapter 3 & Table 3.1
+modes:
+  available:
+    - charging          # Default mode; sun-pointing, payload off
+    - communication     # S-band + UHF active; requires fine pointing
+    - payload_observe   # Event camera recording; requires dark-sky pointing
+    - payload_compress  # Jetson compresses data; payload active, camera off
+    - safe              # UHF only; entered via FDIR
+  default: charging
+  constraints:
+    communication:
+      requires_ground_pass: true
+      requires_fine_pointing: true
+    payload_observe:
+      requires_eclipse: false       # Prefer eclipse but not mandatory
+      min_battery_soc: 0.4
+    payload_compress:
+      min_battery_soc: 0.3
+
+# -- Mission Objectives ----------------------------------------------------
+objectives:
+  total_observation_hours: 2.0           # Threshold mission success
+  min_downlinked_data_mb: 240            # 2 hours x 2 MB/observation
+  mission_duration_days: 90              # Primary objectives in 3 months
+  observations_per_day_target: 4         # ~4 min payload use per day
+
+# -- Task Types -------------------------------------------------------------
+# These are the autonomous decisions the agent must make
+task_types:
+  - schedule_observation      # When and where to point for science
+  - schedule_downlink         # Which data to downlink during comm windows
+  - manage_power              # Mode transitions to maintain power budget
+  - respond_to_anomaly        # Handle thermal, ADCS, or storage anomalies
+  - calibrate_payload         # When to run calibration mode

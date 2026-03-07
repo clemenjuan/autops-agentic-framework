@@ -3,7 +3,7 @@
 **Project:** Custom Modular Architecture for Cognitive Satellite Constellation Autonomy Research
 **Researcher:** Clemente J. Juan Oliver, TUM Chair of Spacecraft Systems
 **Repository:** autops-demo
-**Date:** February 12, 2026
+**Date:** February 26, 2026 (updated)
 
 ***
 
@@ -17,21 +17,36 @@ Build a modular experimental framework to systematically compare cognitive archi
 - **Decision Loops**: SDA (Sense-Decide-Act), OODA, CoALA, and others
 - **Representations**: Symbolic, Hybrid/Neuro-symbolic, Neural
 - **Emergence Modes**: Hand-designed, Learned
+- **Operations Paradigms**: Autonomous Hybrid, Conventional Ground
 - **Constellation Sizes**: 1, 5, 20-30, 100+ satellites
 
 
 ### Research Questions
-The first iteration of research questions I came up with are:
-- **RQ1a**: How do representation, emergence variations, decision-making loops and module design affect performance metrics?
-- **RQ1b**: analysis Pareto Frontier of trade-offs
- - **RQ1c**: Which cognitive architectures suit which operational areas?
-- **RQ2**: How do agent organizations impact performance and robustness?
-- **RQ3**: How do architectures scale with constellation size (5-500 satellites)?
+
+**Fundamental Research Question:** How do cognitive architecture and agent organization choices shape the performance trade-space of autonomous constellation management, and how does this trade-space evolve as constellation scale and structural complexity grow?
+
+Scalability is framed as a **2D space**: *constellation size* (1 → 500+ satellites) × *structural complexity* (centralized → distributed, with super-linear effort scaling). The following interconnected sub-questions operationalize the fundamental RQ:
+
+**RQ1 — Cognitive Architecture**
+- How do **decision-making loops** (SDA, OODA, CoALA, ReAct, LATS), **knowledge representations** (symbolic, neural, neuro-symbolic), and **degree of emergence** affect key performance metrics (utility, latency, robustness, resource efficiency, operator load, and explainability)?
+- Can Pareto frontiers between competing objectives (e.g., utility vs. resource efficiency vs. operator interventions) be characterised for different cognitive architecture configurations?
+- Which cognitive architecture patterns offer the most favourable trade-offs for which operational scenarios?
+
+**RQ2 — Agent Organization**
+- How do different agent organizations (single centralized agent, one agent per satellite, hierarchical, fully distributed) affect the performance/robustness trade-off under identical cognitive components?
+- Are certain cognitive architectures better matched to certain organizations (e.g., emergent neural agents in distributed constellations vs. hybrid neuro-symbolic agents in hierarchical setups)?
+- How does the choice of architecture family determine the type and degree of explainability available to human operators — and how does this interact with mission safety requirements?
+
+**RQ3 — Scale & Complexity**
+- How do different cognitive and agent architectures degrade or adapt as constellation size, task load, and constraint density grow (e.g., from 5 to 500 satellites)?
+- How does structural complexity — increasing from centralized towards distributed topologies, with super-linear effort scaling — interact with the performance trade-offs of different architecture families?
+- Do different architectures exhibit fundamentally different composability trade-offs as scale grows (e.g., integrating heterogeneous cognitive components without emergent negative side effects)?
+- Can scaling laws be derived jointly over constellation size and structural complexity and converted into architecture-selection heuristics for a target mission profile?
 
 
 ### Key Design Principles
 
-1. **Orthogonality**: Each dimension (organization, loop, representation, emergence) is independent
+1. **Orthogonality**: Each dimension (organization, loop, representation, emergence, operations paradigm) is independent
 2. **Modularity**: Components can be swapped without affecting others
 3. **Reproducibility**: Configuration-driven experiments with seed control
 4. **Fair Comparison**: Same environment and metrics for all variants
@@ -54,10 +69,16 @@ autops-demo/
 │   ├── environment/
 │   │   ├── __init__.py
 │   │   ├── satellite_env.py         # Core environment (abstract)
-│   │   ├── orbital_mechanics.py     # Orekit integration
-│   │   └── scenarios/               # Operational scenarios (TBD)
+│   │   ├── orbital_mechanics.py     # Legacy (unused)
+│   │   ├── orbital/                 # Orbital mechanics module
+│   │   │   ├── __init__.py
+│   │   │   ├── propagator.py        # Orekit wrapper (optional dep)
+│   │   │   ├── eclipse.py           # Eclipse/sunlight computation
+│   │   │   ├── ground_access.py     # Ground station visibility
+│   │   │   └── context.py           # OrbitalContext pre-computation
+│   │   └── scenarios/
 │   │       ├── __init__.py
-│   │       └── README.md            # Scenario definitions go here
+│   │       └── eventsat_env.py      # EventSat environment
 │   ├── agent_organization/
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Abstract AgentOrganization
@@ -79,6 +100,11 @@ autops-demo/
 │   ├── emergence/
 │   │   ├── __init__.py
 │   │   └── controller.py            # Emergence mode manager
+│   ├── operations/
+│   │   ├── __init__.py
+│   │   ├── base.py                  # Abstract OperationsParadigm
+│   │   ├── autonomous_hybrid.py     # Autonomous ops (onboard/ground)
+│   │   └── conventional_ground.py   # Traditional ground-based ops
 │   ├── tools/
 │   │   ├── __init__.py
 │   │   └── README.md                # Tools defined per operational scenario
@@ -90,15 +116,16 @@ autops-demo/
 │       └── analysis.py              # Statistical analysis
 ├── configs/
 │   ├── experiments/
-│   │   ├── README.md                # Experiment design documentation
-│   │   └── template.yaml            # Configuration template
+│   │   ├── template.yaml            # Configuration template
+│   │   └── eventsat_baseline.yaml   # EventSat baseline experiment
 │   └── scenarios/
-│       └── README.md                # Scenario-specific configs
+│       └── eventsat.yaml            # EventSat scenario parameters
 ├── tests/
 │   ├── test_environment.py
 │   ├── test_agent_organization.py
 │   ├── test_decision_loops.py
 │   ├── test_representations.py
+│   ├── test_operations_paradigm.py
 │   └── test_orchestration.py
 ├── data/
 │   ├── results/                     # Experiment outputs
@@ -241,6 +268,30 @@ All components must define clear abstract base classes before implementation.
 
 ***
 
+#### Operations Paradigm
+
+**File:** `src/operations/base.py`
+
+**Purpose:** 5th morphological matrix dimension. Controls how human-machine operations are structured — who sees what information, when actions can be applied, and how authority is split between ground and onboard systems. The paradigm sits between the agent organization and the environment, filtering observations and gating actions.
+
+**Key Methods:**
+
+- `filter_observation(full_observation, step)`: What the agent is allowed to see (full state vs. stale ground knowledge)
+- `can_act(step, ground_pass_active)`: Whether the agent can issue commands at this step
+- `process_action(action, step, ground_pass_active)`: Buffer, delay, or pass through actions
+- `update_ground_knowledge(full_observation, step)`: Update ground state after telemetry downlink
+
+**Implementations:**
+
+- `AutonomousHybrid`: Agent operates autonomously with full real-time state access, whether running onboard or on ground. Actions applied immediately every timestep. Default paradigm.
+- `ConventionalGround`: Traditional ground-based operations. Ground only sees downlinked telemetry (stale). Commands can only be uplinked during ground passes. Between passes, last commanded action is replayed.
+
+**Supporting Data:**
+
+- `GroundKnowledge`: Dataclass representing what ground operators know — battery SoC, stored data, mode, health status, staleness counter. Updated only during communication passes.
+
+***
+
 ### 4.2 Experiment Orchestration
 
 **File:** `src/orchestration/experiment_runner.py`
@@ -278,6 +329,7 @@ agent_organization: "centralized"  # centralized | hierarchical | distributed
 decision_loop: "sda"               # sda | ooda | coala | [custom]
 representation: "symbolic"          # symbolic | hybrid | neural
 emergence_mode: "hand_designed"    # hand_designed | learned
+operations_paradigm: "autonomous_hybrid"  # autonomous_hybrid | conventional_ground
 
 # Configuration for each component
 agent_organization_config:
@@ -291,6 +343,10 @@ representation_config:
 
 emergence_config:
   # Parameters for loading/initializing representation
+
+operations_paradigm_config:
+  # Parameters for chosen operations paradigm
+  # For conventional_ground: default_mode, command_sequence_horizon
 
 # Environment Configuration
 environment:
@@ -315,6 +371,8 @@ metrics:
     - robustness
     - resource_efficiency
     - operator_load
+    - explainability
+    - scale_complexity        # tracked as a function of constellation_size × complexity_index
   collection_frequency: "per_step"  # per_step | per_episode
 
 # Output Configuration
@@ -391,13 +449,28 @@ The following metrics must be collected, but **specific implementations require 
 
 ***
 
-#### 6. Scalability
+#### 6. Scale & Complexity
 
-**Definition:** Performance degradation as constellation size increases
+**Definition:** Performance degradation across the 2D scalability space: *constellation size* (number of satellites) × *structural complexity* (topology, from centralized to fully distributed)
 
-**Rationale:** Research question RQ3 directly addresses scaling
+**Rationale:** RQ3 directly addresses how architectures degrade or adapt along both axes. Structural complexity follows super-linear effort scaling distinct from raw satellite count.
 
-**Measurement:** Track all metrics as function of constellation_size
+**Measurement:** Track all metrics as a function of both `constellation_size` and a `complexity_index` capturing topology and inter-agent coordination overhead. Derive joint scaling laws from the resulting surfaces.
+
+***
+
+#### 7. Explainability
+
+**Definition:** The degree to which an architecture's decisions can be interpreted and justified to human operators.
+
+**Rationale:** Mission safety requirements and human-machine trust demand that operators understand why the system acted as it did, not just what it did. RQ2 specifically asks how architecture choice determines the type and degree of explainability available.
+
+**Measurement (candidates — require theoretical development):**
+- Presence and completeness of decision traces or reasoning logs.
+- Human-evaluable justification rate (fraction of decisions with accessible rationale).
+- Compliance with operator-interpretable decision rules (for symbolic architectures).
+
+**Note:** Operationalization will depend on architecture type — symbolic representations yield inherent explainability; neural/emergent representations require post-hoc methods (e.g., attention visualization, SHAP values). The metric must be defined so it is architecture-agnostic in collection but architecture-sensitive in interpretation.
 
 ***
 
@@ -723,34 +796,66 @@ Step-by-step guide for implementing new components:
 
 ***
 
-## 11. Operational Scenario Selection (TBD)
+## 11. Operational Scenarios
 
-Before Phase 2, choose one of:
+Three initial concrete scenarios have been selected, ordered by scale and complexity. They provide the progression from single-satellite to large constellation, covering the 2D scalability space of RQ3.
 
-### Option 1: Space-Based Data Centers
+### Scenario 1: EventSat Mission (Phase 2 Starting Point)
 
-**Tasks:** Computational job scheduling, thermal management, resource allocation
-**Constraints:** Power, cooling, inter-satellite links
-**Metrics:** Job completion rate, energy efficiency
+**Scale:** 1 satellite | **Complexity:** minimal (single-agent, centralized)
 
-### Option 2: Communications Constellation
+**Description:** TUM's own EventSat satellite. Full access to subsystem models and mission data enables high-fidelity environment modeling. This is the baseline scenario where the cognitive architecture comparison begins.
 
-**Tasks:** Ground contact scheduling, data routing, handoff coordination
-**Constraints:** Bandwidth, visibility windows, latency requirements
-**Metrics:** Data throughput, latency, coverage
+**Tasks:** Observation scheduling, onboard resource management (power, data, thermal), anomaly response.
+**Constraints:** Orbit-dependent visibility windows, power budget, downlink capacity, onboard storage.
+**Metrics:** Observation utility, resource efficiency, decision latency, explainability.
 
-### Option 3: Space Situational Awareness (SSA)
+**Data Sources:** Internal TUM/AUTOPS mission data — high confidence in accurate modeling.
 
-**Tasks:** Observation scheduling, sensor tasking, anomaly detection
-**Constraints:** Sensor FOV, power budget, revisit requirements
-**Metrics:** Target coverage, detection rate, revisit time
+**Implementation Path:** `src/environment/scenarios/eventsat.py`
 
-**Decision Point:** Researcher must select scenario based on:
+---
 
-- AUTOPS project relevance
-- Data availability
-- Complexity appropriate for PhD scope
-- Vincenzo's research input
+### Scenario 2: Vyoma Flamingo Constellation (Medium Scale)
+
+**Scale:** Up to 12 satellites (as planned) | **Complexity:** medium (multi-agent, hierarchical/distributed topologies)
+
+**Description:** AUTOPS project partners' Flamingo constellation. Planned to reach 12 satellites, making it a natural medium-scale use case. Collaboration with Vyoma provides realistic mission parameters.
+
+**Tasks:** Space Situational Awareness (SSA) — observation scheduling, sensor tasking across the constellation, coverage optimization, data fusion.
+**Constraints:** Inter-satellite link availability, revisit time requirements, sensor FOV, downlink budget.
+**Metrics:** Target coverage rate, revisit time, detection probability, coordination overhead, explainability.
+
+**Data Sources:** AUTOPS project collaboration with Vyoma — high confidence in useful modeling data.
+
+**Implementation Path:** `src/environment/scenarios/flamingo.py`
+
+---
+
+### Scenario 3: Space-Based Data Centers (Large Scale)
+
+**Scale:** 100+ satellites | **Complexity:** high (fully distributed, heterogeneous)
+
+**Description:** Emerging large-constellation concept for orbital computation. Represents the high-scale, high-complexity endpoint of the scalability study. Less mission-specific data available at this stage; scenario will be modeled using published literature and synthetic parameters.
+
+**Tasks:** Computational job scheduling across satellites, thermal management (duty cycle constraints), resource allocation (CPU, memory, power), inter-satellite job migration.
+**Constraints:** Power budget, thermal limits, ISL bandwidth, orbital position affecting latency to ground.
+**Metrics:** Job completion rate, energy efficiency, queue latency, composability (integration of heterogeneous agents), explainability.
+
+**Data Sources:** Literature-based modeling (lower fidelity than Scenarios 1–2); to be refined as the field matures.
+
+**Implementation Path:** `src/environment/scenarios/space_data_centers.py`
+
+---
+
+### Progression Strategy
+
+Scenarios are implemented sequentially:
+1. **EventSat** → baseline single-satellite cognitive architecture comparison
+2. **Flamingo** → medium-scale multi-agent organization comparison
+3. **Space Data Centers** → large-scale scalability laws and composability limits
+
+This progression directly maps to the RQ3 scalability study across both constellation size and structural complexity.
 
 ***
 
@@ -767,11 +872,11 @@ Before Phase 2, choose one of:
 
 ### Awaiting Researcher Input:
 
-1. **Operational scenario selection** (space data centers | communications | SSA)
-2. **First decision loop choice** (which to implement first?)
+1. ~~**Operational scenario selection**~~ → **decided**: EventSat, Flamingo, Space Data Centers
+2. **First decision loop choice** (which to implement first for EventSat?)
 3. **First representation choice** (symbolic | hybrid | neural?)
 4. **Hand-designed logic specifications** (rules, prompts, etc.)
-5. **Scenario-specific constraints** (after scenario selected)
+5. **EventSat-specific constraints** (visibility windows, power model, downlink budget)
 
 ### Do NOT Implement Yet:
 

@@ -27,10 +27,15 @@ dev = [
     "pytest-cov",
 ]
 
+orbital = [
+    "orekit-jpype",    # High-fidelity orbital mechanics
+]
+
 rl = [
     "torch",           # For neural representations (optional)
     "gymnasium",       # Standard RL interface (optional)
 ]
+
 
 [build-system]
 requires = ["hatchling"]
