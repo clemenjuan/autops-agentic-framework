@@ -68,3 +68,6 @@ configs/experiments/generated/
 # Temporary notes
 PROGRESS.md
 Phase*.md
+
+# Docs
+docs/Eventsat_Preliminary_Design_Review_Document.pdf

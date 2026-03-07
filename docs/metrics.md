@@ -1,6 +1,6 @@
 # Metrics Definitions and Rationale
 
-**Status:** Theoretical framework — specific operationalisations require deeper study.
+**Status:** Theoretical framework defined. EventSat-specific metrics implemented in `src/orchestration/eventsat_metrics.py`.
 
 ---
 
@@ -88,18 +88,45 @@ The metrics framework is designed to capture multiple performance dimensions for
 
 ---
 
-### 6. Scalability
+### 6. Scale & Complexity
 
-**Definition:** Performance degradation as constellation size increases.
+**Definition:** Performance degradation across a 2D scalability space: *constellation size* (number of satellites) × *structural complexity* (topology, from centralized to fully distributed).
 
-**Rationale:** Research question RQ3 directly addresses scaling behaviour.
+**Rationale:** RQ3 frames scalability along two independent axes. Raw satellite count captures the size dimension; structural complexity captures the coordination overhead that grows super-linearly as topology moves from centralized towards distributed (following Sinha & de Weck, 2013). Different architecture families may degrade differently along each axis.
 
-**Measurement:** Track all other metrics as a function of `constellation_size`.
+**Measurement:**
+- Track all metrics as a function of `constellation_size` (1 → 500) and a `complexity_index` encoding topology class (0 = centralized, 1 = hierarchical, 2 = fully distributed).
+- Fit joint scaling surfaces (e.g., power-law or polynomial) over the 2D grid.
+- Derive architecture-selection heuristics from these surfaces for a target (size, complexity) operating point.
 
 **Analysis:**
-- Plot metric vs. constellation size curves.
-- Fit scaling laws (linear, polynomial, exponential degradation).
-- Identify scaling bottlenecks per architecture.
+- 2D heatmaps of metric degradation over (size × complexity).
+- Identify scaling bottlenecks per architecture family.
+- Test whether composability limits are hit at specific (size, complexity) combinations.
+
+---
+
+### 7. Explainability
+
+**Definition:** The degree to which an architecture's decisions can be interpreted and justified to human operators.
+
+**Rationale:** Mission safety and human-machine trust require that operators understand *why* the system acted as it did, not just *what* it did. RQ2 explicitly asks how architecture choice determines the type and degree of explainability available. Architectures differ fundamentally: symbolic representations are inherently interpretable; neural/emergent representations require post-hoc methods.
+
+**Measurement (candidates — require theoretical development):**
+- Presence and completeness of decision traces or reasoning logs (binary or graded).
+- Human-evaluable justification rate: fraction of decisions accompanied by an accessible, operator-readable rationale.
+- Compliance with operator-interpretable rules (for symbolic architectures).
+- For neural architectures: attention visualization coverage, SHAP value availability.
+
+**Considerations:**
+- The metric must be architecture-agnostic in *collection* but architecture-sensitive in *interpretation*.
+- Link to operator load: higher explainability may reduce the intervention frequency required.
+- Safety implications: some scenarios (e.g., collision avoidance in SSA) may require a minimum explainability threshold as a hard constraint.
+
+**Open Questions:**
+- How to define a common explainability scale across fundamentally different architecture families?
+- Is explainability a continuous metric or a categorical one (none / partial / full)?
+- What level of explainability satisfies mission safety requirements for the chosen scenarios?
 
 ---
 
@@ -126,4 +153,23 @@ The `MetricsCollector` abstract class in `src/orchestration/metrics_collector.py
 2. `aggregate_episode_metrics()` — episode-level aggregation.
 3. `compute_statistics()` — cross-episode statistics.
 
-Concrete implementations will be created when the operational scenario is selected and metric formulas are theoretically justified.
+### EventSat Metrics (Implemented)
+
+The `EventSatMetricsCollector` (`src/orchestration/eventsat_metrics.py`) provides the first concrete implementation, collecting per-step and per-episode metrics:
+
+**Per-step metrics:**
+- `reward` — step reward from the environment
+- `battery_soc` — battery state of charge
+- `data_stored_mb` — onboard data storage usage
+- `data_downlinked_mb` — cumulative downlinked data
+- `in_sunlight` — whether satellite is in sunlight
+- `ground_pass_active` — whether a ground pass is active
+- `forced_mode` — whether the requested mode was overridden
+- `anomaly` — whether an anomaly event occurred
+- `observation_hours` — cumulative observation time
+
+**Episode-level aggregates:**
+- `episode_reward` — total reward
+- `total_observation_hours` — total science observation time
+- `total_downlinked_mb` — total data successfully downlinked
+- Mean/min/max battery SoC across the episode

@@ -75,12 +75,14 @@ class ExperimentConfig(BaseModel):
     decision_loop: str = Field(default="sda")
     representation: str = Field(default="symbolic")
     emergence_mode: str = Field(default="hand_designed")
+    operations_paradigm: str = Field(default="autonomous_hybrid")
 
     # Component-specific sub-configs
     agent_organization_config: Dict[str, Any] = Field(default_factory=dict)
     decision_loop_config: Dict[str, Any] = Field(default_factory=dict)
     representation_config: Dict[str, Any] = Field(default_factory=dict)
     emergence_config: Dict[str, Any] = Field(default_factory=dict)
+    operations_paradigm_config: Dict[str, Any] = Field(default_factory=dict)
 
     # Environment
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
@@ -107,6 +109,9 @@ class ExperimentConfig(BaseModel):
     VALID_ORGANIZATIONS: ClassVar[Set[str]] = {"centralized", "hierarchical", "distributed"}
     VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "hybrid", "neural"}
     VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
+    VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
+        "autonomous_hybrid", "conventional_ground",
+    }
     # Decision loops are extensible — no fixed set enforced here.
 
     @field_validator("agent_organization")
@@ -133,6 +138,15 @@ class ExperimentConfig(BaseModel):
         if v not in cls.VALID_EMERGENCE_MODES:
             raise ValueError(
                 f"emergence_mode must be one of {cls.VALID_EMERGENCE_MODES}, got '{v}'"
+            )
+        return v
+
+    @field_validator("operations_paradigm")
+    @classmethod
+    def _validate_operations_paradigm(cls, v: str) -> str:
+        if v not in cls.VALID_OPERATIONS_PARADIGMS:
+            raise ValueError(
+                f"operations_paradigm must be one of {cls.VALID_OPERATIONS_PARADIGMS}, got '{v}'"
             )
         return v
 

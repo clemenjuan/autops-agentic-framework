@@ -23,6 +23,9 @@ representation: "symbolic"
 # emergence_mode: hand_designed | learned
 emergence_mode: "hand_designed"
 
+# operations_paradigm: autonomous_hybrid | conventional_ground
+operations_paradigm: "autonomous_hybrid"
+
 # ─── Component-Specific Configuration ───────────────────────────────
 
 agent_organization_config:
@@ -47,13 +50,17 @@ emergence_config:
   # For learned: training_checkpoint, policy_type
   {}
 
+operations_paradigm_config:
+  # For conventional_ground: default_mode, command_sequence_horizon
+  {}
+
 # ─── Environment Configuration ──────────────────────────────────────
 
 environment:
-  constellation_size: 5
+  constellation_size: 1    # 1 (EventSat) | 3-12 (Flamingo) | 50-500 (Space Data Centers)
   timestep_seconds: 60
   max_steps: 1440          # 24 hours at 1-minute timesteps
-  scenario: "to_be_defined"   # space_data_centers | communications | ssa
+  scenario: "eventsat"     # eventsat | flamingo | space_data_centers
   scenario_config: {}
 
 # ─── Memory Configuration (fixed across all experiments) ────────────
@@ -75,7 +82,15 @@ metrics:
     - robustness
     - resource_efficiency
     - operator_load
+    - explainability
+    - scale_complexity        # tracked as a function of constellation_size x complexity_index
   collection_frequency: "per_step"   # per_step | per_episode
+
+# ─── Scalability Configuration ──────────────────────────────────────
+# Used for RQ3 experiments — sweep over both axes independently or jointly.
+scalability:
+  complexity_index: 0      # 0=centralized | 1=hierarchical | 2=distributed
+  sweep_sizes: []          # e.g. [1, 5, 12, 50, 100, 500] for scaling experiments
 
 # ─── Output Configuration ───────────────────────────────────────────
 

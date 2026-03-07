@@ -104,6 +104,35 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ---
 
+## Adding a New Operations Paradigm
+
+### Steps
+
+1. **Create the module** at `src/operations/<paradigm_name>.py`.
+
+2. **Subclass `OperationsParadigm`** from `src/operations/base.py`.
+
+3. **Implement**:
+   - `filter_observation(full_observation, step)`: What the agent sees (full state, stale data, partial view, etc.).
+   - `can_act(step, ground_pass_active)`: Whether the agent can issue commands at this step.
+   - `process_action(action, step, ground_pass_active)`: Buffer, delay, transform, or pass through actions.
+   - `get_name()`: Return a unique string identifier.
+
+4. **Register** in `src/orchestration/config_loader.py`:
+   - Add the paradigm name to `VALID_OPERATIONS_PARADIGMS`.
+
+5. **Register** in `src/orchestration/experiment_runner.py`:
+   - Add an import and case in `_create_operations_paradigm()`.
+
+6. **Add tests** in `tests/test_operations_paradigm.py`.
+
+### Reference implementations
+
+- `AutonomousHybrid` (`src/operations/autonomous_hybrid.py`): Pass-through paradigm. Full real-time state, immediate actions every step.
+- `ConventionalGround` (`src/operations/conventional_ground.py`): Stale telemetry, uplink-gated actions during ground passes only.
+
+---
+
 ## Adding a New Operational Scenario
 
 ### Steps

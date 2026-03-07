@@ -70,6 +70,7 @@ class ExperimentRunner:
         self._decision_loops: Dict[str, Any] = {}  # agent_id → loop
         self._memory: Any = None
         self._metrics_collector: Any = None
+        self._operations_paradigm: Any = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -160,11 +161,12 @@ class ExperimentRunner:
             NotImplementedError: Until concrete component factories exist.
         """
         logger.info(
-            "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s",
+            "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s, ops=%s",
             self.config.agent_organization,
             self.config.decision_loop,
             self.config.representation,
             self.config.emergence_mode,
+            self.config.operations_paradigm,
         )
 
         # ----------------------------------------------------------
@@ -184,24 +186,28 @@ class ExperimentRunner:
         # Decision loops (one per agent)
         self._decision_loops = self._create_decision_loops()
 
+        # Operations paradigm (5th dimension)
+        self._operations_paradigm = self._create_operations_paradigm()
+
         # Metrics collector
         self._metrics_collector = self._create_metrics_collector()
 
         logger.info("All components initialised.")
 
     def _create_environment(self) -> Any:
-        """Factory for the satellite environment.
+        """Factory for the satellite environment."""
+        scenario = self.config.environment.scenario
+        env_cfg = {
+            "step_duration_s": self.config.environment.timestep_seconds,
+            "max_steps": self.config.max_steps,
+            **self.config.environment.scenario_config,
+        }
 
-        Returns:
-            An initialised ``SatelliteEnvironment`` subclass.
+        if scenario == "eventsat":
+            from src.environment.scenarios.eventsat_env import EventSatEnvironment
+            return EventSatEnvironment(config=env_cfg)
 
-        Raises:
-            NotImplementedError: Until a scenario is selected and implemented.
-        """
-        logger.warning(
-            "Environment factory not yet implemented (scenario TBD). "
-            "Returning None placeholder."
-        )
+        logger.warning("Unknown scenario '%s', returning None.", scenario)
         return None
 
     def _create_memory(self) -> Any:
@@ -242,32 +248,57 @@ class ExperimentRunner:
         )
         return org
 
-    def _create_decision_loops(self) -> Dict[str, Any]:
-        """Factory for decision loop instances (one per agent).
-
-        Returns:
-            Mapping of agent_id → ``DecisionLoop`` instance.
-
-        Raises:
-            NotImplementedError: Until decision loops are implemented.
-        """
-        logger.warning(
-            "Decision loop factory not yet implemented (loop='%s'). "
-            "Returning empty dict.",
-            self.config.decision_loop,
+    def _create_decision_loops(self):
+        """Factory for decision loop instances (one per agent)."""
+        from src.emergence.controller import EmergenceController
+        import src.representation.rule_based_eventsat  # register representations
+        emergence = EmergenceController(config=self.config.emergence_config)
+        repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
+        representation = emergence.get_representation(
+            repr_type=repr_type,
+            repr_config=self.config.representation_config,
         )
-        return {}
+        loop_type = self.config.decision_loop
+        if loop_type == 'sda':
+            from src.decision_loop.sda_loop import SDALoop
+            loop_cls = SDALoop
+        else:
+            raise ValueError(f"Unknown decision_loop: '{loop_type}'")
+        agents = self._organization.get_agents() if self._organization else ['central_agent']
+        loops = {}
+        for agent_id in agents:
+            loops[agent_id] = loop_cls(
+                config=self.config.decision_loop_config,
+                representation=representation,
+            )
+        return loops
+
+    def _create_operations_paradigm(self) -> Any:
+        """Factory for the operations paradigm (5th morphological matrix dimension)."""
+        paradigm_type = self.config.operations_paradigm
+        paradigm_config = self.config.operations_paradigm_config
+
+        if paradigm_type == "autonomous_hybrid":
+            from src.operations.autonomous_hybrid import AutonomousHybrid
+            return AutonomousHybrid(config=paradigm_config)
+        elif paradigm_type == "conventional_ground":
+            from src.operations.conventional_ground import ConventionalGround
+            return ConventionalGround(config=paradigm_config)
+        else:
+            logger.warning(
+                "Unknown operations_paradigm '%s', falling back to autonomous_hybrid.",
+                paradigm_type,
+            )
+            from src.operations.autonomous_hybrid import AutonomousHybrid
+            return AutonomousHybrid(config=paradigm_config)
 
     def _create_metrics_collector(self) -> Any:
-        """Factory for the metrics collector.
-
-        Returns:
-            A ``MetricsCollector`` subclass instance, or ``None``.
-        """
-        logger.warning(
-            "Metrics collector factory not yet implemented. "
-            "Returning None placeholder."
-        )
+        """Factory for the metrics collector."""
+        scenario = self.config.environment.scenario
+        if scenario == "eventsat":
+            from src.orchestration.eventsat_metrics import EventSatMetricsCollector
+            return EventSatMetricsCollector(config=self.config.metrics.model_dump())
+        logger.warning("No metrics collector for scenario '%s'.", scenario)
         return None
 
     def _run_episode(self, episode_id: int) -> Dict[str, Any]:
@@ -292,6 +323,9 @@ class ExperimentRunner:
 
         for loop in self._decision_loops.values():
             loop.reset()
+
+        if self._operations_paradigm is not None:
+            self._operations_paradigm.reset()
 
         # --- Step loop ---
         max_steps = self.config.max_steps
@@ -335,13 +369,28 @@ class ExperimentRunner:
         """
         step_start = time.perf_counter()
 
-        # 1. Distribute observations
-        if self._organization is not None and observation is not None:
-            agent_obs = self._organization.distribute_observation(observation)
+        # 0. Determine ground pass status (needed by operations paradigm)
+        ground_pass_active = False
+        if observation is not None:
+            for sat in observation.constellation_state.satellites.values():
+                if sat.metadata.get("ground_pass_active", False):
+                    ground_pass_active = True
+                    break
+
+        # 1. Filter observation through operations paradigm
+        filtered_observation = observation
+        if self._operations_paradigm is not None and observation is not None:
+            filtered_observation = self._operations_paradigm.filter_observation(
+                observation, step
+            )
+
+        # 2. Distribute observations
+        if self._organization is not None and filtered_observation is not None:
+            agent_obs = self._organization.distribute_observation(filtered_observation)
         else:
             agent_obs = {}
 
-        # 2. Decision loops
+        # 3. Decision loops
         agent_actions = {}
         for agent_id, loop in self._decision_loops.items():
             obs = agent_obs.get(agent_id)
@@ -350,13 +399,19 @@ class ExperimentRunner:
 
             agent_actions[agent_id] = AgentAction(agent_id=agent_id, action=action)
 
-        # 3. Collect actions
+        # 4. Collect actions
         if self._organization is not None:
             env_actions = self._organization.collect_actions(agent_actions)
         else:
             env_actions = {}
 
-        # 4. Environment step
+        # 5. Process actions through operations paradigm (may buffer/gate)
+        if self._operations_paradigm is not None:
+            env_actions = self._operations_paradigm.process_action(
+                env_actions, step, ground_pass_active
+            )
+
+        # 6. Environment step
         rewards: Dict[str, float] = {}
         info: Dict[str, Any] = {}
         new_observation = observation
@@ -366,6 +421,16 @@ class ExperimentRunner:
             new_observation = step_result.observation
             rewards = step_result.rewards
             info = step_result.info
+
+        # 7. Update ground knowledge on downlink (communication mode during pass)
+        if (
+            self._operations_paradigm is not None
+            and ground_pass_active
+            and info.get("resolved_mode") == "communication"
+        ):
+            self._operations_paradigm.update_ground_knowledge(
+                new_observation, step
+            )
 
         step_duration = time.perf_counter() - step_start
 

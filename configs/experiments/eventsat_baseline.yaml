@@ -1,0 +1,65 @@
+# EventSat Baseline Experiment
+# ============================
+# First end-to-end experiment: centralized agent with rule-based
+# decision-making on the EventSat single-satellite scenario.
+#
+# Architecture: Centralized + SDA + Symbolic + Hand-designed
+
+experiment_id: eventsat_baseline_v1
+description: >
+  Baseline experiment for EventSat single-satellite operations.
+  Rule-based agent manages mode transitions, observation scheduling,
+  and power management over a simulated 7-day mission.
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: centralized
+decision_loop: sda
+representation: symbolic
+emergence_mode: hand_designed
+operations_paradigm: autonomous_hybrid
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}
+
+decision_loop_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: rule_based_eventsat
+
+emergence_config:
+  mode: hand_designed
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 1
+  timestep_seconds: 60            # 1-minute resolution
+  max_steps: 10080                # 7 days = 7 * 24 * 60 = 10080 steps
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 5
+max_steps: 10080                  # 7 days of 1-minute steps
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO
