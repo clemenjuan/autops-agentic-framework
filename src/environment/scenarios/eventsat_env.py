@@ -1,5 +1,40 @@
 """
 EventSat Environment -- Single-satellite operations simulation.
+
+Physics model (sourced from PDR Nov 2025, ADCS thesis, and Part I Proposal Mar 2026):
+
+- P1: Multi-step compression pipeline
+      PDR: compression takes ~2x observation time (compression_time_factor = 2.0)
+- P2: Mode transition overhead
+      ADCS thesis: 135s attitude settling for maneuver modes (payload_observe, communication)
+- P3: 3-pool data pipeline: Jetson raw → Jetson compressed → OBC → S-band downlink
+      Measured data: 9.41 MB raw/obs (6.64 MB/42.36 s x 60 s), 1.84 MB compressed/obs (5.11:1)
+      50 kbps Jetson→OBC internal bus (PDR)
+- P4: Detection mode (payload_detect)
+      PDR Section 3.2.3: CV inference on Jetson after compression; 5 min per observation.
+      Produces small detection metadata (~0.01 MB) written to OBC.
+      Tracked via detection_progress counter (like compression_progress).
+- Thermal model removed (heat dissipation design in progress; not a constraint)
+- Orbit at 400 km (Proposal Section 13: below 415 km preferred)
+
+Pipeline backpressure:
+  daily_downlink_budget_mb (configurable, default 27 MB/day from PDR Section 3.2.3 with GSaaS)
+  is exposed in observation metadata so the agent can throttle observation.
+
+Pipeline efficiency metric:
+  total_pass_duration_s tracks cumulative ground contact time → max_achievable_downlink_mb
+  = total_pass_duration_s x S-band rate. Published in step info for EventSatMetricsCollector.
+
+Operational modes (VALID_MODES):
+  charging, communication, payload_observe, payload_compress, payload_detect,
+  payload_send, safe
+
+Data transfer (payload_send):
+  RS-485 one-way link: Jetson actively transmits, OBC listens.
+  50 kbps (PDR) = 0.375 MB per 60s step.
+  Agent must explicitly select this mode; transfer is NOT automatic.
+  Detection metadata (0.01 MB) is written directly to OBC as part of detection
+  completion — negligible at 50 kbps (< 2s to transmit).
 """
 from __future__ import annotations
 import logging, random
@@ -11,9 +46,10 @@ from src.environment.satellite_env import (
     SatelliteEnvironment, SatelliteState, StepResult,
 )
 from src.environment.orbital.context import OrbitalContext, compute_orbital_context
+from src.environment.rewards import EventSatRewardFunction
 
 logger = logging.getLogger(__name__)
-VALID_MODES = {"charging", "communication", "payload_observe", "payload_compress", "safe"}
+VALID_MODES = {"charging", "communication", "payload_observe", "payload_compress", "payload_detect", "payload_send", "safe"}
 
 
 class EventSatEnvironment(SatelliteEnvironment):
@@ -26,39 +62,116 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.step_duration_s = config.get("step_duration_s", 60.0)
         self.max_steps = config.get("max_steps", 10080)
         self.current_step = 0
+
+        # Orbit
         orb = self.scenario.get("orbit", {})
         self.orbital_period_s = orb.get("orbital_period_s", 5676)
         self.eclipse_fraction = orb.get("eclipse_fraction", 0.36)
         self.orbital_period_steps = max(1, int(self.orbital_period_s / self.step_duration_s))
+
+        # Power
         pwr = self.scenario.get("power", {})
-        self.solar_generation_w = pwr.get("solar_panels", {}).get("generation_sun_w", 24.0)
+        solar_cfg = pwr.get("solar_panels", {})
+        generation_peak_w = solar_cfg.get("generation_peak_w", solar_cfg.get("generation_sun_w", 24.0))
+        panel_efficiency_factor = solar_cfg.get("panel_efficiency_factor", 1.0)
+        self.solar_generation_w = generation_peak_w * panel_efficiency_factor
         bat = pwr.get("battery", {})
-        self.battery_capacity_wh = bat.get("capacity_wh", 40.0)
+        self.battery_capacity_wh = bat.get("capacity_wh", 84.0)
         self.initial_soc = bat.get("initial_soc", 0.8)
         self.min_soc = bat.get("min_soc", 0.2)
         self.max_soc = bat.get("max_soc", 1.0)
         self.charge_efficiency = bat.get("charge_efficiency", 0.9)
         self.consumption = pwr.get("consumption", {})
+
+        # Storage (3-pool pipeline)
         stor = self.scenario.get("storage", {})
-        self.storage_capacity_mb = stor.get("obc_capacity_mb", 512.0)
-        self.observation_size_mb = stor.get("observation_size_mb", 2.0)
+        self.storage_capacity_mb = stor.get("obc_capacity_mb", 4*1024)       # OBC capacity, 50 % of 8 GB = 4096 MB
+        self.jetson_capacity_mb = stor.get("jetson_capacity_mb", 249036.8)    # Jetson storage, 95% of 256 GB = 249036.8 MB
+        self.observation_size_mb = stor.get("observation_size_mb", 9.41)  # Raw data size per observation (PDR measurement)
+        # P3: compression ratio 
+        self.compression_ratio = stor.get("compression_ratio", 1)  # For compatibility, but PDR measurement: 6.64 MB raw → 1.84 MB compressed = 5.11
+        # P3: Jetson→OBC transfer rate (RS-485, 50 kbps per PDR)
+        self.jetson_to_obc_rate_kbps = stor.get("jetson_to_obc_rate_kbps", 50)
+
+        # Communications
         comm = self.scenario.get("communications", {})
         self.downlink_rate_kbps = comm.get("sband", {}).get("downlink_rate_kbps", 128)
+
+        # Mode constraints
         modes_cfg = self.scenario.get("modes", {}).get("constraints", {})
         self.observe_min_soc = modes_cfg.get("payload_observe", {}).get("min_battery_soc", 0.4)
         self.compress_min_soc = modes_cfg.get("payload_compress", {}).get("min_battery_soc", 0.3)
+        self.detect_min_soc = modes_cfg.get("payload_detect", {}).get("min_battery_soc", 0.3)
+        self.send_min_soc = modes_cfg.get("payload_send", {}).get("min_battery_soc", 0.3)
+
+        # P1: Compression pipeline (PDR: compression_time_factor = 2.0)
+        payload_cfg = self.scenario.get("payload", {})
+        self.compression_time_factor = payload_cfg.get("compression_time_factor", 2.0)
+        # Detection pipeline: 5 min per observation (CV inference on Jetson)
+        detection_time_s = payload_cfg.get("detection_time_s", 300.0)
+        self.detection_steps = max(1, int(detection_time_s / self.step_duration_s))
+        self.detection_metadata_mb = 0.01  # Small metadata output per detection
+
+        # Communications: configurable daily downlink budget (PDR: 27 MB with GSaaS)
+        passes_cfg = comm.get("passes", {})
+        self.daily_downlink_budget_mb = passes_cfg.get("daily_downlink_budget_mb", 27.0)
+
+        # P2: Mode transition overhead (ADCS thesis: 135s settling time)
+        trans_cfg = self.scenario.get("modes", {}).get("transition_overhead", {})
+        settling_s = trans_cfg.get("settling_time_s", 0.0)
+        self.settling_time_steps = max(0, int(settling_s / self.step_duration_s))
+        self.attitude_maneuver_modes = set(trans_cfg.get("attitude_maneuver_modes", []))
+
+        # Anomaly injection
         self.anomaly_prob = config.get("anomaly_prob", 0.001)
+        # When True, anomaly recovery requires a ground pass (conventional ops).
+        # When False, onboard FDIR clears the anomaly once the countdown expires.
+        self.anomaly_requires_ground_pass = config.get("anomaly_requires_ground_pass", True)
+
+        # State (initialised in reset())
         self.battery_soc = self.initial_soc
-        self.data_stored_mb = 0.0
+        # 3-pool storage
+        self.jetson_raw_mb = 0.0
+        self.jetson_compressed_mb = 0.0
+        self.obc_data_mb = 0.0
+        self.data_stored_mb = 0.0       # total = jetson_raw + jetson_compressed + obc
         self.data_downlinked_mb = 0.0
         self.uncompressed_observations = 0
         self.total_observation_s = 0.0
         self.current_mode = "charging"
+        # P1: compression progress counter
+        self.compression_progress = 0
+        # Detection state
+        self.detection_progress = 0
+        self.undetected_observations = 0
+        self.total_detections = 0
+        # C4: Track cumulative ground pass duration for pipeline efficiency
+        self.total_pass_duration_s = 0.0
+        # P2: transition state
+        self.transition_steps_remaining = 0
+        self.previous_mode = "charging"
+        # Misc
         self._orbital_ctx: Optional[OrbitalContext] = None
         self.active_anomaly = None
         self.forced_safe_steps = 0
+        # Dedicated RNG for anomaly injection — isolated from the global stream
+        # so that different recovery timings between ops paradigms don't desync
+        # anomaly injection across architectures. Seeded per episode in reset().
+        self._anomaly_rng: random.Random = random.Random()
         self.episode_reward = 0.0
         self._step_metrics = {}
+
+        # Reward function (Individual Negative, from autops-rl)
+        reward_cfg = config.get("reward_config", {})
+        self.reward_fn = EventSatRewardFunction(reward_cfg)
+
+        # Mission targets (scaled to episode length)
+        objectives = self.scenario.get("objectives", {})
+        mission_days = objectives.get("mission_duration_days", 90.0)
+        episode_days = (self.max_steps * self.step_duration_s) / 86400.0
+        target_scale = episode_days / mission_days if mission_days > 0 else 1.0
+        self.obs_target_hours = objectives.get("total_observation_hours", 2.0) * target_scale
+        self.dl_target_mb = objectives.get("min_downlinked_data_mb", 240.0) * target_scale
 
     def _load_scenario(self, config):
         scenario_path = config.get("scenario_config") or config.get("scenario_file")
@@ -73,20 +186,50 @@ class EventSatEnvironment(SatelliteEnvironment):
             random.seed(seed)
         self.current_step = 0
         self.battery_soc = self.initial_soc
+        # 3-pool storage reset
+        self.jetson_raw_mb = 0.0
+        self.jetson_compressed_mb = 0.0
+        self.obc_data_mb = 0.0
         self.data_stored_mb = 0.0
         self.data_downlinked_mb = 0.0
         self.uncompressed_observations = 0
         self.total_observation_s = 0.0
         self.current_mode = "charging"
+        self.compression_progress = 0
+        self.detection_progress = 0
+        self.undetected_observations = 0
+        self.total_detections = 0
+        self.total_pass_duration_s = 0.0
+        self.transition_steps_remaining = 0
+        self.previous_mode = "charging"
         self.active_anomaly = None
         self.forced_safe_steps = 0
+        self._anomaly_rng = random.Random(seed * 131 + 7919 if seed is not None else None)
         self.episode_reward = 0.0
         self._step_metrics = {}
+
+        # Launch lottery: randomize RAAN, ArgP, TA per episode to simulate
+        # rideshare insertion uncertainty (no onboard propulsion post-deployment).
+        # Draws happen first so the RNG ordering is deterministic per seed.
+        orbit_config = dict(self.scenario.get("orbit", {}))
+        if orbit_config.get("launch_lottery", False):
+            orbit_config["raan_deg"] = random.uniform(0, 360)
+            orbit_config["arg_perigee_deg"] = random.uniform(0, 360)
+            orbit_config["true_anomaly_deg"] = random.uniform(0, 360)
+            logger.debug(
+                "Launch lottery: RAAN=%.1f, ArgP=%.1f, TA=%.1f",
+                orbit_config["raan_deg"],
+                orbit_config["arg_perigee_deg"],
+                orbit_config["true_anomaly_deg"],
+            )
+
+        from src.environment.orbital.propagator import is_available as _orekit_available
         self._orbital_ctx = compute_orbital_context(
-            orbit_config=self.scenario.get("orbit", {}),
+            orbit_config=orbit_config,
             comms_config=self.scenario.get("communications", {}),
             step_s=self.step_duration_s,
             total_steps=self.max_steps,
+            require_orekit=_orekit_available(),
         )
         return self.get_observation()
 
@@ -95,35 +238,84 @@ class EventSatEnvironment(SatelliteEnvironment):
         requested_mode = sat_action.get("mode", "charging") if isinstance(sat_action, dict) else "charging"
         resolved_mode = self._resolve_mode(requested_mode)
         forced = resolved_mode != requested_mode
+
+        # P2: Mode transition overhead
+        in_transition = False
+        if self.settling_time_steps > 0:
+            if self.transition_steps_remaining > 0:
+                # Already mid-transition: execute as charging (non-productive)
+                effective_mode = "charging"
+                self.transition_steps_remaining -= 1
+                in_transition = True
+                # On the last transition step, mark previous_mode as the target
+                # so the next step doesn't re-trigger the transition
+                if self.transition_steps_remaining == 0:
+                    self.previous_mode = resolved_mode
+            elif self._requires_attitude_maneuver(self.previous_mode, resolved_mode):
+                # New transition needed: start it, first step is non-productive
+                self.transition_steps_remaining = max(0, self.settling_time_steps - 1)
+                effective_mode = "charging"
+                in_transition = True
+            else:
+                effective_mode = resolved_mode
+        else:
+            effective_mode = resolved_mode
+
         in_sun = self._is_in_sunlight()
         pass_active = self._is_ground_pass_active()
-        self._update_battery(resolved_mode, in_sun)
-        reward = self._apply_mode_effects(resolved_mode, in_sun, pass_active)
+        prev_soc = self.battery_soc
+
+        self._update_battery(effective_mode, in_sun)
+        # C4: Track cumulative ground pass duration for pipeline efficiency
+        if pass_active:
+            self.total_pass_duration_s += self.step_duration_s
+        reward, action_info = self._apply_mode_effects(effective_mode, in_sun, pass_active)
         anomaly_event = self._maybe_inject_anomaly()
-        self.current_mode = resolved_mode
+
+        self.current_mode = effective_mode
         self.current_step += 1
         self.episode_reward += reward
+
+        # Update previous_mode only when not transitioning
+        if not in_transition:
+            self.previous_mode = effective_mode
+
+        # Update total data_stored_mb (for metrics/rewards backward compat)
+        self.data_stored_mb = self.jetson_raw_mb + self.jetson_compressed_mb + self.obc_data_mb
+
         self._step_metrics = {
             "reward": reward,
             "battery_soc": self.battery_soc,
+            "prev_battery_soc": prev_soc,
             "data_stored_mb": self.data_stored_mb,
+            "jetson_raw_mb": self.jetson_raw_mb,
+            "jetson_compressed_mb": self.jetson_compressed_mb,
+            "obc_data_mb": self.obc_data_mb,
             "data_downlinked_mb": self.data_downlinked_mb,
             "in_sunlight": float(in_sun),
             "ground_pass_active": float(pass_active),
             "forced_mode": float(forced),
-            "anomaly": float(anomaly_event is not None),
+            "in_transition": in_transition,
+            "anomaly": anomaly_event,
+            "anomaly_forced_safe": float(self.active_anomaly is not None),
             "observation_hours": self.total_observation_s / 3600.0,
+            "total_detections": self.total_detections,
+            "undetected_observations": self.undetected_observations,
+            "total_pass_duration_s": self.total_pass_duration_s,
+            "max_achievable_downlink_mb": self.total_pass_duration_s * (self.downlink_rate_kbps / 8.0 / 1000.0),
         }
         return StepResult(
             observation=self.get_observation(),
             rewards={"total": reward},
             done=self.is_done(),
             info={
-                "resolved_mode": resolved_mode,
+                "resolved_mode": effective_mode,
                 "requested_mode": requested_mode,
                 "forced": forced,
                 "anomaly": anomaly_event,
-                **self._step_metrics,
+                **action_info,           # per-step values (e.g. data_downlinked_mb per step)
+                **self._step_metrics,    # cumulative values overwrite — data_downlinked_mb is always cumulative here
+                "step_downlinked_mb": action_info.get("data_downlinked_mb", 0.0),
             },
         )
 
@@ -137,6 +329,7 @@ class EventSatEnvironment(SatelliteEnvironment):
             resources={
                 "battery_soc": self.battery_soc,
                 "data_stored_mb": self.data_stored_mb,
+                "obc_data_mb": self.obc_data_mb,
                 "data_downlinked_mb": self.data_downlinked_mb,
             },
             status=self.current_mode,
@@ -144,9 +337,15 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "in_sunlight": in_sun,
                 "ground_pass_active": pass_active,
                 "uncompressed_observations": self.uncompressed_observations,
+                "compression_progress": self.compression_progress,
                 "total_observation_s": self.total_observation_s,
                 "storage_capacity_mb": self.storage_capacity_mb,
+                "jetson_raw_mb": self.jetson_raw_mb,
+                "jetson_compressed_mb": self.jetson_compressed_mb,
+                "obc_data_mb": self.obc_data_mb,
                 "health_status": "nominal" if self.active_anomaly is None else self.active_anomaly,
+                "undetected_observations": self.undetected_observations,
+                "daily_downlink_budget_mb": self.daily_downlink_budget_mb,
             },
         )
         constellation = ConstellationState(
@@ -176,7 +375,6 @@ class EventSatEnvironment(SatelliteEnvironment):
     def _is_in_sunlight(self):
         if self._orbital_ctx is not None:
             return self._orbital_ctx.is_in_sunlight(self.current_step)
-        # Legacy fallback (should not happen after reset)
         phase = (self.current_step % self.orbital_period_steps) / self.orbital_period_steps
         return phase >= self.eclipse_fraction
 
@@ -185,14 +383,30 @@ class EventSatEnvironment(SatelliteEnvironment):
             return self._orbital_ctx.is_ground_pass_active(self.current_step)
         return False
 
+    def _requires_attitude_maneuver(self, from_mode: str, to_mode: str) -> bool:
+        """Return True if switching from_mode→to_mode requires attitude settling (P2)."""
+        if self.settling_time_steps == 0:
+            return False
+        if from_mode == to_mode:
+            return False
+        return to_mode in self.attitude_maneuver_modes or from_mode in self.attitude_maneuver_modes
+
     def _resolve_mode(self, requested):
         if requested not in VALID_MODES:
             requested = "charging"
+        # Environment-enforced safe mode during active anomaly — agent cannot override.
+        # Recovery requires a ground pass (see _maybe_inject_anomaly).
+        if self.active_anomaly is not None:
+            return "safe"
         if self.battery_soc <= self.min_soc and requested != "safe":
             return "safe"
         if requested == "payload_observe" and self.battery_soc < self.observe_min_soc:
             return "charging"
         if requested == "payload_compress" and self.battery_soc < self.compress_min_soc:
+            return "charging"
+        if requested == "payload_detect" and self.battery_soc < self.detect_min_soc:
+            return "charging"
+        if requested == "payload_send" and self.battery_soc < self.send_min_soc:
             return "charging"
         if requested == "communication" and not self._is_ground_pass_active():
             return "charging"
@@ -207,54 +421,151 @@ class EventSatEnvironment(SatelliteEnvironment):
         if energy_delta_wh > 0:
             energy_delta_wh *= self.charge_efficiency
         soc_delta = energy_delta_wh / self.battery_capacity_wh
-        self.battery_soc = max(0.0, min(self.max_soc, self.battery_soc + soc_delta))
+        # Hard cap at 1.0 regardless of max_soc config — SoC is a fraction
+        self.battery_soc = max(0.0, min(1.0, self.battery_soc + soc_delta))
+
+    def _transfer_jetson_to_obc(self):
+        """P3: Jetson→OBC transfer via RS-485 (50 kbps, one-way active TX).
+
+        Only called when agent selects payload_send mode.
+        Returns the amount of data actually transferred (MB).
+        """
+        if self.jetson_compressed_mb <= 0.0:
+            return 0.0
+        transfer_mb = (self.jetson_to_obc_rate_kbps / 8.0) * (self.step_duration_s / 1000.0)
+        transfer_mb = min(transfer_mb, self.jetson_compressed_mb)
+        space_on_obc = self.storage_capacity_mb - self.obc_data_mb
+        actual_transfer = min(transfer_mb, max(0.0, space_on_obc))
+        self.jetson_compressed_mb -= actual_transfer
+        self.obc_data_mb += actual_transfer
+        return actual_transfer
 
     def _apply_mode_effects(self, mode, in_sun, pass_active):
-        reward = 0.0
+        """Apply state transitions and compute structured reward."""
+        action_info = {"pass_active": pass_active}
+        storage_overflow = False
+
+        # Reset progress counters if agent switches away mid-process (penalizes thrashing)
+        if mode != "payload_compress" and self.previous_mode == "payload_compress":
+            self.compression_progress = 0
+        if mode != "payload_detect" and self.previous_mode == "payload_detect":
+            self.detection_progress = 0
+
+        # --- State transitions ---
         if mode == "payload_observe":
             self.total_observation_s += self.step_duration_s
             self.uncompressed_observations += 1
-            self.data_stored_mb += self.observation_size_mb
-            reward += 1.0
-            if self.data_stored_mb > self.storage_capacity_mb:
-                self.data_stored_mb = self.storage_capacity_mb
-                reward -= 0.5
+            # P3: raw data goes to Jetson storage
+            self.jetson_raw_mb += self.observation_size_mb
+            if self.jetson_raw_mb > self.jetson_capacity_mb:
+                self.jetson_raw_mb = self.jetson_capacity_mb
+                storage_overflow = True
+            action_info["storage_overflow"] = storage_overflow
+
         elif mode == "payload_compress":
-            if self.uncompressed_observations > 0:
-                self.uncompressed_observations -= 1
-                reward += 0.5
+            had_data = self.uncompressed_observations > 0
+            if had_data:
+                # P1: multi-step compression
+                self.compression_progress += 1
+                if self.compression_progress >= self.compression_time_factor:
+                    # Compression complete: move from Jetson raw → Jetson compressed
+                    self.uncompressed_observations -= 1
+                    compressed_size = self.observation_size_mb / self.compression_ratio
+                    self.jetson_raw_mb = max(0.0, self.jetson_raw_mb - self.observation_size_mb)
+                    self.jetson_compressed_mb += compressed_size
+                    self.compression_progress = 0
+                    self.undetected_observations += 1
+                    action_info["compression_completed"] = True
+                else:
+                    action_info["compression_in_progress"] = True
             else:
-                reward -= 0.1
+                self.compression_progress = 0
+            action_info["had_data_to_compress"] = had_data
+
+        elif mode == "payload_detect":
+            had_data = self.undetected_observations > 0
+            if had_data:
+                self.detection_progress += 1
+                if self.detection_progress >= self.detection_steps:
+                    # Detection complete: produce small metadata → OBC
+                    self.undetected_observations -= 1
+                    self.obc_data_mb += self.detection_metadata_mb
+                    self.total_detections += 1
+                    self.detection_progress = 0
+                    action_info["detection_completed"] = True
+                else:
+                    action_info["detection_in_progress"] = True
+            else:
+                self.detection_progress = 0
+            action_info["had_data_to_detect"] = had_data
+
+        elif mode == "payload_send":
+            # RS-485: Jetson actively transmits compressed data to OBC
+            had_data = self.jetson_compressed_mb > 0
+            sent_mb = self._transfer_jetson_to_obc() if had_data else 0.0
+            action_info["had_data_to_send"] = had_data
+            action_info["data_sent_mb"] = sent_mb
+
         elif mode == "communication":
             if pass_active:
+                # P3: only downlink from OBC
                 dl_mb = (self.downlink_rate_kbps / 8.0) * (self.step_duration_s / 1000.0)
-                actual_dl = min(dl_mb, self.data_stored_mb)
-                self.data_stored_mb -= actual_dl
+                actual_dl = min(dl_mb, self.obc_data_mb)
+                self.obc_data_mb -= actual_dl
                 self.data_downlinked_mb += actual_dl
-                reward += actual_dl
-            else:
-                reward -= 0.2
-        elif mode == "charging":
-            reward += 0.1 if in_sun else 0.05
-        elif mode == "safe":
-            reward -= 0.3
-        if self.battery_soc < 0.3:
-            reward -= 0.2 * (0.3 - self.battery_soc)
+                action_info["data_downlinked_mb"] = actual_dl
+
+        # --- Reward computation ---
         obs_hours = self.total_observation_s / 3600.0
-        target = self.scenario.get("objectives", {}).get("total_observation_hours", 2.0)
-        if obs_hours >= target:
-            reward += 0.1
-        return reward
+        is_final = (self.current_step + 1) >= self.max_steps
+        # Use OBC data for storage resource penalty (OBC is the downlink bottleneck)
+        total_data = self.jetson_raw_mb + self.jetson_compressed_mb + self.obc_data_mb
+
+        reward = self.reward_fn.compute(
+            mode=mode,
+            battery_soc=self.battery_soc,
+            data_stored_mb=total_data,
+            storage_capacity_mb=self.storage_capacity_mb,
+            action_info=action_info,
+            obs_hours=obs_hours,
+            downlinked_mb=self.data_downlinked_mb,
+            obs_target_hours=self.obs_target_hours,
+            downlink_target_mb=self.dl_target_mb,
+            episode_step=self.current_step,
+            max_steps=self.max_steps,
+            is_final_step=is_final,
+        )
+        return reward, action_info
 
     def _maybe_inject_anomaly(self):
         if self.active_anomaly is not None:
             self.forced_safe_steps -= 1
-            if self.forced_safe_steps <= 0:
+            # Recovery: minimum countdown must expire.
+            # Conventional ops also require a ground pass (flight controller
+            # sends the resume command). Autonomous ops clear via onboard FDIR.
+            countdown_done = self.forced_safe_steps <= 0
+            can_recover = countdown_done and (
+                not self.anomaly_requires_ground_pass
+                or self._is_ground_pass_active()
+            )
+            if can_recover:
+                recovery_method = (
+                    "ground contact" if self.anomaly_requires_ground_pass
+                    else "onboard FDIR"
+                )
+                logger.info(
+                    "Anomaly '%s' cleared via %s at step %d",
+                    self.active_anomaly, recovery_method, self.current_step,
+                )
                 self.active_anomaly = None
             return None
-        if random.random() < self.anomaly_prob:
+        if self._anomaly_rng.random() < self.anomaly_prob:
             self.active_anomaly = "thermal_warning"
-            self.forced_safe_steps = random.randint(3, 10)
+            self.forced_safe_steps = self._anomaly_rng.randint(3, 10)
+            logger.info(
+                "Anomaly injected: %s (min %d steps) at step %d",
+                self.active_anomaly, self.forced_safe_steps, self.current_step,
+            )
             return self.active_anomaly
         return None
 
@@ -262,7 +573,8 @@ class EventSatEnvironment(SatelliteEnvironment):
         tasks = []
         if self.battery_soc < 0.4:
             tasks.append({"type": "manage_power", "priority": "high", "detail": "low_battery"})
-        if pass_active and self.data_stored_mb > 0:
+        # P3: downlink task only when OBC has data
+        if pass_active and self.obc_data_mb > 0:
             tasks.append({"type": "schedule_downlink", "priority": "high", "detail": "pass_active"})
         if self.data_stored_mb > self.storage_capacity_mb * 0.7:
             tasks.append({"type": "schedule_downlink", "priority": "medium", "detail": "storage_pressure"})

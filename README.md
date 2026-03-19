@@ -24,12 +24,14 @@ identical scenario conditions.
 ### Current Status
 
 **EventSat baseline** (TUM single-satellite mission) is fully implemented with:
-- Complete environment simulation (power, data, comms, anomalies)
+- Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
 - Orbital mechanics module (simplified analytical models + optional Orekit integration)
 - Pre-computed eclipse intervals and ground station passes
+- Pipeline backpressure (observation limited by downlink capacity, per Proposal Section 6.1)
 - Rule-based SDA decision loop with symbolic representation
 - Both operations paradigms (autonomous hybrid, conventional ground)
-- 92 tests passing (4 Orekit-specific tests skipped when Orekit is not installed)
+- 7 research metrics collected per episode (utility, data downlink efficiency, latency, robustness, resource efficiency, operator load, explainability)
+- 159 tests passing (4 Orekit-specific tests skipped when Orekit is not installed)
 
 ## Quick Start
 
@@ -39,33 +41,45 @@ identical scenario conditions.
 
 ### Setup
 ```bash
-# Install dependencies
-uv sync
-
-# Install dev tools (pytest, etc.)
-uv sync --extra dev
+# Install dependencies (including dev tools and optional orbital mechanics)
+uv sync --extra dev --extra orbital
 
 # Run the test suite
-uv run pytest tests/ -v
+uv run python -m pytest tests/ -v -o "addopts="
 ```
 
 ### Running an Experiment
 ```bash
-# Run EventSat baseline experiment
-uv run python -c "
-from src.orchestration.config_loader import load_config
-from src.orchestration.experiment_runner import ExperimentRunner
-cfg = load_config('configs/experiments/eventsat_baseline.yaml')
-runner = ExperimentRunner(config=cfg)
-results = runner.run()
-"
+# Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>_v<N>)
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml     # autonomous hybrid
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_cg.yaml    # conventional ground
 
-# Batch run all configs in a directory
-uv run python scripts/run_batch.py configs/experiments/
+# Quick test with fewer episodes and shorter sim
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
 
-# Generate full morphological matrix configs
-uv run python scripts/generate_experiment_configs.py
+# Run and auto-generate analysis figures
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --analyze
 ```
+
+### Batch Experiments
+```bash
+# Generate config combinations from template
+uv run autops generate --template configs/experiments/template.yaml
+
+# Run all generated configs or all experiments in a folder
+uv run autops batch configs/experiments/generated/
+uv run autops batch configs/experiments/
+```
+
+### Analyzing Results
+```bash
+# Generate figures and summary from existing results
+uv run autops analyze data/results/eventsat_cen_sda_symb_hd_ah/
+```
+
+For interactive exploration, use the Jupyter notebooks:
+- `notebooks/telemetry.ipynb` — per-step satellite telemetry (battery, data, modes)
+- `notebooks/analysis.ipynb` — research metrics comparison across architectures
 
 ## Project Structure
 
@@ -106,7 +120,7 @@ autops-demo/
 Experiments are defined via YAML files validated by Pydantic:
 
 ```yaml
-experiment_id: "eventsat_baseline"
+experiment_id: "eventsat_cen_sda_symb_hd_ah"
 agent_organization: centralized
 decision_loop: sda
 representation: symbolic
@@ -127,13 +141,10 @@ See `configs/experiments/template.yaml` for the full schema.
 
 ```bash
 # All tests
-uv run pytest tests/ -v
-
-# With coverage report
-uv run pytest tests/ -v --cov=src --cov-report=html
+uv run python -m pytest tests/ -v -o "addopts="
 
 # Specific module
-uv run pytest tests/test_environment.py -v
+uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
 ```
 
 ## Documentation

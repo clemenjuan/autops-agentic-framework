@@ -81,6 +81,18 @@ class Representation(ABC):
             experience: Experience data for updating (e.g. trajectory).
         """
 
+    def get_rationale(self) -> Optional[str]:
+        """Return a human-readable rationale for the last decision.
+
+        Symbolic representations should always provide a rationale.
+        Neural representations return ``None`` unless post-hoc
+        explanation is available.
+
+        Returns:
+            Rationale string, or ``None`` if unavailable.
+        """
+        return None
+
     def get_metrics(self) -> Dict[str, float]:
         """Return representation-level metrics (e.g. inference time).
 

@@ -19,6 +19,7 @@ class SDALoop(DecisionLoop):
         self.representation = representation
         self._last_latency: float = 0.0
         self._total_steps: int = 0
+        self._last_has_rationale: bool = False
 
     def process(
         self, observation: Any, memory: Any
@@ -32,10 +33,16 @@ class SDALoop(DecisionLoop):
         action = self.representation.select_action(encoded, memory)
         self._last_latency = time.perf_counter() - t0
         self._total_steps += 1
+        # Check if representation provides a rationale (explainability)
+        self._last_has_rationale = (
+            hasattr(self.representation, "get_rationale")
+            and self.representation.get_rationale() is not None
+        )
         return action, memory
 
     def get_metrics(self) -> Dict[str, float]:
         return {
             "decision_latency_s": self._last_latency,
             "total_decisions": float(self._total_steps),
+            "has_rationale": float(self._last_has_rationale),
         }

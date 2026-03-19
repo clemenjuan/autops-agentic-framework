@@ -1,6 +1,6 @@
 # Metrics Definitions and Rationale
 
-**Status:** Theoretical framework defined. EventSat-specific metrics implemented in `src/orchestration/eventsat_metrics.py`.
+**Status (2026-03-17):** All 7 core research metrics implemented in `EventSatMetricsCollector`: Utility, Data Downlink Efficiency, Latency, Robustness, Resource Efficiency, Operator Load, Explainability. Only remaining gap: Scale & Complexity (requires multi-constellation experiments). Physics fidelity updated: J2 propagator, launch lottery Monte Carlo, and environment-enforced anomaly safe mode added (see `docs/scenarios.md`).
 
 ---
 
@@ -42,18 +42,19 @@ The metrics framework is designed to capture multiple performance dimensions for
 
 ### 3. Robustness
 
-**Definition:** Performance stability under perturbations and uncertainty.
+**Definition:** Consistency of mission performance across varying initial conditions (orbit insertion geometry, launch lottery RAAN/ArgP/TA randomisation).
 
-**Rationale:** Space environment is unpredictable — architectures must handle failures gracefully.
+**Rationale:** An architecture that achieves high mean utility but whose results vary widely across episodes depending on the specific orbit geometry is not robust. The EventSat launch lottery explicitly randomises insertion parameters per episode (simulating rideshare uncertainty) so that Monte Carlo averaging over episodes captures this variability. An architecture that delivers reliably similar utility regardless of orbit geometry is truly robust.
 
-**Measurement (candidates — require theoretical development):**
-- Variance of utility across episodes with perturbation injection.
-- Recovery time after simulated failures.
-- Graceful degradation curve as failure rate increases.
+**Measurement:** Coefficient of variation of utility across episodes:
 
-**Open Questions:**
-- What types of perturbations to inject? (satellite failures, communication drops, unexpected tasks)
-- How to separate inherent stochasticity from robustness?
+> `robustness_cv = std(utility_per_episode) / mean(utility_per_episode)`
+
+Lower CV = more consistent = better robustness. Computed at experiment level from all episode utility values.
+
+**Secondary diagnostic:** `robustness_mean_recovery_steps` tracks the within-episode steps from anomaly onset to recovery, providing a complementary measure of fault-recovery behaviour.
+
+**Implementation:** `robustness_cv` computed in `EventSatMetricsCollector.compute_statistics()`. Can also be derived directly from episode DataFrames as `episode_df.groupby("experiment_id")["utility"].agg(lambda x: x.std()/x.mean())`.
 
 ---
 
@@ -155,21 +156,96 @@ The `MetricsCollector` abstract class in `src/orchestration/metrics_collector.py
 
 ### EventSat Metrics (Implemented)
 
-The `EventSatMetricsCollector` (`src/orchestration/eventsat_metrics.py`) provides the first concrete implementation, collecting per-step and per-episode metrics:
+The `EventSatMetricsCollector` (`src/orchestration/eventsat_metrics.py`) collects per-step and per-episode metrics for the EventSat scenario.
 
 **Per-step metrics:**
-- `reward` — step reward from the environment
-- `battery_soc` — battery state of charge
-- `data_stored_mb` — onboard data storage usage
-- `data_downlinked_mb` — cumulative downlinked data
-- `in_sunlight` — whether satellite is in sunlight
-- `ground_pass_active` — whether a ground pass is active
-- `forced_mode` — whether the requested mode was overridden
-- `anomaly` — whether an anomaly event occurred
-- `observation_hours` — cumulative observation time
+- `battery_soc`, `data_stored_mb`, `data_downlinked_mb`, `observation_hours`
+- `jetson_raw_mb`, `jetson_compressed_mb`, `obc_data_mb` — 3-pool pipeline telemetry
+- `total_detections`, `max_achievable_downlink_mb` — detection + pipeline capacity
+- `in_sunlight`, `ground_pass_active`, `in_transition`
+- `forced`, `anomaly`, `anomaly_forced_safe`, `safety_override`
+- `energy_consumed_wh` — from SoC delta × battery capacity
+- `decision_latency_s`, `has_rationale`
 
-**Episode-level aggregates:**
-- `episode_reward` — total reward
-- `total_observation_hours` — total science observation time
-- `total_downlinked_mb` — total data successfully downlinked
-- Mean/min/max battery SoC across the episode
+**Episode-level aggregates (research metrics):**
+- `utility` — mission objective achievement: `w_obs × obs_ratio + w_dl × dl_ratio − w_anomaly × anomaly_rate`
+  Targets scaled from 90-day mission to episode length (7-day default).
+- `data_downlink_efficiency` — `data_downlinked_mb / max_achievable_downlink_mb`
+  Measures how effectively available ground contact time was used for downlink.
+  Source: Proposal Section 6.1 — "useful observation time is limited by downlink capacity"
+- `mean_latency_s`, `max_latency_s` — decision loop timing
+- `robustness_mean_recovery_steps` — steps to recover from anomaly events (onset to clearance — via ground pass for conventional ops, via onboard FDIR for autonomous ops)
+- `resource_efficiency` — `utility / total_energy_consumed_wh`
+- `operator_load` — fraction of steps with safety overrides
+- `explainability_score` — fraction of steps with a rationale string
+
+**Other episode-level telemetry:**
+- `observation_hours`, `downlinked_mb`, `final_battery_soc`, `total_energy_consumed_wh`
+- `safety_overrides`, `anomaly_events`, `total_detections`, `max_achievable_downlink_mb`
+
+---
+
+## Implementation Gap Analysis
+
+> **Status as of 2026-03-16:** All 7 core research metrics are operationalised in `EventSatMetricsCollector` (7/8 priorities done). Only remaining: Scale & Complexity (Priority 7) requires multi-constellation experiments.
+
+### Gap Summary
+
+| Metric | Spec requirement | Current status |
+|---|---|---|
+| Utility | Scalar mission value from objectives | ✅ Implemented: `w_obs × obs_ratio + w_dl × dl_ratio − anomaly_penalty` |
+| Data Downlink Efficiency | Fraction of downlink capacity used | ✅ Implemented: `downlinked_mb / max_achievable_downlink_mb` (Proposal Section 6.1) |
+| Latency | Wall-clock time per decision cycle | ✅ Collected from `decision_metrics` passed by experiment runner |
+| Robustness | Consistency across varying initial conditions (orbit geometry) | ✅ `robustness_cv = std(utility)/mean(utility)` across episodes; `robustness_mean_recovery_steps` retained as secondary diagnostic |
+| Resource Efficiency | Utility per unit resource consumed | ✅ `utility / total_energy_consumed_wh` |
+| Operator Load | Human intervention frequency | ✅ `safety_overrides / n_steps` (environment safety overrides as proxy); `anomaly_forced_safe` distinguishes FDIR-forced safe from voluntary safe |
+| Scale & Complexity | Metrics vs. constellation_size × complexity_index | ⚠️ Metadata recorded; 2D scaling surface requires multi-constellation experiments |
+| Explainability | Decision trace completeness | ✅ `decisions_with_rationale / n_steps` (`rule_based_eventsat` yields 1.0) |
+
+---
+
+## Required Implementation Work
+
+### ~~Priority 1 — Fix schema mismatch~~ ✅ Done
+
+`EventSatMetricsCollector` uses `StepMetrics` / `EpisodeMetrics` / `ExperimentStatistics` from the base class.
+
+### ~~Priority 2 — Instrument latency measurement~~ ✅ Done
+
+`decision_latency_s` collected from `decision_metrics` passed by experiment runner.
+
+### ~~Priority 3 — Define and compute Utility~~ ✅ Done
+
+```
+Utility = w_obs × (obs_hours / scaled_obs_target)
+        + w_dl  × (dl_mb / scaled_dl_target)
+        - w_anomaly × anomaly_rate
+```
+
+Weights configurable via experiment YAML (`utility_weights`). Targets scaled from 90-day mission to episode length.
+
+### ~~Priority 4 — Compute Resource Efficiency~~ ✅ Done
+
+`resource_efficiency = utility / total_energy_consumed_wh`. Energy from SoC delta × battery capacity.
+
+### ~~Priority 5 — Define Operator Load~~ ✅ Done
+
+`operator_load = safety_overrides / n_steps` (environment safety overrides as proxy).
+
+### ~~Priority 6 — Add Robustness measurement~~ ✅ Done
+
+- Within-episode: `robustness_mean_recovery_steps` from anomaly onset/recovery tracking.
+- Cross-episode: `robustness_cv = std(utility) / mean(utility)` in `compute_statistics()`.
+
+### Priority 7 — Record Scale & Complexity metadata
+
+Every `ExperimentStatistics` result must record:
+- `constellation_size` — from experiment config
+- `complexity_index` — 0 (centralized), 1 (hierarchical), 2 (distributed), derived from `agent_organization` config field
+- All research metrics stored indexed by `(constellation_size, complexity_index)` to enable the 2D scaling surface analysis from RQ3
+
+Status: ⚠️ Metadata recorded; 2D scaling surface requires multi-constellation experiments (Flamingo scenario).
+
+### ~~Priority 8 — Explainability instrumentation~~ ✅ Done
+
+`explainability_score = decisions_with_rationale / n_steps`. Symbolic (`rule_based_eventsat`) yields 1.0; neural/hybrid will yield lower values.

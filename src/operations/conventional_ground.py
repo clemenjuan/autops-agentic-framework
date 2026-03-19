@@ -3,15 +3,15 @@
 Traditional ground-based operations where:
 - Ground only sees telemetry that was downlinked during the last pass
 - Commands can only be uplinked during ground passes
-- Between passes, the satellite follows the last uploaded command sequence
-- Information staleness increases between passes
+- Between passes, the satellite executes a pre-uploaded time-tagged schedule
+- If the schedule is exhausted, the satellite falls back to the default mode
+- Schedule is generated AFTER fresh telemetry is received during a pass
 """
 
 from __future__ import annotations
 
 import copy
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.environment.satellite_env import (
     ConstellationState,
@@ -22,40 +22,73 @@ from src.operations.base import GroundKnowledge, OperationsParadigm
 
 
 class ConventionalGround(OperationsParadigm):
-    """Traditional ground-based operations with stale telemetry.
+    """Traditional ground-based operations with stale telemetry and schedule upload.
 
     The agent represents a ground operator who:
     1. Only sees the satellite state as of the last downlink
     2. Can only send commands during ground passes
-    3. Must pre-plan command sequences for autonomous execution between passes
+    3. During a pass: first receives fresh telemetry, then generates and uploads
+       a complete time-tagged schedule covering the gap until the next pass
+    4. Between passes: the satellite executes the schedule with zero onboard autonomy
 
     Config options:
-        default_mode: Mode to use when no commands can be sent (default: "charging")
-        command_sequence_horizon: Steps ahead to plan (default: 100)
+        default_mode: Mode to use when schedule is exhausted (default: "charging")
+        orbital_period_steps: Estimated steps between passes (default: 93 = 5554s/60s)
     """
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
         self._default_mode = self.config.get("default_mode", "charging")
-        self._command_sequence_horizon = self.config.get(
-            "command_sequence_horizon", 100
-        )
-        self._last_commanded_action: Dict[str, Any] = {}
+        self._orbital_period_steps = self.config.get("orbital_period_steps", 93)
+        # Schedule: list of (mode, remaining_steps) pairs
+        self._schedule: List[Tuple[str, int]] = []
+        self._schedule_index: int = 0
 
     def filter_observation(self, full_observation: Any, step: int) -> Any:
-        """Return observation based on stale ground knowledge.
+        """Return observation based on ground knowledge.
 
-        Instead of real-time state, the agent sees a reconstructed
-        observation from the last downlinked telemetry.
+        During a ground pass, ground_pass_active is set to True (the ground
+        operator knows they have a link). estimated_gap_steps is added to
+        metadata so the schedule planner knows how long to plan for.
+
+        Between passes, the agent sees only stale downlinked telemetry.
         """
         if full_observation is None:
             return None
+
+        # Determine real-time ground pass status from the full observation
+        real_ground_pass_active = False
+        real_in_sunlight = False
+        for sat in full_observation.constellation_state.satellites.values():
+            if sat.metadata.get("ground_pass_active", False):
+                real_ground_pass_active = True
+            if sat.metadata.get("in_sunlight", False):
+                real_in_sunlight = True
 
         self._ground_knowledge.staleness_steps = (
             step - self._ground_knowledge.last_update_step
         )
 
         gk = self._ground_knowledge
+        metadata: Dict[str, Any] = {
+            "in_sunlight": real_in_sunlight,
+            "ground_pass_active": real_ground_pass_active,
+            "uncompressed_observations": gk.uncompressed_observations,
+            "total_observation_s": gk.observation_hours * 3600.0,
+            "storage_capacity_mb": 1*1024*1024,  # 1 TB in MB
+            "health_status": gk.health_status,
+            "staleness_steps": gk.staleness_steps,
+            "last_update_step": gk.last_update_step,
+            "jetson_raw_mb": gk.jetson_raw_mb,
+            "jetson_compressed_mb": gk.jetson_compressed_mb,
+            "obc_data_mb": gk.obc_data_mb,
+            "undetected_observations": gk.undetected_observations,
+        }
+
+        if real_ground_pass_active:
+            # Provide the schedule planner with the estimated gap length
+            metadata["estimated_gap_steps"] = self._orbital_period_steps
+
         stale_sat = SatelliteState(
             satellite_id="eventsat_0",
             position=[0.0, 0.0, 500.0],
@@ -63,19 +96,11 @@ class ConventionalGround(OperationsParadigm):
             resources={
                 "battery_soc": gk.battery_soc,
                 "data_stored_mb": gk.data_stored_mb,
+                "obc_data_mb": gk.obc_data_mb,
                 "data_downlinked_mb": 0.0,
             },
             status=gk.current_mode,
-            metadata={
-                "in_sunlight": False,
-                "ground_pass_active": False,
-                "uncompressed_observations": 0,
-                "total_observation_s": gk.observation_hours * 3600.0,
-                "storage_capacity_mb": 512.0,
-                "health_status": gk.health_status,
-                "staleness_steps": gk.staleness_steps,
-                "last_update_step": gk.last_update_step,
-            },
+            metadata=metadata,
         )
         stale_constellation = ConstellationState(
             timestep=gk.last_update_step,
@@ -99,16 +124,44 @@ class ConventionalGround(OperationsParadigm):
         step: int,
         ground_pass_active: bool,
     ) -> Dict[str, Any]:
-        """Buffer actions during passes; replay last command otherwise."""
+        """During pass: extract and store schedule, execute immediate mode.
+        Between passes: consume the schedule step by step.
+        """
         if ground_pass_active:
-            self._last_commanded_action = copy.deepcopy(action)
-            return action
+            # Extract and store schedule if provided by the representation
+            sat_action = action.get("eventsat_0", {})
+            if "schedule" in sat_action:
+                new_schedule = sat_action["schedule"]
+                if new_schedule:
+                    # Convert to mutable list of [mode, remaining_steps]
+                    self._schedule = [
+                        [mode, steps] for mode, steps in new_schedule
+                    ]
+                    self._schedule_index = 0
 
-        if self._last_commanded_action:
-            return self._last_commanded_action
+            # Strip schedule from action before passing to environment
+            immediate_mode = sat_action.get("mode", self._default_mode)
+            return {"eventsat_0": {"mode": immediate_mode}}
 
+        # Between passes: consume schedule sequentially
+        return self._consume_schedule()
+
+    def _consume_schedule(self) -> Dict[str, Any]:
+        """Pop the next mode from the schedule, advancing past exhausted entries."""
+        while self._schedule_index < len(self._schedule):
+            entry = self._schedule[self._schedule_index]
+            mode, remaining = entry[0], entry[1]
+            if remaining > 0:
+                entry[1] -= 1
+                if entry[1] == 0:
+                    self._schedule_index += 1
+                return {"eventsat_0": {"mode": mode}}
+            self._schedule_index += 1
+
+        # Schedule exhausted — fallback
         return {"eventsat_0": {"mode": self._default_mode}}
 
     def reset(self) -> None:
         super().reset()
-        self._last_commanded_action = {}
+        self._schedule = []
+        self._schedule_index = 0

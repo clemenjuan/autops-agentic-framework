@@ -27,6 +27,13 @@ class GroundKnowledge:
     health_status: str = "nominal"
     observation_hours: float = 0.0
     staleness_steps: int = 0
+    # 3-pool pipeline fields (needed for schedule planning)
+    obc_data_mb: float = 0.0
+    jetson_raw_mb: float = 0.0
+    jetson_compressed_mb: float = 0.0
+    uncompressed_observations: int = 0
+    undetected_observations: int = 0
+    in_sunlight: bool = True
 
 
 class OperationsParadigm(ABC):
@@ -116,21 +123,29 @@ class OperationsParadigm(ABC):
             return
         cs = obs.constellation_state
         for sat_id, sat in cs.satellites.items():
-            self._ground_knowledge.last_update_step = step
-            self._ground_knowledge.battery_soc = sat.resources.get(
-                "battery_soc", self._ground_knowledge.battery_soc
+            gk = self._ground_knowledge
+            gk.last_update_step = step
+            gk.battery_soc = sat.resources.get("battery_soc", gk.battery_soc)
+            gk.data_stored_mb = sat.resources.get("data_stored_mb", gk.data_stored_mb)
+            gk.current_mode = sat.status
+            gk.health_status = sat.metadata.get("health_status", "nominal")
+            gk.observation_hours = sat.metadata.get("total_observation_s", 0.0) / 3600.0
+            gk.staleness_steps = 0
+            # 3-pool pipeline fields
+            gk.obc_data_mb = sat.resources.get(
+                "obc_data_mb", sat.metadata.get("obc_data_mb", gk.obc_data_mb)
             )
-            self._ground_knowledge.data_stored_mb = sat.resources.get(
-                "data_stored_mb", self._ground_knowledge.data_stored_mb
+            gk.jetson_raw_mb = sat.metadata.get("jetson_raw_mb", gk.jetson_raw_mb)
+            gk.jetson_compressed_mb = sat.metadata.get(
+                "jetson_compressed_mb", gk.jetson_compressed_mb
             )
-            self._ground_knowledge.current_mode = sat.status
-            self._ground_knowledge.health_status = sat.metadata.get(
-                "health_status", "nominal"
+            gk.uncompressed_observations = sat.metadata.get(
+                "uncompressed_observations", gk.uncompressed_observations
             )
-            self._ground_knowledge.observation_hours = (
-                sat.metadata.get("total_observation_s", 0.0) / 3600.0
+            gk.undetected_observations = sat.metadata.get(
+                "undetected_observations", gk.undetected_observations
             )
-            self._ground_knowledge.staleness_steps = 0
+            gk.in_sunlight = sat.metadata.get("in_sunlight", gk.in_sunlight)
 
     def get_ground_knowledge(self) -> GroundKnowledge:
         """Return the current ground knowledge snapshot."""
@@ -140,6 +155,15 @@ class OperationsParadigm(ABC):
         """Reset paradigm state for a new episode."""
         self._ground_knowledge = GroundKnowledge()
         self._action_buffer.clear()
+
+    def can_self_recover_anomaly(self) -> bool:
+        """Whether onboard autonomy can clear anomalies without ground contact.
+
+        Autonomous paradigms return True (onboard FDIR clears anomalies once
+        the minimum safe-mode countdown expires). Ground-based paradigms return
+        False (ground must send a resume command during a pass).
+        """
+        return False
 
     def get_name(self) -> str:
         """Return the paradigm name."""

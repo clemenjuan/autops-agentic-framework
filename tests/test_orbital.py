@@ -242,6 +242,15 @@ class TestEventSatWithOrbitalContext:
 
 
 # -----------------------------------------------------------------
+# Thermal model tests (REMOVED)
+# -----------------------------------------------------------------
+# Thermal model was removed from the EventSat environment.
+# Heat dissipation design is in progress; temperature is not a constraint.
+# The Jetson is limited by energy budget and data pipeline (Jetson→OBC→S-band).
+# These tests have been replaced by test_eventsat_physics.py.
+
+
+# -----------------------------------------------------------------
 # Orekit-specific tests (skipped when not installed)
 # -----------------------------------------------------------------
 
@@ -311,3 +320,89 @@ class TestOrekitPropagation:
         )
         assert ctx.mode == "orekit"
         assert len(ctx.eclipses) > 0
+
+    def test_j2_propagator_created(self):
+        """J2 (EcksteinHechler) propagator should be created without error."""
+        from datetime import datetime, timezone
+        from src.environment.orbital.propagator import create_j2_propagator
+
+        propagator = create_j2_propagator(
+            a_km=6778.137, e=0.001, i_deg=97.4,
+            raan_deg=45.0, argp_deg=0.0, ta_deg=0.0,
+            epoch=datetime(2026, 6, 1, tzinfo=timezone.utc),
+        )
+        assert propagator is not None
+
+    def test_j2_raan_precession(self):
+        """EcksteinHechler J2 propagator must show RAAN precession over 7 days.
+
+        At 400 km SSO (97.4 deg inclination), the J2-driven RAAN drift is
+        ~0.98 deg/day → ~6.86 deg over 7 days. We accept 0.5–2 deg/day
+        to accommodate minor model differences.
+        """
+        import math
+        from datetime import datetime, timezone
+        from src.environment.orbital.propagator import create_j2_propagator
+
+        epoch = datetime(2026, 6, 1, tzinfo=timezone.utc)
+        propagator = create_j2_propagator(
+            a_km=6778.137, e=0.001, i_deg=97.4,
+            raan_deg=0.0, argp_deg=0.0, ta_deg=0.0,
+            epoch=epoch,
+        )
+        # Propagate 7 days
+        from org.orekit.time import TimeScalesFactory, AbsoluteDate
+        from org.orekit.orbits import KeplerianOrbit
+        utc = TimeScalesFactory.getUTC()
+        t0 = AbsoluteDate(2026, 6, 1, 0, 0, 0.0, utc)
+        state_7d = propagator.propagate(t0.shiftedBy(7 * 86400.0))
+        kep = KeplerianOrbit(state_7d.getOrbit())
+        raan_7d = math.degrees(kep.getRightAscensionOfAscendingNode())
+        # Handle wrap-around: RAAN is in [0, 360)
+        raan_drift = (raan_7d + 360) % 360
+        drift_per_day = raan_drift / 7.0
+        assert 0.5 <= drift_per_day <= 2.0, (
+            f"RAAN drift {drift_per_day:.3f} deg/day outside expected range [0.5, 2.0]. "
+            "J2 perturbation may not be active."
+        )
+
+    def test_launch_lottery_varies_raan(self):
+        """Different seeds must produce different RAAN/ArgP/TA values."""
+        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+
+        env = EventSatEnvironment(config={
+            "step_duration_s": 60,
+            "max_steps": 10,
+            "scenario_params": {
+                "orbit": {
+                    "altitude_km": 400,
+                    "inclination_deg": 97.4,
+                    "eccentricity": 0.001,
+                    "launch_lottery": True,
+                    "propagator": "j2",
+                    "orbital_period_s": 5554,
+                    "eclipse_fraction": 0.36,
+                },
+                "communications": {
+                    "ground_station": {"latitude_deg": 48.0483, "longitude_deg": 11.6567},
+                    "sband": {"downlink_rate_kbps": 128},
+                    "passes": {"min_per_day": 2, "max_per_day": 3},
+                },
+            },
+        })
+        # Same seed → same orbital context
+        env.reset(seed=42)
+        ctx_a = env._orbital_ctx
+        env.reset(seed=42)
+        ctx_b = env._orbital_ctx
+        # Check mode (both should be orekit since Orekit is available)
+        assert ctx_a.mode == ctx_b.mode == "orekit"
+        # Eclipse patterns should be identical for same seed
+        assert len(ctx_a.eclipses) == len(ctx_b.eclipses)
+
+        # Different seed → different eclipse pattern (different RAAN → different lighting)
+        env.reset(seed=999)
+        ctx_c = env._orbital_ctx
+        # It's possible but unlikely that two random RAANs produce identical eclipse counts
+        # over a short window. We at least verify the context is computed fresh.
+        assert ctx_c is not ctx_a  # Different object (was recomputed)

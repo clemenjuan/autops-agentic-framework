@@ -32,9 +32,21 @@ class MetricsConfig(BaseModel):
             "robustness",
             "resource_efficiency",
             "operator_load",
+            "explainability",
+            "scale_complexity",
         ]
     )
     collection_frequency: str = Field(default="per_step")
+    utility_weights: Dict[str, float] = Field(
+        default={"observation": 0.5, "downlink": 0.4, "anomaly_penalty": 0.1}
+    )
+    utility_targets: Dict[str, float] = Field(
+        default={
+            "observation_hours": 2.0,
+            "downlinked_mb": 240.0,
+            "mission_duration_days": 90.0,
+        }
+    )
 
     @field_validator("collection_frequency")
     @classmethod
@@ -192,6 +204,42 @@ def load_config(path: str | Path) -> ExperimentConfig:
         raw["output_dir"] = raw["output_dir"].replace("${experiment_id}", exp_id)
 
     return ExperimentConfig(**raw)
+
+
+def apply_overrides(
+    config: ExperimentConfig,
+    *,
+    episodes: int | None = None,
+    steps: int | None = None,
+    seed: int | None = None,
+    output_dir: str | None = None,
+) -> ExperimentConfig:
+    """Apply CLI overrides to an experiment configuration.
+
+    Args:
+        config: The base configuration.
+        episodes: Override num_episodes.
+        steps: Override max_steps (both top-level and environment).
+        seed: Override seed.
+        output_dir: Override output_dir.
+
+    Returns:
+        A new ExperimentConfig with overrides applied.
+    """
+    updates: Dict[str, Any] = {}
+    if episodes is not None:
+        updates["num_episodes"] = episodes
+    if steps is not None:
+        updates["max_steps"] = steps
+        updates["environment"] = config.environment.model_copy(update={"max_steps": steps})
+    if seed is not None:
+        updates["seed"] = seed
+    if output_dir is not None:
+        updates["output_dir"] = output_dir
+
+    if not updates:
+        return config
+    return config.model_copy(update=updates)
 
 
 def save_config(config: ExperimentConfig, path: str | Path) -> None:

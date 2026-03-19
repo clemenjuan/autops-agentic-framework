@@ -117,7 +117,8 @@ autops-demo/
 ├── configs/
 │   ├── experiments/
 │   │   ├── template.yaml            # Configuration template
-│   │   └── eventsat_baseline.yaml   # EventSat baseline experiment
+│   │   ├── eventsat_cen_sda_symb_hd_ah.yaml  # autonomous hybrid (reference)
+│   │   └── eventsat_cen_sda_symb_hd_cg.yaml  # conventional ground
 │   └── scenarios/
 │       └── eventsat.yaml            # EventSat scenario parameters
 ├── tests/
@@ -421,11 +422,17 @@ The following metrics must be collected, but **specific implementations require 
 
 #### 3. Robustness
 
-**Definition:** Performance stability under perturbations and uncertainty
+**Definition:** Consistency of mission performance across varying initial conditions (orbit insertion geometry, launch lottery RAAN/ArgP/TA randomisation). Measured as the coefficient of variation of utility across episodes:
 
-**Rationale:** Space environment is unpredictable—architectures must handle failures
+> CV = σ(utility) / μ(utility)
 
-**Note:** Specific robustness metrics require theoretical development (e.g., variance analysis, failure recovery metrics)
+A lower CV means the architecture delivers reliably similar results regardless of the specific orbit geometry in a given episode, indicating true robustness to insertion uncertainty.
+
+**Rationale:** An architecture that scores high utility on average but collapses under unfavourable orbital geometries is not robust. The launch lottery in the EventSat scenario explicitly randomises insertion parameters per episode so that Monte Carlo averaging over episodes captures rideshare uncertainty — CV across those episodes is therefore a direct measure of robustness.
+
+**Measurement:** `robustness_cv = std(utility_per_episode) / mean(utility_per_episode)`. Computed at experiment level; lower is better.
+
+**Note:** Within-episode anomaly recovery time (`robustness_mean_recovery_steps`) is tracked separately as a secondary diagnostic metric but is not the primary robustness indicator.
 
 ***
 
@@ -459,7 +466,19 @@ The following metrics must be collected, but **specific implementations require 
 
 ***
 
-#### 7. Explainability
+#### 7. Data Downlink Efficiency
+
+**Definition:** Fraction of the maximum achievable downlink capacity actually used in an episode:
+
+> data_downlink_efficiency = downlinked_mb / max_achievable_downlink_mb
+
+**Rationale:** An architecture may achieve high utility (observations taken) but fail to downlink the data due to poor scheduling of communication passes. This metric separates observation performance from ground-contact exploitation and directly addresses the data pipeline bottleneck described in Proposal Section 6.1.
+
+**Measurement:** Computed per episode from total data downlinked vs. the maximum achievable given the ground passes that occurred. Value in [0, 1]; higher is better.
+
+***
+
+#### 8. Explainability
 
 **Definition:** The degree to which an architecture's decisions can be interpreted and justified to human operators.
 
@@ -855,7 +874,7 @@ Scenarios are implemented sequentially:
 2. **Flamingo** → medium-scale multi-agent organization comparison
 3. **Space Data Centers** → large-scale scalability laws and composability limits
 
-This progression directly maps to the RQ3 scalability study across both constellation size and structural complexity.
+ This progression directly maps to the RQ3 scalability study across both constellation size and structural complexity.
 
 ***
 

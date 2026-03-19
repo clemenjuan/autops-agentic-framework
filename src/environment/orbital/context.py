@@ -66,6 +66,7 @@ def compute_orbital_context(
     step_s: float,
     total_steps: int,
     epoch: Optional[datetime] = None,
+    require_orekit: bool = False,
 ) -> OrbitalContext:
     """Compute orbital context for an episode.
 
@@ -78,6 +79,9 @@ def compute_orbital_context(
         step_s: Timestep duration in seconds.
         total_steps: Total simulation steps.
         epoch: Simulation start epoch (for Orekit).
+        require_orekit: If True and Orekit is not available or fails,
+            log a warning instead of silently falling back. Ground passes
+            will be stochastic rather than physics-based.
 
     Returns:
         OrbitalContext with pre-computed events.
@@ -93,7 +97,17 @@ def compute_orbital_context(
                 orbit_config, comms_config, step_s, total_steps, duration_s, epoch
             )
         except Exception as e:
-            logger.warning("Orekit computation failed, falling back: %s", e)
+            if require_orekit:
+                logger.error(
+                    "Orekit required but failed — ground passes will be stochastic: %s", e
+                )
+            else:
+                logger.warning("Orekit computation failed, falling back: %s", e)
+    elif require_orekit:
+        logger.warning(
+            "Orekit not available — ground passes will be stochastic, not physics-based. "
+            "Install orekit-jpype for deterministic pass computation."
+        )
 
     # Simplified fallback
     return _compute_simplified_context(
@@ -118,6 +132,7 @@ def _compute_orekit_context(
 ) -> OrbitalContext:
     """Compute context using Orekit."""
     from src.environment.orbital.propagator import (
+        create_j2_propagator,
         create_keplerian_propagator,
         create_tle_propagator,
     )
@@ -125,7 +140,7 @@ def _compute_orekit_context(
     if epoch is None:
         epoch = datetime(2026, 6, 1, tzinfo=timezone.utc)
 
-    # Create propagator
+    # Create propagator — TLE takes priority; otherwise select by 'propagator' key
     if "tle_line1" in orbit_config:
         propagator = create_tle_propagator(
             orbit_config["tle_line1"], orbit_config["tle_line2"]
@@ -133,7 +148,8 @@ def _compute_orekit_context(
     else:
         earth_radius_km = 6378.137
         a_km = earth_radius_km + orbit_config.get("altitude_km", 500)
-        propagator = create_keplerian_propagator(
+        propagator_type = orbit_config.get("propagator", "j2")
+        kep_kwargs = dict(
             a_km=a_km,
             e=orbit_config.get("eccentricity", 0.001),
             i_deg=orbit_config.get("inclination_deg", 97.4),
@@ -142,6 +158,10 @@ def _compute_orekit_context(
             ta_deg=orbit_config.get("true_anomaly_deg", 0.0),
             epoch=epoch,
         )
+        if propagator_type == "j2":
+            propagator = create_j2_propagator(**kep_kwargs)
+        else:
+            propagator = create_keplerian_propagator(**kep_kwargs)
 
     # Compute eclipses
     eclipses = compute_eclipses_orekit(propagator, duration_s, step_s)

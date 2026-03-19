@@ -56,6 +56,8 @@ data/results/*/
 !data/results/README.md
 data/trained_models/*/
 !data/trained_models/README.md
+data/figures/*
+!data/figures/README.md
 
 # Generated experiment configs
 configs/experiments/generated/
@@ -69,5 +71,12 @@ configs/experiments/generated/
 PROGRESS.md
 Phase*.md
 
+# Orekit data
+orekit-data.zip
+
+# ffmpeg
+
+
 # Docs
-docs/Eventsat_Preliminary_Design_Review_Document.pdf
+docs/*
+!docs/*.md

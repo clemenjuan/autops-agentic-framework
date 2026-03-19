@@ -36,6 +36,13 @@ rl = [
     "gymnasium",       # Standard RL interface (optional)
 ]
 
+viz = [
+    "cartopy",         # World map projections for ground track animation
+    "pillow",          # GIF output for animate_ground_track
+]
+
+[project.scripts]
+autops = "src.cli:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -24,8 +24,11 @@ try:
     if not jpype.isJVMStarted():
         orekit_jpype.initVM()
 
+    from pathlib import Path as _Path
     from orekit_jpype.pyhelpers import setup_orekit_data
-    setup_orekit_data(from_pip_library=True)
+    # Use absolute path so it works regardless of CWD (e.g. when called from notebooks/)
+    _orekit_data = str(_Path(__file__).parent.parent.parent.parent / "orekit-data.zip")
+    setup_orekit_data(filenames=_orekit_data, from_pip_library=True)
 
     from org.orekit.frames import FramesFactory, TopocentricFrame
     from org.orekit.time import TimeScalesFactory, AbsoluteDate
@@ -35,7 +38,7 @@ try:
         OneAxisEllipsoid,
     )
     from org.orekit.orbits import KeplerianOrbit, PositionAngleType
-    from org.orekit.propagation.analytical import KeplerianPropagator
+    from org.orekit.propagation.analytical import KeplerianPropagator, EcksteinHechlerPropagator
     from org.orekit.propagation.analytical.tle import TLE, TLEPropagator
     from org.orekit.propagation.events import (
         EclipseDetector,
@@ -116,6 +119,55 @@ def create_keplerian_propagator(
         Constants.WGS84_EARTH_MU,
     )
     return KeplerianPropagator(orbit)
+
+
+def create_j2_propagator(
+    a_km: float,
+    e: float,
+    i_deg: float,
+    raan_deg: float,
+    argp_deg: float,
+    ta_deg: float,
+    epoch: datetime,
+) -> Any:
+    """Create an analytical J2 propagator using EcksteinHechler.
+
+    Models J2 secular perturbation — critical for SSO RAAN precession
+    (~0.98 deg/day at 400 km, 97.4 deg inclination). Falls back to
+    Keplerian (two-body) if the J2 propagator fails.
+
+    Uses EcksteinHechlerPropagator which handles near-circular orbits
+    robustly (unlike BrouwerLyddane which can fail to converge for
+    certain initial conditions).
+    """
+    if not OREKIT_AVAILABLE:
+        raise RuntimeError("Orekit is not available.")
+
+    frame = FramesFactory.getEME2000()
+    date = _datetime_to_absolute(epoch)
+    orbit = KeplerianOrbit(
+        a_km * 1000.0,
+        e,
+        math.radians(i_deg),
+        math.radians(argp_deg),
+        math.radians(raan_deg),
+        math.radians(ta_deg),
+        PositionAngleType.TRUE,
+        frame,
+        date,
+        Constants.WGS84_EARTH_MU,
+    )
+    try:
+        return EcksteinHechlerPropagator(
+            orbit,
+            Constants.WGS84_EARTH_EQUATORIAL_RADIUS,
+            Constants.WGS84_EARTH_MU,
+            Constants.WGS84_EARTH_C20,
+            0.0, 0.0, 0.0, 0.0,  # J3-J6 = 0 (J2-only)
+        )
+    except Exception as exc:
+        logger.warning("J2 propagator (EcksteinHechler) failed, falling back to Keplerian: %s", exc)
+        return KeplerianPropagator(orbit)
 
 
 def create_tle_propagator(tle_line1: str, tle_line2: str) -> Any:

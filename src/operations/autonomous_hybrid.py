@@ -21,6 +21,10 @@ class AutonomousHybrid(OperationsParadigm):
     def can_act(self, step: int, ground_pass_active: bool) -> bool:
         return True
 
+    def can_self_recover_anomaly(self) -> bool:
+        """Onboard FDIR can clear anomalies without ground contact."""
+        return True
+
     def process_action(
         self,
         action: Dict[str, Any],

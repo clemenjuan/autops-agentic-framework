@@ -14,6 +14,7 @@ Usage::
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -205,6 +206,11 @@ class ExperimentRunner:
 
         if scenario == "eventsat":
             from src.environment.scenarios.eventsat_env import EventSatEnvironment
+            # Tell the environment whether the operations paradigm allows
+            # onboard anomaly recovery (autonomous) vs requiring ground contact.
+            env_cfg["anomaly_requires_ground_pass"] = (
+                self.config.operations_paradigm != "autonomous_hybrid"
+            )
             return EventSatEnvironment(config=env_cfg)
 
         logger.warning("Unknown scenario '%s', returning None.", scenario)
@@ -252,6 +258,7 @@ class ExperimentRunner:
         """Factory for decision loop instances (one per agent)."""
         from src.emergence.controller import EmergenceController
         import src.representation.rule_based_eventsat  # register representations
+        import src.representation.schedule_based_eventsat  # register schedule planner
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
@@ -297,7 +304,13 @@ class ExperimentRunner:
         scenario = self.config.environment.scenario
         if scenario == "eventsat":
             from src.orchestration.eventsat_metrics import EventSatMetricsCollector
-            return EventSatMetricsCollector(config=self.config.metrics.model_dump())
+            metrics_cfg = self.config.metrics.model_dump()
+            # Pass environment parameters needed for energy/utility computation
+            metrics_cfg["max_steps"] = self.config.max_steps
+            metrics_cfg["step_duration_s"] = self.config.environment.timestep_seconds
+            if self._environment is not None and hasattr(self._environment, "battery_capacity_wh"):
+                metrics_cfg["battery_capacity_wh"] = self._environment.battery_capacity_wh
+            return EventSatMetricsCollector(config=metrics_cfg)
         logger.warning("No metrics collector for scenario '%s'.", scenario)
         return None
 
@@ -343,10 +356,16 @@ class ExperimentRunner:
 
         episode_duration = time.perf_counter() - episode_start
 
+        # --- Finalise episode metrics ---
+        episode_metrics = None
+        if self._metrics_collector is not None:
+            episode_metrics = self._metrics_collector.finalise_episode(episode_id)
+
         return {
             "episode_id": episode_id,
             "num_steps": len(step_data),
             "wall_clock_seconds": episode_duration,
+            "episode_metrics": episode_metrics,
             "steps": step_data,
         }
 
@@ -390,14 +409,24 @@ class ExperimentRunner:
         else:
             agent_obs = {}
 
-        # 3. Decision loops
+        # 3. Decision loops (timed for latency metric)
         agent_actions = {}
+        decision_metrics: Dict[str, Any] = {}
         for agent_id, loop in self._decision_loops.items():
             obs = agent_obs.get(agent_id)
+            t0 = time.perf_counter()
             action, self._memory = loop.process(obs, self._memory)
+            decision_latency = time.perf_counter() - t0
             from src.agent_organization.base import AgentAction
 
             agent_actions[agent_id] = AgentAction(agent_id=agent_id, action=action)
+            # Collect decision loop metrics (latency, rationale, etc.)
+            loop_metrics = loop.get_metrics() if hasattr(loop, "get_metrics") else {}
+            decision_metrics = {
+                "decision_latency_s": decision_latency,
+                "has_rationale": loop_metrics.get("has_rationale", False),
+                **loop_metrics,
+            }
 
         # 4. Collect actions
         if self._organization is not None:
@@ -434,6 +463,18 @@ class ExperimentRunner:
 
         step_duration = time.perf_counter() - step_start
 
+        # 8. Record metrics through the collector pipeline
+        if self._metrics_collector is not None:
+            self._metrics_collector.record_step(
+                timestep=step,
+                wall_clock_seconds=step_duration,
+                env_state=new_observation,
+                actions=env_actions,
+                rewards=rewards,
+                info=info,
+                decision_metrics=decision_metrics,
+            )
+
         return {
             "step": step,
             "wall_clock_seconds": step_duration,
@@ -454,12 +495,38 @@ class ExperimentRunner:
         Returns:
             Full results dictionary with configuration provenance.
         """
+        # Finalise experiment-level statistics
+        experiment_statistics = None
+        if self._metrics_collector is not None:
+            stats = self._metrics_collector.finalise_experiment(
+                self.config.experiment_id
+            )
+            # P7: Record Scale & Complexity metadata
+            complexity_map = {
+                "centralized": 0,
+                "hierarchical": 1,
+                "distributed": 2,
+            }
+            stats.metadata = {
+                "constellation_size": self.config.environment.constellation_size,
+                "complexity_index": complexity_map.get(
+                    self.config.agent_organization, 0
+                ),
+                "agent_organization": self.config.agent_organization,
+                "decision_loop": self.config.decision_loop,
+                "representation": self.config.representation,
+                "emergence_mode": self.config.emergence_mode,
+                "operations_paradigm": self.config.operations_paradigm,
+            }
+            experiment_statistics = stats
+
         return {
             "experiment_id": self.config.experiment_id,
             "description": self.config.description,
             "config": self.config.model_dump(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "num_episodes": len(all_episode_metrics),
+            "experiment_statistics": experiment_statistics,
             "episodes": all_episode_metrics,
         }
 
@@ -519,6 +586,17 @@ class ExperimentRunner:
             return [ExperimentRunner._make_serialisable(v) for v in obj]
         elif isinstance(obj, (int, float, str, bool, type(None))):
             return obj
+        elif isinstance(obj, (np.integer,)):
+            return int(obj)
+        elif isinstance(obj, (np.floating,)):
+            return float(obj)
+        elif isinstance(obj, np.ndarray):
+            return obj.tolist()
+        elif dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return {
+                k: ExperimentRunner._make_serialisable(v)
+                for k, v in dataclasses.asdict(obj).items()
+            }
         elif hasattr(obj, "__dict__"):
             return ExperimentRunner._make_serialisable(obj.__dict__)
         else:

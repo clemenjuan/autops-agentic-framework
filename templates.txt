@@ -1,0 +1,47 @@
+Template 1: Implement a New Component
+
+Implement [component name] for the [dimension] axis.
+It should [brief behavior description].
+Reference docs/FOUNDATION_SPEC.md for the interface contract.
+Write tests, make sure existing tests still pass.
+
+Example: "Implement a DeliberativeLoop for the decision_loop axis. It should use a plan-then-act cycle with replanning on failure. Reference docs/FOUNDATION_SPEC.md for the interface contract. Write tests, make sure existing tests still pass."
+
+------------------------------------
+Template 2: Bug Fix / Investigation
+
+[Describe the symptom or error message].
+The relevant code is in [file/module if known].
+Investigate the root cause, fix it, and verify with tests.
+
+-----------------------------------
+Template 3: New Experiment Config
+
+Create an experiment config for: [describe the combination].
+Organization: [centralized/hierarchical/distributed]
+Decision loop: [reactive/deliberative/hybrid]
+Representation: [symbolic/sub-symbolic/hybrid]
+Emergence: [hand_designed/learned]
+Scenario: [scenario name], [N] satellites, [M] steps.
+
+-----------------------------------
+Template 4: Research / Exploration
+
+I need to understand how [topic/module] works in this codebase.
+Explore the relevant files and explain:
+- The key abstractions and their relationships
+- How data flows through the system
+- Any gaps or TODOs I should be aware of
+
+---------------------------------
+Template 5: Refactor / Improve
+
+Refactor [module/file] to [goal: e.g., "separate concerns", "improve testability"].
+Keep the public interface stable. Run tests after.
+Don't change unrelated code.
+
+---------------------------------------
+Template 6: Start a Feature Branch
+
+Create a feature branch for: [short description].
+Then [implement/plan] the following: [description of work].

@@ -4,7 +4,14 @@
 # All experimental choices must be specified here — no hardcoded decisions.
 
 # ─── Experiment Identification ───────────────────────────────────────
-experiment_id: "exp_XXX_description"
+# Naming convention: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>
+#   org:  cen | hier | dist
+#   loop: sda | ooda | coala
+#   repr: symb | hybr
+#   emrg: hd | learn
+#   ops:  ah (autonomous_hybrid) | cg (conventional_ground)
+# Example: eventsat_cen_sda_symb_hd_ah
+experiment_id: "eventsat_<org>_<loop>_<repr>_<emrg>_<ops>"
 description: "Brief description of experimental configuration"
 
 # ─── Reproducibility ────────────────────────────────────────────────
