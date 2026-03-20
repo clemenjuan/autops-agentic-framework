@@ -114,6 +114,15 @@ class EventSatMetricsCollector(MetricsCollector):
             # Decision loop metrics
             "decision_latency_s": decision_metrics.get("decision_latency_s", 0.0),
             "has_rationale": float(decision_metrics.get("has_rationale", False)),
+            # OODA-specific (zero for SDA, populated for OODA)
+            "orient_latency_s": decision_metrics.get("orient_latency_s", 0.0),
+            "orient_iterations": decision_metrics.get("orient_iterations", 0.0),
+            "orient_urgency": decision_metrics.get("orient_urgency", 0.0),
+            # ReAct-specific (zero for SDA/OODA, populated for ReAct)
+            "reasoning_depth": decision_metrics.get("reasoning_depth", 0.0),
+            "react_iterations": decision_metrics.get("iterations", 0.0),
+            "grounding_violations": decision_metrics.get("grounding_violations", 0.0),
+            "converged": decision_metrics.get("converged", 0.0),
         }
 
         return StepMetrics(
@@ -216,6 +225,29 @@ class EventSatMetricsCollector(MetricsCollector):
             "anomaly_events": float(anomaly_count),
             "total_detections": float(total_detections),
             "max_achievable_downlink_mb": max_dl_mb,
+            # OODA-specific (zero for SDA)
+            "mean_orient_latency_s": sum(
+                s.metrics.get("orient_latency_s", 0.0) for s in step_metrics
+            ) / n,
+            "mean_orient_iterations": sum(
+                s.metrics.get("orient_iterations", 0.0) for s in step_metrics
+            ) / n,
+            "mean_orient_urgency": sum(
+                s.metrics.get("orient_urgency", 0.0) for s in step_metrics
+            ) / n,
+            # ReAct-specific (zero for SDA/OODA)
+            "reasoning_depth": sum(
+                s.metrics.get("reasoning_depth", 0.0) for s in step_metrics
+            ) / n,
+            "iterations": sum(
+                s.metrics.get("react_iterations", 0.0) for s in step_metrics
+            ) / n,
+            "grounding_violations": sum(
+                s.metrics.get("grounding_violations", 0.0) for s in step_metrics
+            ) / n,
+            "converged": sum(
+                s.metrics.get("converged", 0.0) for s in step_metrics
+            ) / n,
         }
 
         return EpisodeMetrics(

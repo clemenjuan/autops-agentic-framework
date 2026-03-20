@@ -5,6 +5,7 @@ Tests P1 (multi-step compression), P2 (mode transition overhead),
 P3 (3-pool data pipeline), and thermal model removal.
 """
 import pytest
+from src.decision_loop.context import DecisionContext
 from src.environment.scenarios.eventsat_env import EventSatEnvironment
 
 
@@ -506,7 +507,7 @@ class TestPipelineBackpressure:
             "health_status": "nominal",
             "daily_downlink_budget_mb": 27.0,
         }
-        action = agent.select_action(state)
+        action = agent.select_action(DecisionContext(state=state))
         assert action["eventsat_0"]["mode"] == "charging"
         assert "R5b" in agent.get_rationale()
 
@@ -526,7 +527,7 @@ class TestPipelineBackpressure:
             "health_status": "nominal",
             "daily_downlink_budget_mb": 27.0,
         }
-        action = agent.select_action(state)
+        action = agent.select_action(DecisionContext(state=state))
         assert action["eventsat_0"]["mode"] == "payload_detect"
         assert "R5c" in agent.get_rationale()
 
@@ -672,7 +673,7 @@ class TestPayloadSend:
             "health_status": "nominal",
             "daily_downlink_budget_mb": 27.0,
         }
-        action = agent.select_action(state)
+        action = agent.select_action(DecisionContext(state=state))
         assert action["eventsat_0"]["mode"] == "payload_send"
         assert "R5d" in agent.get_rationale()
 

@@ -54,6 +54,62 @@ class TestExperimentConfig:
             ExperimentConfig(log_level="VERBOSE")
 
 
+class TestCombinationGuardrails:
+    """Degenerate (rep × loop × paradigm) triple warnings."""
+
+    def _make_cfg(self, loop: str, ops: str, rep_type: str) -> ExperimentConfig:
+        return ExperimentConfig(
+            decision_loop=loop,
+            operations_paradigm=ops,
+            representation_config={"type": rep_type},
+        )
+
+    def test_deterministic_rep_ground_non_sda_warns(self) -> None:
+        """react + conventional_ground + deterministic rep → warning."""
+        with pytest.warns(UserWarning, match="deterministic representation"):
+            self._make_cfg("react", "conventional_ground", "conventional_schedule_eventsat")
+
+    def test_ooda_ground_deterministic_warns(self) -> None:
+        """ooda + autonomous_ground + schedule_based → warning."""
+        with pytest.warns(UserWarning, match="deterministic representation"):
+            self._make_cfg("ooda", "autonomous_ground", "schedule_based_eventsat")
+
+    def test_sda_ground_no_warning(self) -> None:
+        """sda + conventional_ground + deterministic rep → no warning."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self._make_cfg("sda", "conventional_ground", "conventional_schedule_eventsat")
+
+    def test_sda_ah_no_warning(self) -> None:
+        """sda + autonomous_hybrid + rule_based → no warning."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self._make_cfg("sda", "autonomous_hybrid", "rule_based_eventsat")
+
+    def test_non_deterministic_rep_ground_no_warning(self) -> None:
+        """react + conventional_ground + future LLM rep → no warning."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            self._make_cfg("react", "conventional_ground", "llm_eventsat")
+
+    def test_human_rep_on_autonomous_hybrid_warns(self) -> None:
+        """conventional_schedule_eventsat + autonomous_hybrid → warning."""
+        with pytest.warns(UserWarning, match="human cognitive constraints"):
+            self._make_cfg("sda", "autonomous_hybrid", "conventional_schedule_eventsat")
+
+    def test_warnings_non_blocking(self) -> None:
+        """Degenerate config still loads successfully."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = self._make_cfg("react", "conventional_ground", "schedule_based_eventsat")
+        assert cfg.decision_loop == "react"
+        assert cfg.operations_paradigm == "conventional_ground"
+
+
 class TestConfigLoaderSaveLoad:
     def test_round_trip(self, tmp_path: Path) -> None:
         original = ExperimentConfig(

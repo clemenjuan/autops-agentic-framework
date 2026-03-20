@@ -1,48 +1,46 @@
-# EventSat | Centralized · SDA · Symbolic · Hand-designed · Conventional-Ground
+# EventSat | Centralized · ReAct · Symbolic · Hand-designed · Autonomous-Ground
 # ==============================================================================
-# 5D Morphological Matrix: cen | sda | symb | hd | cg
+# 5D Morphological Matrix: cen | react | symb | hd | ag
 #
-# Realistic human conventional ground operations. A human flight dynamics team
-# plans schedules between passes — NOT during the pass. The schedule uploaded
-# at pass N was planned based on telemetry from pass N-1 (one-pass delay).
+# ReAct loop with schedule-based representation and autonomous ground ops.
+# Algorithmic scheduler generates optimal schedules during ground passes;
+# the ReAct loop adds reasoning traces and grounding validation.
 #
-# Human cognitive constraints modelled (Sellmaier et al. 2022, ECSS-E-ST-70C,
-# Endsley 1995):
-#   - One-pass planning delay (paradigm level)
-#   - Conservative charge duration margins (1.3x)
-#   - Limited planning horizon (85% of gap planned; rest = charging buffer)
-#   - Max 2 observations per gap (reduces cascade planning complexity)
-#   - 10% shift handover probability with +10% min SoC safety margin
+# Literature basis:
+#   - Yao et al. (2023) "ReAct: Synergizing Reasoning and Acting" [R8AVHEAP]
+#   - Li (2025) "AI Agents for Satellite Operations" [UAA3GIVK]
 #
 # Compare with:
-#   - eventsat_cen_sda_symb_hd_ag.yaml  (AG — same SDA, algorithmic scheduler)
-#   - eventsat_cen_sda_symb_hd_ah.yaml  (AH — same SDA, full onboard autonomy)
+#   - eventsat_cen_sda_symb_hd_ag.yaml   (SDA — same repr/ops, no reasoning)
+#   - eventsat_cen_ooda_symb_hd_ag.yaml  (OODA — same repr/ops, 4-phase loop)
+#   - eventsat_cen_react_symb_hd_cg.yaml (CG — same loop, human-realistic ops)
 
-experiment_id: eventsat_cen_sda_symb_hd_cg
+experiment_id: eventsat_cen_react_symb_hd_ag
 description: >
-  EventSat realistic human conventional ground operations with SDA loop.
-  Human flight dynamics team plans schedules between passes with one-pass
-  planning delay and cognitive constraints (conservative margins, limited
-  horizon, shift handovers). Baseline for human-in-the-loop comparison.
+  EventSat ReAct loop with schedule-based symbolic representation and
+  autonomous ground operations. Algorithmic scheduler, no planning delay.
+  ReAct grounding validates schedule actions against operational constraints.
 
 seed: 42
 
 # -- Morphological Matrix (5 dimensions) -----------------------------------
 agent_organization: centralized         # cen
-decision_loop: sda                      # sda
+decision_loop: react                    # react
 representation: symbolic                # symb
 emergence_mode: hand_designed           # hd
-operations_paradigm: conventional_ground # cg
+operations_paradigm: autonomous_ground  # ag
 
 # -- Component Configs -----------------------------------------------------
 agent_organization_config: {}
 
 decision_loop_config:
-  sense_encode: true
-  decide_act: true
+  max_iterations: 3
+  grounding_checks:
+    - battery_feasibility
+    - pass_window_timing
 
 representation_config:
-  type: conventional_schedule_eventsat
+  type: schedule_based_eventsat
   # --- Power system (from eventsat.yaml PDR Table 6.2) ---
   solar_generation_w: 24.0
   battery_capacity_wh: 84.0
@@ -62,13 +60,6 @@ representation_config:
   min_soc_for_operations: 0.40
   staleness_threshold: 5
   settling_time_steps: 2
-  # --- Human cognitive constraint parameters ---
-  # Sellmaier et al. (2022), ECSS-E-ST-70C, Endsley (1995)
-  conservative_margin: 1.3          # 30% extra on charge durations (worst-case model)
-  planning_horizon_discount: 0.85   # Plan 85% of gap; remaining 15% = charging buffer
-  max_observations_per_gap: 2       # Human cognitive limit on cascade planning
-  shift_handover_probability: 0.10  # 10% chance of context loss per planning cycle
-  shift_handover_soc_penalty: 0.10  # +10% min SoC on handover (SA Level-3 degradation)
   # --- Power consumption per mode (PDR Table 6.2) ---
   power_consumption:
     charging:
@@ -98,7 +89,7 @@ emergence_config:
 
 operations_paradigm_config:
   default_mode: charging
-  orbital_period_steps: 93          # 5554s / 60s ≈ 93 steps between passes
+  orbital_period_steps: 93
 
 # -- Environment -----------------------------------------------------------
 environment:

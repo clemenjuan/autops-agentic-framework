@@ -16,7 +16,10 @@ Types:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from src.decision_loop.context import DecisionContext
 
 
 class Representation(ABC):
@@ -53,14 +56,15 @@ class Representation(ABC):
         ...
 
     @abstractmethod
-    def select_action(self, state: Any, memory: Any) -> Any:
+    def select_action(self, context: DecisionContext) -> Any:
         """Core decision-making logic.
 
-        Given an encoded state and a memory object, produce an action.
+        Given a :class:`DecisionContext` produced by a decision loop,
+        select an action.  The context carries the encoded state, loop
+        type, memory reference, and any loop-specific enrichments.
 
         Args:
-            state: Internal state produced by :meth:`encode_observation`.
-            memory: Agent memory object.
+            context: Structured decision context from the decision loop.
 
         Returns:
             Selected action.
@@ -80,6 +84,24 @@ class Representation(ABC):
         Args:
             experience: Experience data for updating (e.g. trajectory).
         """
+
+    def reason(self, state: Dict[str, Any], memory: Any) -> List[Dict[str, Any]]:
+        """Optional reasoning step for deliberative loops (ReAct).
+
+        Returns a list of structured reasoning step dicts, e.g.:
+          [{"check": "battery", "value": 0.45, "implication": "charging_required"}]
+
+        Default is a no-op (empty list) so all existing representations
+        continue to work without modification.
+
+        Args:
+            state: Encoded state dict from encode_observation.
+            memory: Agent memory from the previous step.
+
+        Returns:
+            List of reasoning step dicts. Empty list if not overridden.
+        """
+        return []
 
     def get_rationale(self) -> Optional[str]:
         """Return a human-readable rationale for the last decision.

@@ -7,9 +7,9 @@ from src.environment.satellite_env import (
     EnvironmentObservation,
     SatelliteState,
 )
+from src.operations.autonomous_ground import AutonomousGround
 from src.operations.base import GroundKnowledge, OperationsParadigm
 from src.operations.autonomous_hybrid import AutonomousHybrid
-from src.operations.conventional_ground import ConventionalGround
 
 
 # -----------------------------------------------------------------
@@ -108,13 +108,13 @@ class TestAutonomousHybrid:
 
 
 # -----------------------------------------------------------------
-# ConventionalGround
+# AutonomousGround
 # -----------------------------------------------------------------
 
 
-class TestConventionalGround:
+class TestAutonomousGround:
     def test_filter_observation_returns_stale_data(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         # Simulate a downlink at step 10
         obs_at_10 = _make_observation(step=10, battery_soc=0.75, mode="communication")
         paradigm.update_ground_knowledge(obs_at_10, step=10)
@@ -130,12 +130,12 @@ class TestConventionalGround:
         assert sat.metadata["last_update_step"] == 10
 
     def test_can_act_only_during_pass(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         assert paradigm.can_act(step=0, ground_pass_active=False) is False
         assert paradigm.can_act(step=0, ground_pass_active=True) is True
 
     def test_process_action_during_pass_passes_through_mode(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         action = {"eventsat_0": {"mode": "communication"}}
 
         # During pass: mode passes through, schedule (if any) is stripped
@@ -143,7 +143,7 @@ class TestConventionalGround:
         assert result == {"eventsat_0": {"mode": "communication"}}
 
     def test_process_action_schedule_stored_during_pass(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         schedule = [("payload_observe", 3), ("charging", 2)]
         action = {"eventsat_0": {"mode": "communication", "schedule": schedule}}
 
@@ -152,7 +152,7 @@ class TestConventionalGround:
         assert result == {"eventsat_0": {"mode": "communication"}}  # schedule stripped
         assert len(paradigm._schedule) == 2
 
-        # Between passes: schedule plays back
+        # Between passes: schedule plays back immediately (no planning delay)
         result2 = paradigm.process_action({}, step=6, ground_pass_active=False)
         assert result2 == {"eventsat_0": {"mode": "payload_observe"}}
         result3 = paradigm.process_action({}, step=7, ground_pass_active=False)
@@ -163,7 +163,7 @@ class TestConventionalGround:
         assert result5 == {"eventsat_0": {"mode": "charging"}}
 
     def test_schedule_exhaustion_falls_back_to_default(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         schedule = [("payload_compress", 2)]
         action = {"eventsat_0": {"mode": "communication", "schedule": schedule}}
         paradigm.process_action(action, step=0, ground_pass_active=True)
@@ -176,7 +176,7 @@ class TestConventionalGround:
         assert result == {"eventsat_0": {"mode": "charging"}}
 
     def test_process_action_default_when_no_buffer(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         result = paradigm.process_action(
             {"eventsat_0": {"mode": "payload_observe"}},
             step=0,
@@ -185,7 +185,7 @@ class TestConventionalGround:
         assert result == {"eventsat_0": {"mode": "charging"}}
 
     def test_reset_clears_schedule(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         schedule = [("payload_observe", 5)]
         paradigm.process_action(
             {"eventsat_0": {"mode": "communication", "schedule": schedule}},
@@ -201,7 +201,7 @@ class TestConventionalGround:
         assert result == {"eventsat_0": {"mode": "charging"}}
 
     def test_new_pass_replaces_old_schedule(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         # First pass uploads schedule A
         paradigm.process_action(
             {"eventsat_0": {"mode": "communication", "schedule": [("payload_observe", 10)]}},
@@ -212,12 +212,12 @@ class TestConventionalGround:
             {"eventsat_0": {"mode": "communication", "schedule": [("payload_compress", 3)]}},
             step=100, ground_pass_active=True,
         )
-        # Between second pass: schedule B plays back
+        # Between second pass: schedule B plays back immediately
         result = paradigm.process_action({}, step=101, ground_pass_active=False)
         assert result == {"eventsat_0": {"mode": "payload_compress"}}
 
     def test_update_ground_knowledge(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         obs = _make_observation(step=20, battery_soc=0.6, mode="communication")
         paradigm.update_ground_knowledge(obs, step=20)
 
@@ -228,39 +228,39 @@ class TestConventionalGround:
         assert gk.staleness_steps == 0
 
     def test_filter_observation_shows_real_pass_status(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         obs_during_pass = _make_observation(step=5, ground_pass_active=True)
         filtered = paradigm.filter_observation(obs_during_pass, step=5)
         sat = filtered.constellation_state.satellites["eventsat_0"]
         assert sat.metadata["ground_pass_active"] is True
 
     def test_filter_observation_no_pass_status_false(self):
-        paradigm = ConventionalGround()
+        paradigm = AutonomousGround()
         obs_no_pass = _make_observation(step=5, ground_pass_active=False)
         filtered = paradigm.filter_observation(obs_no_pass, step=5)
         sat = filtered.constellation_state.satellites["eventsat_0"]
         assert sat.metadata["ground_pass_active"] is False
 
     def test_estimated_gap_steps_in_metadata_during_pass(self):
-        paradigm = ConventionalGround(config={"orbital_period_steps": 93})
+        paradigm = AutonomousGround(config={"orbital_period_steps": 93})
         obs = _make_observation(step=10, ground_pass_active=True)
         filtered = paradigm.filter_observation(obs, step=10)
         sat = filtered.constellation_state.satellites["eventsat_0"]
         assert sat.metadata["estimated_gap_steps"] == 93
 
     def test_estimated_gap_steps_absent_between_passes(self):
-        paradigm = ConventionalGround(config={"orbital_period_steps": 93})
+        paradigm = AutonomousGround(config={"orbital_period_steps": 93})
         obs = _make_observation(step=10, ground_pass_active=False)
         filtered = paradigm.filter_observation(obs, step=10)
         sat = filtered.constellation_state.satellites["eventsat_0"]
         assert "estimated_gap_steps" not in sat.metadata
 
     def test_get_name(self):
-        paradigm = ConventionalGround()
-        assert paradigm.get_name() == "ConventionalGround"
+        paradigm = AutonomousGround()
+        assert paradigm.get_name() == "AutonomousGround"
 
     def test_custom_default_mode(self):
-        paradigm = ConventionalGround(config={"default_mode": "safe"})
+        paradigm = AutonomousGround(config={"default_mode": "safe"})
         result = paradigm.process_action(
             {"eventsat_0": {"mode": "charging"}},
             step=0,
@@ -280,6 +280,12 @@ class TestConfigValidation:
 
         cfg = ExperimentConfig(operations_paradigm="autonomous_hybrid")
         assert cfg.operations_paradigm == "autonomous_hybrid"
+
+    def test_valid_operations_paradigm_autonomous_ground(self):
+        from src.orchestration.config_loader import ExperimentConfig
+
+        cfg = ExperimentConfig(operations_paradigm="autonomous_ground")
+        assert cfg.operations_paradigm == "autonomous_ground"
 
     def test_valid_operations_paradigm_conventional(self):
         from src.orchestration.config_loader import ExperimentConfig
@@ -370,6 +376,33 @@ class TestExperimentRunnerIntegration:
             representation="symbolic",
             emergence_mode="hand_designed",
             operations_paradigm="conventional_ground",
+            operations_paradigm_config={"orbital_period_steps": 93},
+            representation_config={"type": "schedule_based_eventsat"},
+            environment={"constellation_size": 1, "timestep_seconds": 60,
+                         "max_steps": 200, "scenario": "eventsat",
+                         "scenario_config": {}},
+            num_episodes=1,
+            max_steps=200,
+            save_checkpoints=False,
+            log_level="WARNING",
+        )
+        runner = ExperimentRunner(config=cfg)
+        results = runner.run()
+        assert results["num_episodes"] == 1
+        assert len(results["episodes"][0]["steps"]) == 200
+
+    def test_autonomous_ground_with_schedule_based(self):
+        """Autonomous ground + schedule_based_eventsat: algorithmic no-delay pairing."""
+        from src.orchestration.config_loader import ExperimentConfig
+        from src.orchestration.experiment_runner import ExperimentRunner
+
+        cfg = ExperimentConfig(
+            experiment_id="ops_test_ag_schedule",
+            agent_organization="centralized",
+            decision_loop="sda",
+            representation="symbolic",
+            emergence_mode="hand_designed",
+            operations_paradigm="autonomous_ground",
             operations_paradigm_config={"orbital_period_steps": 93},
             representation_config={"type": "schedule_based_eventsat"},
             environment={"constellation_size": 1, "timestep_seconds": 60,

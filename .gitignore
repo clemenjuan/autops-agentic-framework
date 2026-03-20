@@ -34,6 +34,7 @@ uv.lock
 .vscode/
 .idea/
 .cursor/
+.claude/
 *.swp
 *.swo
 *~
@@ -52,8 +53,7 @@ htmlcov/
 .pytest_cache/
 
 # Experiment results (large, generated)
-data/results/*/
-!data/results/README.md
+data/results/
 data/trained_models/*/
 !data/trained_models/README.md
 data/figures/*

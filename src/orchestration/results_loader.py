@@ -86,18 +86,10 @@ def results_to_episode_df(results: Dict[str, Any]) -> pd.DataFrame:
         em = ep.get("episode_metrics")
         if em is not None and isinstance(em, dict):
             agg = em.get("aggregated", {})
-            row.update({
-                "utility": agg.get("utility", 0.0),
-                "data_downlink_efficiency": agg.get("data_downlink_efficiency", 0.0),
-                "mean_latency_s": agg.get("mean_latency_s", 0.0),
-                "max_latency_s": agg.get("max_latency_s", 0.0),
-                "robustness_mean_recovery_steps": agg.get("robustness_mean_recovery_steps", 0.0),
-                "resource_efficiency": agg.get("resource_efficiency", 0.0),
-                "operator_load": agg.get("operator_load", 0.0),
-                "explainability_score": agg.get("explainability_score", 0.0),
-                "total_energy_consumed_wh": agg.get("total_energy_consumed_wh", 0.0),
-                "safety_overrides": agg.get("safety_overrides", 0.0),
-            })
+            # Merge all aggregated metrics dynamically so loop-specific metrics
+            # (OODA: mean_orient_latency_s, ReAct: reasoning_depth, etc.) are
+            # included without needing explicit registration here.
+            row.update(agg)
 
         rows.append(row)
 

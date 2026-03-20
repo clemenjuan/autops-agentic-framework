@@ -10,14 +10,21 @@ Telemetry-first sequencing:
   3. After downlink: staleness_steps drops to ~1 → generate schedule from fresh data
   4. Return {"mode": "communication", "schedule": [...]} so paradigm stores it
 
+OODA-aware modifications (active when context.loop_type == "ooda"):
+  - Urgency-aware scheduling: urgency > 0.6 front-loads critical operations
+  - Attention guidance: uses priority_monitor to weight schedule focus
+
 Registered as "schedule_based_eventsat" in the emergence controller.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.representation.base import Representation
 from src.emergence.controller import register
+
+if TYPE_CHECKING:
+    from src.decision_loop.context import DecisionContext
 
 
 @register("schedule_based_eventsat")
@@ -110,7 +117,7 @@ class ScheduleBasedEventSat(Representation):
             }
         return {}
 
-    def select_action(self, state: Dict[str, Any], memory: Any = None) -> Dict[str, Any]:
+    def select_action(self, context: DecisionContext) -> Dict[str, Any]:
         """Select action based on current state.
 
         During a ground pass:
@@ -118,7 +125,17 @@ class ScheduleBasedEventSat(Representation):
           - If telemetry is fresh → generate schedule and attach to action
 
         Between passes → return charging (ignored; paradigm plays back schedule).
+
+        OODA enrichments (when available) influence schedule generation:
+          - urgency > 0.6 → front-load critical operations
+          - attention_guidance → weight schedule focus
         """
+        from src.decision_loop.context import DecisionContext  # runtime import
+
+        state = context.state
+        enrichments = context.enrichments
+        is_ooda = context.loop_type == "ooda" and bool(enrichments)
+
         if not state:
             self._last_rationale = "No state; defaulting to charging."
             return {"eventsat_0": {"mode": "charging"}}
@@ -152,16 +169,54 @@ class ScheduleBasedEventSat(Representation):
 
         # Fresh telemetry received — generate and upload schedule
         gap_steps = state.get("estimated_gap_steps", 93)
-        schedule = self._generate_schedule(state, gap_steps)
+        # OODA: pass urgency to schedule generator for front-loading
+        orient_urgency = enrichments.get("urgency", 0.0) if is_ooda else 0.0
+        schedule = self._generate_schedule(state, gap_steps, orient_urgency)
         self._schedule_generated_this_pass = True
+        ooda_note = f" (Orient urgency={orient_urgency:.2f})" if is_ooda else ""
         self._last_rationale = (
             f"Fresh telemetry (staleness={staleness}); generated schedule "
-            f"of {len(schedule)} entries for {gap_steps}-step gap."
+            f"of {len(schedule)} entries for {gap_steps}-step gap{ooda_note}."
         )
         return {"eventsat_0": {"mode": "communication", "schedule": schedule}}
 
     def get_rationale(self) -> Optional[str]:
         return self._last_rationale
+
+    def reason(self, state: Dict[str, Any], memory: Any) -> List[Dict[str, Any]]:
+        """Summarise schedule planning intent (ReAct Thought step).
+
+        Returns the key factors driving the upcoming schedule:
+        whether we're in a pass, battery state, and pending pipeline work.
+        """
+        if not state:
+            return [{"phase": "schedule_planning", "intent": "no_state_default_charging"}]
+
+        pass_active = state.get("ground_pass_active", False)
+        soc = state.get("battery_soc", 0.5)
+        gap_steps = state.get("estimated_gap_steps", 93)  # 93 ≈ 5554s / 60s (LEO default)
+        uncomp = state.get("uncompressed_observations", 0)
+        undetected = state.get("undetected_observations", 0)
+        obc_mb = state.get("obc_data_mb", 0.0)
+
+        trace = [{
+            "phase": "schedule_planning",
+            "pass_active": pass_active,
+            "battery_soc": soc,
+            "gap_steps": gap_steps,
+            "compression_backlog": uncomp,
+            "detection_backlog": undetected,
+            "obc_data_mb": obc_mb,
+        }]
+
+        if soc < self._min_soc_for_operations:
+            trace.append({"implication": "charge_first", "reason": f"SoC={soc:.2f} below min_soc={self._min_soc_for_operations}"})
+        if uncomp > 0:
+            trace.append({"implication": "pipeline_work_pending", "reason": f"{uncomp} uncompressed obs"})
+        if pass_active and obc_mb > 0:
+            trace.append({"implication": "downlink_opportunity", "reason": f"{obc_mb:.1f} MB on OBC"})
+
+        return trace
 
     # ------------------------------------------------------------------
     # Schedule generation
@@ -200,12 +255,16 @@ class ScheduleBasedEventSat(Representation):
         return max(1, int(steps_needed) + 1)
 
     def _generate_schedule(
-        self, state: Dict[str, Any], gap_steps: int
+        self, state: Dict[str, Any], gap_steps: int, orient_urgency: float = 0.0,
     ) -> List[Tuple[str, int]]:
         """Generate a greedy time-tagged schedule for the upcoming inter-pass gap.
 
         Uses average power model (eclipse_fraction-weighted) for conservative
         but realistic battery estimation.
+
+        OODA modification: when orient_urgency > 0.6, reduce the charge reserve
+        to front-load productive operations (accept slightly lower pre-pass
+        battery in exchange for more observation/processing time).
         """
         # Simulated state
         sim_soc = state.get("battery_soc", 0.5)
@@ -217,7 +276,11 @@ class ScheduleBasedEventSat(Representation):
         daily_budget_mb = state.get("daily_downlink_budget_mb", self._daily_downlink_budget_mb)
 
         # Reserve the last chunk for charging (pre-pass battery buffer)
-        reserve_steps = max(5, int(gap_steps * self._charge_reserve_fraction))
+        # OODA: high urgency → reduce reserve to front-load productive ops
+        reserve_fraction = self._charge_reserve_fraction
+        if orient_urgency > 0.6:
+            reserve_fraction = max(0.06, reserve_fraction * 0.5)
+        reserve_steps = max(5, int(gap_steps * reserve_fraction))
         active_steps = gap_steps - reserve_steps
 
         schedule: List[Tuple[str, int]] = []

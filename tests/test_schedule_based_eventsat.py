@@ -2,12 +2,18 @@
 
 import pytest
 
+from src.decision_loop.context import DecisionContext
 from src.environment.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
     SatelliteState,
 )
 from src.representation.schedule_based_eventsat import ScheduleBasedEventSat, _merge_schedule
+
+
+def _ctx(state, **kwargs):
+    """Helper to wrap a state dict in a DecisionContext for tests."""
+    return DecisionContext(state=state, **kwargs)
 
 
 # -----------------------------------------------------------------
@@ -156,7 +162,7 @@ class TestSelectAction:
         rep = ScheduleBasedEventSat()
         obs = _make_observation(ground_pass_active=False, staleness_steps=50)
         state = rep.encode_observation(obs)
-        action = rep.select_action(state)
+        action = rep.select_action(_ctx(state))
         assert action == {"eventsat_0": {"mode": "charging"}}
 
     def test_pass_with_stale_telemetry_communicates_only(self):
@@ -164,7 +170,7 @@ class TestSelectAction:
         rep = ScheduleBasedEventSat(config={"staleness_threshold": 5})
         obs = _make_observation(ground_pass_active=True, staleness_steps=50)
         state = rep.encode_observation(obs)
-        action = rep.select_action(state)
+        action = rep.select_action(_ctx(state))
         assert action["eventsat_0"]["mode"] == "communication"
         assert "schedule" not in action["eventsat_0"]
 
@@ -178,7 +184,7 @@ class TestSelectAction:
             estimated_gap_steps=93,
         )
         state = rep.encode_observation(obs)
-        action = rep.select_action(state)
+        action = rep.select_action(_ctx(state))
         assert action["eventsat_0"]["mode"] == "communication"
         assert "schedule" in action["eventsat_0"]
         assert len(action["eventsat_0"]["schedule"]) > 0
@@ -189,13 +195,13 @@ class TestSelectAction:
         # Step 1: fresh telemetry → generates schedule
         obs1 = _make_observation(ground_pass_active=True, staleness_steps=1, estimated_gap_steps=50)
         state1 = rep.encode_observation(obs1)
-        action1 = rep.select_action(state1)
+        action1 = rep.select_action(_ctx(state1))
         assert "schedule" in action1["eventsat_0"]
 
         # Step 2: still in pass, staleness now 2 (still fresh) → no schedule
         obs2 = _make_observation(ground_pass_active=True, staleness_steps=2, estimated_gap_steps=50)
         state2 = rep.encode_observation(obs2)
-        action2 = rep.select_action(state2)
+        action2 = rep.select_action(_ctx(state2))
         assert action2["eventsat_0"]["mode"] == "communication"
         assert "schedule" not in action2["eventsat_0"]
 
@@ -204,27 +210,27 @@ class TestSelectAction:
         rep = ScheduleBasedEventSat(config={"staleness_threshold": 5})
         # First pass
         obs_pass = _make_observation(ground_pass_active=True, staleness_steps=1, estimated_gap_steps=50)
-        rep.select_action(rep.encode_observation(obs_pass))  # generate schedule
+        rep.select_action(_ctx(rep.encode_observation(obs_pass)))
 
         # Between passes
         obs_between = _make_observation(ground_pass_active=False, staleness_steps=40)
-        rep.select_action(rep.encode_observation(obs_between))  # resets flag
+        rep.select_action(_ctx(rep.encode_observation(obs_between)))
 
         # Second pass
         obs_pass2 = _make_observation(ground_pass_active=True, staleness_steps=1, estimated_gap_steps=50)
-        action2 = rep.select_action(rep.encode_observation(obs_pass2))
+        action2 = rep.select_action(_ctx(rep.encode_observation(obs_pass2)))
         assert "schedule" in action2["eventsat_0"]
 
     def test_empty_state_defaults_to_charging(self):
         rep = ScheduleBasedEventSat()
-        action = rep.select_action({})
+        action = rep.select_action(_ctx({}))
         assert action == {"eventsat_0": {"mode": "charging"}}
 
     def test_get_rationale_is_set_after_action(self):
         rep = ScheduleBasedEventSat()
         obs = _make_observation(ground_pass_active=False)
         state = rep.encode_observation(obs)
-        rep.select_action(state)
+        rep.select_action(_ctx(state))
         assert rep.get_rationale() is not None
 
 

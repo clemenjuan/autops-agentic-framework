@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set
 
 import yaml
-from pydantic import BaseModel, Field, field_validator
+import warnings
+
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ======================================================================
@@ -122,7 +124,7 @@ class ExperimentConfig(BaseModel):
     VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "hybrid", "neural"}
     VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
-        "autonomous_hybrid", "conventional_ground",
+        "autonomous_hybrid", "autonomous_ground", "conventional_ground",
     }
     # Decision loops are extensible — no fixed set enforced here.
 
@@ -170,6 +172,57 @@ class ExperimentConfig(BaseModel):
         if v_upper not in allowed:
             raise ValueError(f"log_level must be one of {allowed}, got '{v}'")
         return v_upper
+
+    # ------------------------------------------------------------------
+    # Cross-dimension combination warnings
+    # ------------------------------------------------------------------
+
+    # Deterministic representations whose output cannot be improved by
+    # iterative loop architectures (OODA orient, ReAct iteration).
+    # Future LLM/neural representations should NOT be in this set.
+    _DETERMINISTIC_REPRESENTATIONS: ClassVar[Set[str]] = {
+        "rule_based_eventsat",
+        "schedule_based_eventsat",
+        "conventional_schedule_eventsat",
+    }
+
+    @model_validator(mode="after")
+    def _warn_degenerate_combinations(self) -> "ExperimentConfig":
+        """Warn about dimension triples that are degenerate given current representations."""
+        ops = self.operations_paradigm
+        loop = self.decision_loop
+        rep_type = self.representation_config.get("type", "")
+
+        # Deterministic rep + ground paradigm + non-SDA loop:
+        # The loop cannot improve a deterministic planner's output, and
+        # loop output is discarded between passes (schedule playback).
+        # This will NOT apply to future LLM/neural representations.
+        if (
+            ops in ("autonomous_ground", "conventional_ground")
+            and loop != "sda"
+            and rep_type in self._DETERMINISTIC_REPRESENTATIONS
+        ):
+            warnings.warn(
+                f"Decision loop '{loop}' with deterministic representation "
+                f"'{rep_type}' and ground paradigm '{ops}': the loop cannot "
+                f"improve a deterministic planner's output, and loop output "
+                f"is discarded between passes. Results will match SDA except "
+                f"for computational latency. This warning will not apply to "
+                f"future LLM/neural representations.",
+                stacklevel=2,
+            )
+
+        # Human-constrained representation with fully autonomous paradigm
+        if ops == "autonomous_hybrid" and rep_type == "conventional_schedule_eventsat":
+            warnings.warn(
+                f"Representation '{rep_type}' models human cognitive "
+                f"constraints (conservative margins, shift handover), but "
+                f"'{ops}' paradigm is fully autonomous with no human in "
+                f"the loop.",
+                stacklevel=2,
+            )
+
+        return self
 
 
 # ======================================================================

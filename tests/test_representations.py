@@ -8,6 +8,7 @@ from typing import Any, Dict
 
 import pytest
 
+from src.decision_loop.context import DecisionContext
 from src.representation.base import Representation
 
 
@@ -17,7 +18,7 @@ class DummyRepresentation(Representation):
     def encode_observation(self, observation: Any) -> Any:
         return {"encoded": observation}
 
-    def select_action(self, state: Any, memory: Any) -> Any:
+    def select_action(self, context: DecisionContext) -> Any:
         return "default_action"
 
 
@@ -33,7 +34,8 @@ class TestRepresentationABC:
 
     def test_dummy_select_action(self) -> None:
         rep = DummyRepresentation()
-        action = rep.select_action({"state": 1}, {"memory": 2})
+        ctx = DecisionContext(state={"state": 1}, memory={"memory": 2})
+        action = rep.select_action(ctx)
         assert action == "default_action"
 
     def test_update_is_noop_by_default(self) -> None:

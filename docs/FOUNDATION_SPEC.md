@@ -14,10 +14,10 @@
 Build a modular experimental framework to systematically compare cognitive architectures for autonomous satellite constellation management. The framework must support testing combinations of:
 
 - **Agent Organizations**: Centralized, Hierarchical, Distributed
-- **Decision Loops**: SDA (Sense-Decide-Act), OODA, CoALA, and others
+- **Decision Loops**: SDA (Sense-Decide-Act), OODA, ReAct, CoALA, and others
 - **Representations**: Symbolic, Hybrid/Neuro-symbolic, Neural
 - **Emergence Modes**: Hand-designed, Learned
-- **Operations Paradigms**: Autonomous Hybrid, Conventional Ground
+- **Operations Paradigms**: Autonomous Hybrid, Autonomous Ground, Conventional Ground
 - **Constellation Sizes**: 1, 5, 20-30, 100+ satellites
 
 
@@ -205,11 +205,23 @@ All components must define clear abstract base classes before implementation.
 
 **⚠️ Critical:** Decision loop implementations must strictly follow scientific papers. Do not predefine specific steps—implementations will be created step-by-step following literature.
 
-**Examples:**
+**Implemented loops:**
 
-- SDA: Linear reactive pattern
-- OODA: Orient-heavy deliberation
-- CoALA: Follow Sumers et al. (2023) "Cognitive Architectures for Language Agents"
+- **SDA**: Linear reactive pattern — single-pass sense-decide-act, no iteration.
+- **OODA**: Fixed four-phase structure (Observe-Orient-Decide-Act) with situation
+  classification, Case-Based Reasoning, urgency scoring, and feedback loops.
+- **ReAct**: Iterative Thought-Action-Observation cycle (Yao et al. 2023). Adds
+  explicit reasoning traces via `representation.reason()` and grounding validation
+  before executing each action. Converges or falls back to charging.
+  Note: Deployed frontier systems (Claude, GPT-4o) standardize on ReAct-style
+  reason-act-observe cycles in their orchestration layers.
+
+**Planned loops (future phases):**
+
+- **CoALA**: Higher-level cognitive architecture framework (Sumers et al. 2024).
+  Subsumes ReAct as a lower-level mechanism; adds explicit memory architecture
+  (working memory, episodic, semantic, procedural) and action space decomposition.
+  Planned as a separate, distinct loop after LLM representations are implemented.
 
 ***
 
@@ -284,8 +296,9 @@ All components must define clear abstract base classes before implementation.
 
 **Implementations:**
 
-- `AutonomousHybrid`: Agent operates autonomously with full real-time state access, whether running onboard or on ground. Actions applied immediately every timestep. Default paradigm.
-- `ConventionalGround`: Traditional ground-based operations. Ground only sees downlinked telemetry (stale). Commands can only be uplinked during ground passes. Between passes, last commanded action is replayed.
+- `AutonomousHybrid`: Agent operates autonomously with full real-time state access. Actions applied immediately every timestep. No information delay, no planning latency. Upper bound paradigm.
+- `AutonomousGround`: Algorithmic ground-based operations. Ground only sees downlinked telemetry (stale between passes). Commands uplinked only during passes. Algorithmic scheduler generates optimal schedules **instantly** during each pass; satellite executes between passes with zero onboard autonomy. No planning delay or cognitive constraints — algorithmic ideal of ground ops.
+- `ConventionalGround`: Realistic human flight dynamics team operations. Same information constraints as AutonomousGround, but with a **one-pass planning delay**: schedule planned after pass N is uploaded at pass N+1. Models the real planning cycle where operators analyse telemetry and plan schedules between passes (not during them). Paired with `ConventionalScheduleEventSat` representation which adds human cognitive constraints (conservative margins, limited horizon, shift handovers). Two-buffer design: `_active_schedule` (executing) + `_planned_schedule` (waiting for next pass upload).
 
 **Supporting Data:**
 
@@ -327,10 +340,10 @@ seed: 42
 
 # Morphological Matrix Dimensions
 agent_organization: "centralized"  # centralized | hierarchical | distributed
-decision_loop: "sda"               # sda | ooda | coala | [custom]
+decision_loop: "sda"               # sda | ooda | react | coala | [custom]
 representation: "symbolic"          # symbolic | hybrid | neural
 emergence_mode: "hand_designed"    # hand_designed | learned
-operations_paradigm: "autonomous_hybrid"  # autonomous_hybrid | conventional_ground
+operations_paradigm: "autonomous_hybrid"  # autonomous_hybrid | autonomous_ground | conventional_ground
 
 # Configuration for each component
 agent_organization_config:
@@ -560,12 +573,25 @@ class MetricsCollector(ABC):
 
 **Goal:** Implement alternative configurations systematically
 
-**Approach:**
+**Implemented (Phase 3):**
 
-- Add decision loops one at a time, following scientific papers
-- Add representations following established methods
-- Add agent organizations with validation
-- Scale constellation size incrementally (1 → 5 → 20 → 100)
+- **Decision loops**: OODA (Boyd/Miller/Hartmann), ReAct (Yao et al. 2023, Li 2025)
+- **Operations paradigms**: Three-tier taxonomy — AutonomousHybrid (existing),
+  AutonomousGround (renamed, algorithmic scheduler), ConventionalGround (new,
+  human-realistic with one-pass delay per Sellmaier et al. 2022, ECSS-E-ST-70C)
+- **Representations**: ScheduleBasedEventSat (Phase 2 → upgraded OODA + ReAct-capable),
+  ConventionalScheduleEventSat (new, human cognitive constraints via Endsley 1995)
+- **Reasoning interface**: `Representation.reason()` optional method added to base;
+  overridden by RuleBasedEventSat and ScheduleBasedEventSat for ReAct Thought step
+- **Experiment configs**: 9 configs covering all SDA/OODA/ReAct × AH/AG/CG combinations
+- **Tests**: 299 tests total (added 140 new tests for new components)
+
+**Planned (next phases):**
+
+- Add decision loops: CoALA (Sumers et al. 2024) — requires LLM representations first
+- Add representations: LLM-based (Rodriguez-Fernandez et al. 2024, Li 2025),
+  neural/RL (Wang et al. 2022), neurosymbolic (Navarro 2025)
+- Scale constellation size: 1 → 5 → 20 → 100
 
 **Note:** Each new component requires theoretical justification and validation against baselines
 

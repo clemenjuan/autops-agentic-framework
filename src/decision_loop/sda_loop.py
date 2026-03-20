@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, Tuple
 from src.decision_loop.base import DecisionLoop
+from src.decision_loop.context import DecisionContext
 from src.representation.base import Representation
 
 
@@ -30,7 +31,14 @@ class SDALoop(DecisionLoop):
         if hasattr(observation, "local_state") and isinstance(observation.local_state, dict):
             raw_obs = observation.local_state.get("full_observation", observation)
         encoded = self.representation.encode_observation(raw_obs)
-        action = self.representation.select_action(encoded, memory)
+        context = DecisionContext(
+            state=encoded,
+            loop_type="sda",
+            memory=memory,
+            enrichments={},
+            loop_metadata={},
+        )
+        action = self.representation.select_action(context)
         self._last_latency = time.perf_counter() - t0
         self._total_steps += 1
         # Check if representation provides a rationale (explainability)

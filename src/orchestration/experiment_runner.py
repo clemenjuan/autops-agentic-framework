@@ -259,16 +259,26 @@ class ExperimentRunner:
         from src.emergence.controller import EmergenceController
         import src.representation.rule_based_eventsat  # register representations
         import src.representation.schedule_based_eventsat  # register schedule planner
+        import src.representation.conventional_schedule_eventsat  # register human schedule planner
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
             repr_type=repr_type,
             repr_config=self.config.representation_config,
         )
+        # Seed stochastic representations for reproducibility
+        if hasattr(representation, "seed"):
+            representation.seed(self.config.seed)
         loop_type = self.config.decision_loop
         if loop_type == 'sda':
             from src.decision_loop.sda_loop import SDALoop
             loop_cls = SDALoop
+        elif loop_type == 'ooda':
+            from src.decision_loop.ooda_loop import OODALoop
+            loop_cls = OODALoop
+        elif loop_type == 'react':
+            from src.decision_loop.react_loop import ReActLoop
+            loop_cls = ReActLoop
         else:
             raise ValueError(f"Unknown decision_loop: '{loop_type}'")
         agents = self._organization.get_agents() if self._organization else ['central_agent']
@@ -288,6 +298,9 @@ class ExperimentRunner:
         if paradigm_type == "autonomous_hybrid":
             from src.operations.autonomous_hybrid import AutonomousHybrid
             return AutonomousHybrid(config=paradigm_config)
+        elif paradigm_type == "autonomous_ground":
+            from src.operations.autonomous_ground import AutonomousGround
+            return AutonomousGround(config=paradigm_config)
         elif paradigm_type == "conventional_ground":
             from src.operations.conventional_ground import ConventionalGround
             return ConventionalGround(config=paradigm_config)

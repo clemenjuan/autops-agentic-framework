@@ -401,13 +401,14 @@ def plot_metric_comparison_bars(
     n_metrics = len(avail)
     n_groups = len(groups)
 
-    # 0.85" per metric row + 0.9" for legend at the top
+    # Scale row height with number of groups so bars don't overlap
+    row_height = max(0.85, 0.35 * n_groups + 0.15)
     if figsize is None:
-        figsize = (3.5, max(2.5, 0.85 * n_metrics + 0.9))
+        figsize = (3.5, max(2.5, row_height * n_metrics + 0.9))
 
     fig, axes = plt.subplots(n_metrics, 1, figsize=figsize, squeeze=False)
 
-    total_bar = 0.55          # fraction of y-range used by bars (gap between them)
+    total_bar = min(0.85, 0.22 * n_groups)  # spread bars across y-range
     bar_height = total_bar / n_groups
 
     for i, m in enumerate(avail):
@@ -430,7 +431,7 @@ def plot_metric_comparison_bars(
         max_right = max((mu + h for _, mu, h, _ in raw_data), default=1.0)
         if max_right <= 0:
             max_right = 1.0
-        ax.set_xlim(0, max_right * 1.45)
+        ax.set_xlim(0, max_right * 1.55)
 
         # Draw bars; raw values shown directly (↓ on label conveys direction)
         for y, mu, h, gi in raw_data:
@@ -470,7 +471,8 @@ def plot_metric_comparison_bars(
         ax.set_yticks([0])
         ax.set_yticklabels([metric_label], fontsize=7.5)
         ax.tick_params(axis="y", length=0, pad=4)
-        ax.set_ylim(-0.5, 0.5)
+        y_margin = total_bar / 2 + bar_height
+        ax.set_ylim(-y_margin, y_margin)
 
         ax.tick_params(axis="x", labelsize=6)
 
@@ -488,7 +490,7 @@ def plot_metric_comparison_bars(
         )
 
     # Leave room at the top for the legend (rect top < 1)
-    fig.tight_layout(h_pad=2.5, rect=[0, 0, 1, 0.93])
+    fig.tight_layout(h_pad=3.0, rect=[0, 0, 1, 0.93])
     _savefig(fig, save_path)
     return fig
 
