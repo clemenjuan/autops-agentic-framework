@@ -16,11 +16,14 @@ For each new decision loop:
 5. Write comprehensive tests in `tests/test_decision_loops.py`.
 6. Document any deviations or adaptations from the paper with rationale.
 
-## Planned Decision Loops
+## Decision Loops
 
-| Loop   | Paper / Reference                                              |
-|--------|---------------------------------------------------------------|
-| SDA    | Sense-Decide-Act — classical reactive agent pattern           |
-| OODA   | Observe-Orient-Decide-Act — Boyd's decision cycle             |
-| CoALA  | Sumers et al. (2023) "Cognitive Architectures for Language Agents", TMLR |
-| Others | TBD — researcher will select based on literature review       |
+| Loop   | Status | Paper / Reference                                              |
+|--------|--------|---------------------------------------------------------------|
+| SDA    | Done   | Sense-Decide-Act — classical reactive agent pattern           |
+| OODA   | Done   | Boyd's OODA cycle; Miller et al. (2021), Hartmann et al. (2024) |
+| ReAct  | Done   | Yao et al. (2023) "ReAct", ICLR 2023; Li (2025)              |
+| CoALA  | Planned | Sumers et al. (2024) "Cognitive Architectures for Language Agents" |
+
+All loops produce a `DecisionContext` (see `context.py`) consumed by representations.
+See `docs/implementations.md` for full paper basis and design rationale.

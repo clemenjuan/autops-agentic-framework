@@ -13,25 +13,24 @@ dimensions are:
 | Dimension              | Options                                |
 |------------------------|----------------------------------------|
 | **Organization**       | Centralized, Hierarchical, Distributed |
-| **Decision Loop**      | Reactive, Deliberative, Layered-hierarchical |
+| **Decision Loop**      | SDA, OODA, ReAct, (CoALA planned)      |
 | **Representation**     | Symbolic, Hybrid (Neuro-symbolic)      |
 | **Emergence**          | Hand-designed, Learned                 |
-| **Operations Paradigm**| Autonomous Hybrid, Conventional Ground |
+| **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground |
 
 Each combination defines a unique architecture that can be evaluated under
 identical scenario conditions.
 
 ### Current Status
 
-**EventSat baseline** (TUM single-satellite mission) is fully implemented with:
+**Phase 3** — three decision loops × three operations paradigms = 9 experiment configurations:
+- **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
+- **Operations paradigms**: Autonomous Hybrid (onboard real-time), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints)
+- **Representations**: Rule-based EventSat (OODA-aware + ReAct-capable), Schedule-based EventSat, Conventional Schedule EventSat (human cognitive constraints)
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
-- Orbital mechanics module (simplified analytical models + optional Orekit integration)
-- Pre-computed eclipse intervals and ground station passes
-- Pipeline backpressure (observation limited by downlink capacity, per Proposal Section 6.1)
-- Rule-based SDA decision loop with symbolic representation
-- Both operations paradigms (autonomous hybrid, conventional ground)
-- 7 research metrics collected per episode (utility, data downlink efficiency, latency, robustness, resource efficiency, operator load, explainability)
-- 159 tests passing (4 Orekit-specific tests skipped when Orekit is not installed)
+- Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
+- 7 research metrics + loop-specific metrics (OODA orient latency/urgency, ReAct reasoning depth/convergence)
+- DecisionContext interface decoupling loops from representations
 
 ## Quick Start
 
@@ -51,10 +50,22 @@ uv run python -m pytest tests/ -v -o "addopts="
 ### Running an Experiment
 ```bash
 # Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>_v<N>)
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml     # autonomous hybrid
+# SDA loop (baseline)
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml    # autonomous hybrid
+uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ag.yaml    # autonomous ground
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_cg.yaml    # conventional ground
 
-# Quick test with fewer episodes and shorter sim
+# OODA loop
+uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_ah.yaml   # autonomous hybrid
+uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_ag.yaml   # autonomous ground
+uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_cg.yaml   # conventional ground
+
+# ReAct loop
+uv run autops run configs/experiments/eventsat_cen_react_symb_hd_ah.yaml  # autonomous hybrid
+uv run autops run configs/experiments/eventsat_cen_react_symb_hd_ag.yaml  # autonomous ground
+uv run autops run configs/experiments/eventsat_cen_react_symb_hd_cg.yaml  # conventional ground
+
+# Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
 
 # Run and auto-generate analysis figures
@@ -90,11 +101,11 @@ autops-demo/
 |   |   +-- orbital/          # Orbital mechanics (eclipse, ground access, Orekit wrapper)
 |   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
 |   +-- agent_organization/   # Centralized / Hierarchical / Distributed
-|   +-- decision_loop/        # SDA / OODA / CoALA / custom loops
+|   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Neuro-symbolic
 |   +-- memory/               # Memory abstraction + FixedMemory impl
 |   +-- emergence/            # Emergence controller & registry
-|   +-- operations/           # Operations paradigm (autonomous_hybrid, conventional_ground)
+|   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 |   +-- tools/                # Domain-specific tools (placeholder)
 +-- configs/
@@ -106,10 +117,10 @@ autops-demo/
 +-- tests/                    # Unit and integration tests
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
+|   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
 |   +-- architecture.md       # Architecture overview
 |   +-- metrics.md            # Metrics definitions
 |   +-- scenarios.md          # Scenario descriptions
-|   +-- implementation_guide.md
 +-- data/
 |   +-- results/              # Experiment outputs (git-ignored)
 |   +-- trained_models/       # Learned representations (git-ignored)
@@ -149,11 +160,11 @@ uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
 
 ## Documentation
 
-- [Foundation Specification](docs/FOUNDATION_SPEC.md) -- the governing spec
+- [Foundation Specification](docs/FOUNDATION_SPEC.md) — the governing spec
+- [Implementation Registry](docs/implementations.md) — all components, paper basis, design decisions
 - [Architecture Overview](docs/architecture.md)
 - [Metrics Definitions](docs/metrics.md)
 - [Scenario Descriptions](docs/scenarios.md)
-- [Implementation Guide](docs/implementation_guide.md)
 
 ## Contact
 
