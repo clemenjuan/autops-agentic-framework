@@ -11,6 +11,7 @@ produced by the decision loop.
 | Rule-based EventSat | `rule_based_eventsat.py` | Autonomous Hybrid | OODA-aware rules + ReAct `reason()` |
 | Schedule-based EventSat | `schedule_based_eventsat.py` | Autonomous Ground | Greedy cyclic planner, OODA-aware |
 | Conventional Schedule EventSat | `conventional_schedule_eventsat.py` | Conventional Ground | Human cognitive constraints (margins, horizon discount, shift handover) |
+| LLM EventSat | `llm_eventsat.py` | All (AH/AG/CG) | Hybrid: LLM reasoning + symbolic grounding. Uses `llm_client.py` + `llm_prompts.py` |
 
 See `docs/implementations.md` for full paper basis and design rationale.
 

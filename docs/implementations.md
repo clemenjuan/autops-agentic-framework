@@ -5,6 +5,34 @@ its paper basis, and key design decisions. Grows as new components are added.
 
 ---
 
+## Agent Organizations
+
+Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = environment, C = communication topology, Ω = orchestration policy (Kim et al. 2025 [FVFQ73RF]).
+
+**Empirical prediction for all Organization experiments** (Kim et al. 2025, 180 configs): satellite mode selection is sequential constraint satisfaction → centralized org predicted to outperform distributed. Capability saturation (β̂=−0.404) means multi-agent overhead negates gains once single-agent baseline > ~45%.
+
+### CentralizedOrganization — Phase 2
+
+- **File**: `src/agent_organization/centralized.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Single-Agent System (SAS) — |A|=1, single reasoning locus, C undefined, Ω direct, complexity O(k).
+- **Structure**: One central agent receives full constellation observation and selects actions for all satellites. No inter-agent communication. Zero coordination overhead.
+- **Key property**: Maximum context integration (unified memory stream, full prior-history access). Upper bound for context-quality; lower bound for parallelism.
+
+### HierarchicalOrganization — Phase 2
+
+- **File**: `src/agent_organization/hierarchical.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Centralized MAS — orchestrator routes to sub-agents, C = {(a_orch, aᵢ) : ∀i}, Ω = hierarchical, complexity O(rnk).
+- **Structure**: Mission manager agent coordinates local satellite agents. Orchestrator aggregates sub-agent outputs and can override decisions. Creates validation bottleneck that contains error amplification (4.4× vs 17.2× for independent).
+
+### DistributedOrganization — Phase 2
+
+- **File**: `src/agent_organization/distributed.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(aᵢ, aⱼ) : ∀i,j, i≠j}, Ω = consensus, complexity O(dnk).
+- **Structure**: Each satellite has its own agent; agents communicate peer-to-peer. Consensus formation through debate rounds. Enables parallel exploration but incurs coordination tax and information fragmentation.
+- **Risk**: Independent error amplification (17.2× per Kim et al.) if consensus fails. Suited for parallelisable tasks, predicted to underperform on sequential satellite scheduling.
+
+---
+
 ## Decision Loops
 
 ### SDA (Sense-Decide-Act) — Phase 2 baseline
@@ -214,6 +242,39 @@ its paper basis, and key design decisions. Grows as new components are added.
   (per `ConventionalGround` paradigm). The conservative parameters account for
   the uncertainty of planning ahead based on stale telemetry.
 - **Operations paradigm**: Paired with `conventional_ground`.
+
+### LLM EventSat — Phase 4a (hybrid)
+
+- **File**: `src/representation/llm_eventsat.py`
+- **Registered as**: `llm_eventsat`
+- **Paradigm**: Hybrid (subsymbolic LLM + symbolic safety constraints)
+- **Paper basis**:
+  - Rodriguez-Fernandez et al. (2024), "Language Models are Spacecraft Operators" [WC5WU34U]
+    — LLM prompt design for satellite operations (§3.2 state formatting).
+  - Li (2025), "AI Agents for Satellite Operations" [UAA3GIVK]
+    — ReAct LLM agent architecture for satellite ops.
+- **Structure**:
+  - `encode_observation()`: Same feature extraction as rule-based (for comparability).
+  - `select_action(context)`: Formats state into structured prompt → LLM call → JSON
+    parse → symbolic grounding validates mode → retry on invalid → fallback to symbolic.
+  - `reason()`: LLM-based structured reasoning for ReAct thought step.
+  - `get_rationale()`: LLM's natural language rationale.
+- **Symbolic grounding checks**:
+  - Mode must be one of 7 valid EventSat modes.
+  - Anomaly → forced safe mode (no LLM override).
+  - Communication requires active ground pass.
+  - SoC < 0.20 → forced charging (hard safety limit).
+- **LLM infrastructure** (`src/representation/llm_client.py`):
+  - Dual provider: TUM Ollama (primary, via `OLLAMA_HOST`) + OpenAI API (fallback).
+  - File-based response cache (`data/llm_cache/`) keyed on prompt hash.
+  - Mock mode (`llm_mock: true`) for CI — no live LLM calls.
+  - Configurable model, temperature, provider via YAML.
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms
+  (AH/AG/CG). Unlike symbolic which needed 3 separate representation types per ops
+  paradigm, the LLM representation handles all ops contexts through its prompt.
+- **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
+  `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
+- **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
 
 ---
 

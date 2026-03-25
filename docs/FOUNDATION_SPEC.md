@@ -36,6 +36,7 @@ Scalability is framed as a **2D space**: *constellation size* (1 → 500+ satell
 - How do different agent organizations (single centralized agent, one agent per satellite, hierarchical, fully distributed) affect the performance/robustness trade-off under identical cognitive components?
 - Are certain cognitive architectures better matched to certain organizations (e.g., emergent subsymbolic agents in distributed constellations vs. hybrid agents in hierarchical setups)?
 - How does the choice of architecture family determine the type and degree of explainability available to human operators — and how does this interact with mission safety requirements?
+- **Testable hypothesis (Kim et al. 2025 [FVFQ73RF]):** Satellite mode selection is sequential constraint satisfaction → centralized org should outperform distributed. Capability saturation effect predicts multi-agent overhead negates gains once single-agent baselines exceed ~45%.
 
 **RQ3 — Scale & Complexity**
 - How do different cognitive and agent architectures degrade or adapt as constellation size, task load, and constraint density grow (e.g., from 5 to 500 satellites)?
@@ -184,11 +185,50 @@ All components must define clear abstract base classes before implementation.
 - `collect_actions(agent_actions)`: Aggregate agent actions for environment
 - `get_agents()`: Return all agents in the organization
 
+**Formal definition** (Kim et al. 2025 [FVFQ73RF]):
+
+An agent system is defined as **S = (A, E, C, Ω)** where:
+- **A = {a₁, …, aₙ}** — set of agents (n ≥ 1); each aᵢ = (Φᵢ, Aᵢ, Mᵢ, πᵢ) with reasoning policy Φᵢ (LLM or planner), action space Aᵢ, internal memory Mᵢ, decision function πᵢ: H → Aᵢ
+- **E** — shared environment (satellite constellation simulation)
+- **C** — communication topology (defines information flow between agents)
+- **Ω** — orchestration policy (how sub-agent outputs are aggregated, whether overrides are possible, termination conditions)
+
+When |A| = 1 → **Single-Agent System (SAS)**; |A| > 1 → **Multi-Agent System (MAS)**.
+
+**Topology mapping to AUTOPS Organization dimension:**
+
+| Topology (Kim et al.) | AUTOPS value | C definition | Ω policy | Complexity |
+|---|---|---|---|---|
+| Single-Agent | `centralized` | — (one reasoning locus) | direct | O(k) |
+| Centralized MAS | `hierarchical` | orchestrator → sub-agents | hierarchical | O(rnk) |
+| Decentralized MAS | `distributed` | all-to-all peer exchange | consensus | O(dnk) |
+| Independent MAS | — (not yet in matrix) | agent-to-aggregator only | synthesis_only | O(nk) |
+| Hybrid MAS | — (future) | star + peer edges | hierarchical + lateral | O(rnk + pn) |
+
+where k = reasoning iterations, r = orchestration rounds, d = debate rounds, n = agents.
+
+**Empirical scaling effects** (Kim et al. 2025, 180-configuration controlled study):
+
+1. **Capability saturation** (β̂ = −0.404, p<0.001): Once single-agent baseline exceeds ~45% task accuracy, adding agents yields diminishing or *negative* returns. Coordination overhead exceeds improvement potential. For AUTOPS: if symbolic/hybrid representations already perform well, distributed org may degrade utility.
+
+2. **Topology-dependent error amplification**: Independent agents amplify errors 17.2× through unchecked propagation; centralized coordination contains this to 4.4× via validation bottlenecks. Prediction for AUTOPS: centralized org is safer for anomaly-handling.
+
+3. **Task-type dependency — critical for satellite ops**: Coordination benefits are task-contingent:
+   - Parallelisable tasks (financial reasoning): Centralized +80.8%
+   - Dynamic exploration (web navigation): Decentralized +9.2%
+   - **Sequential constraint satisfaction (planning):** *Every* multi-agent variant degraded performance −39% to −70%
+
+   Satellite mode selection is a **sequential constraint satisfaction task** (hard ordering: charge → observe → compress → detect → send → communicate). This predicts **centralized org will outperform distributed** for EventSat — a testable hypothesis for RQ2.
+
+4. **Intelligence-coordination alignment**: Higher-capability representations (Phase 4a/4b/4c LLMs) need the *right* topology to benefit. Wrong org structure negates capability gains. This makes the **Organization × Representation interaction a first-class RQ2 research question**.
+
+**Architecture selection rule** (87% accuracy on held-out configurations): Optimal topology depends on measurable task properties — decomposability, tool complexity, sequential depth — not simply on "more agents". AUTOPS can derive analogous selection heuristics from its experimental matrix.
+
 **Implementations:**
 
-- `CentralizedOrganization`: Single agent controls entire constellation
-- `HierarchicalOrganization`: Mission manager + local satellite agents
-- `DistributedOrganization`: Peer-to-peer multi-agent with communication topology
+- `CentralizedOrganization`: Single agent controls entire constellation (SAS in Kim et al. terms; C undefined, Ω direct)
+- `HierarchicalOrganization`: Mission manager + local satellite agents (Centralized MAS; C = orchestrator→sub-agents, Ω = hierarchical)
+- `DistributedOrganization`: Peer-to-peer multi-agent with communication topology (Decentralized MAS; C = all-to-all, Ω = consensus)
 
 ***
 
@@ -1005,11 +1045,13 @@ Every experiment must be fully reproducible from configuration file and random s
 - LLM agent: Li (2025) "Developing AI Agents for Satellite Operations"
 - RL for sat scheduling: Wang et al. (2022) "DRL-based Autonomous Mission Planning for AEOSs"
 
+**Agent organization & multi-agent scaling:**
+- Kim et al. (2025) "Towards a Science of Scaling Agent Systems" [FVFQ73RF] — formal topology taxonomy (S = (A,E,C,Ω)), 180-config controlled study, 3 scaling effects, architecture selection rules (87% accuracy)
+
 **Agentic AI:**
 - Sapkota et al. (2026) "AI Agents vs. Agentic AI: A Conceptual Taxonomy"
 - Masterman et al. (2024) "The Landscape of Emerging AI Agent Architectures"
 - V et al. (2026) "Agentic AI: Architectures, Taxonomies, and Evaluation of LLM Agents"
-- Kim et al. (2025) "Towards a Science of Scaling Agent Systems"
 
 **Note:** See Zotero library for full references. Each implementation must cite its source paper.
 
