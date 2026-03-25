@@ -31,6 +31,11 @@ orbital = [
     "orekit-jpype",    # High-fidelity orbital mechanics
 ]
 
+llm = [
+    "openai>=1.0",     # OpenAI API client (fallback provider)
+    "requests",        # HTTP client for Ollama API
+]
+
 rl = [
     "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
