@@ -14,8 +14,8 @@
 Build a modular experimental framework to systematically compare cognitive architectures for autonomous satellite constellation management. The framework must support testing combinations of:
 
 - **Agent Organizations**: Centralized, Hierarchical, Distributed
-- **Decision Loops**: SDA (Sense-Decide-Act), OODA, ReAct, CoALA, and others
-- **Representations**: Symbolic, Hybrid/Neuro-symbolic, Neural
+- **Decision Loops**: SDA (Sense-Decide-Act), OODA, ReAct, and others
+- **Representations**: Symbolic, Hybrid, Subsymbolic
 - **Emergence Modes**: Hand-designed, Learned
 - **Operations Paradigms**: Autonomous Hybrid, Autonomous Ground, Conventional Ground
 - **Constellation Sizes**: 1, 5, 20-30, 100+ satellites
@@ -28,13 +28,13 @@ Build a modular experimental framework to systematically compare cognitive archi
 Scalability is framed as a **2D space**: *constellation size* (1 → 500+ satellites) × *structural complexity* (centralized → distributed, with super-linear effort scaling). The following interconnected sub-questions operationalize the fundamental RQ:
 
 **RQ1 — Cognitive Architecture**
-- How do **decision-making loops** (SDA, OODA, CoALA, ReAct, LATS), **knowledge representations** (symbolic, neural, neuro-symbolic), and **degree of emergence** affect key performance metrics (utility, latency, robustness, resource efficiency, operator load, and explainability)?
+- How do **decision-making loops** (SDA, OODA, ReAct, LATS), **knowledge representations** (symbolic, subsymbolic, hybrid), and **degree of emergence** affect key performance metrics (utility, latency, robustness, resource efficiency, operator load, and explainability)?
 - Can Pareto frontiers between competing objectives (e.g., utility vs. resource efficiency vs. operator interventions) be characterised for different cognitive architecture configurations?
 - Which cognitive architecture patterns offer the most favourable trade-offs for which operational scenarios?
 
 **RQ2 — Agent Organization**
 - How do different agent organizations (single centralized agent, one agent per satellite, hierarchical, fully distributed) affect the performance/robustness trade-off under identical cognitive components?
-- Are certain cognitive architectures better matched to certain organizations (e.g., emergent neural agents in distributed constellations vs. hybrid neuro-symbolic agents in hierarchical setups)?
+- Are certain cognitive architectures better matched to certain organizations (e.g., emergent subsymbolic agents in distributed constellations vs. hybrid agents in hierarchical setups)?
 - How does the choice of architecture family determine the type and degree of explainability available to human operators — and how does this interact with mission safety requirements?
 
 **RQ3 — Scale & Complexity**
@@ -196,7 +196,7 @@ All components must define clear abstract base classes before implementation.
 
 **File:** `src/decision_loop/base.py`
 
-**Purpose:** Abstract decision-making pattern defining temporal control flow. Each loop type follows specific research papers (e.g., CoALA paper for CoALA implementation).
+**Purpose:** Abstract decision-making pattern defining temporal control flow. Each loop type follows specific research papers.
 
 **Key Methods:**
 
@@ -216,12 +216,12 @@ All components must define clear abstract base classes before implementation.
   Note: Deployed frontier systems (Claude, GPT-4o) standardize on ReAct-style
   reason-act-observe cycles in their orchestration layers.
 
-**Planned loops (future phases):**
-
-- **CoALA**: Higher-level cognitive architecture framework (Sumers et al. 2024).
-  Subsumes ReAct as a lower-level mechanism; adds explicit memory architecture
-  (working memory, episodic, semantic, procedural) and action space decomposition.
-  Planned as a separate, distinct loop after LLM representations are implemented.
+**Note on CoALA (Sumers et al. 2024):** CoALA ("Cognitive Architectures for Language
+Agents") is an **architecture blueprint**, not a decision loop. It defines an LLM-orchestrated
+agentic system with memory architecture (working, episodic, semantic, procedural) and
+action space decomposition that combines decision loop + representation concerns. In this
+framework, CoALA is implemented as a hybrid **representation type** (`agentic_eventsat`)
+that internalizes its own reasoning cycle, rather than as a separate decision loop.
 
 ***
 
@@ -237,11 +237,25 @@ All components must define clear abstract base classes before implementation.
 - `select_action(state, memory)`: Core decision-making logic
 - Additional methods as required by specific decision loops
 
-**Types:**
+**Cognitive paradigms** (Brooks 1991, Colelough & Regli 2025, Navarro 2025):
 
-- **Symbolic**: Rules, planners, constraints (hand-designed logic)
-- **Hybrid/Neuro-symbolic**: LLM reasoning + symbolic tools + MARL-networks
-- **Neural**: Learned policies (RL-trained networks)
+- **Symbolic**: Explicit declarative knowledge — rules, planners, constraint solvers. Knowledge lives in explicit world models, rules, ontologies.
+- **Subsymbolic**: Implicit learned representations from raw data — RL policies, DNNs, base LLMs (without symbolic layer). Knowledge lives in network weights and embeddings.
+- **Hybrid**: Integration of symbolic + subsymbolic (Kahneman System 1/2). Includes LLM + tools/memory, DNN + logic constraints, agentic systems. An LLM alone is subsymbolic; an LLM combined with tools, memory structures, or symbolic constraints becomes hybrid.
+
+**Representation taxonomy — paradigm to implementation mapping:**
+
+| Paradigm | Where Knowledge Lives | Reasoning Structure | Examples | Our Implementations |
+|----------|----------------------|---------------------|----------|---------------------|
+| Symbolic | Explicit rules, ontologies, world models | Deductive, constraint-based | Expert systems, planners, production rules | `rule_based_eventsat`, `schedule_based_eventsat`, `conventional_schedule_eventsat` |
+| Subsymbolic | Network weights, embeddings | Statistical, distributed | RL policies, DNNs, base LLMs (no symbolic layer) | `subsymbolic_eventsat` (Phase 4b) |
+| Hybrid | Both explicit + implicit | Combines fast intuition (System 1) with deliberate reasoning (System 2) | LLM + tools/memory, DNN + logic, agentic systems | `llm_eventsat` (Phase 4a), `agentic_eventsat` (Phase 4c) |
+
+**Key rule for implementations:** An LLM alone is subsymbolic (implicit distributed representations in weights). An LLM combined with tools, memory structures, or symbolic constraints becomes hybrid (explicit symbolic layer on top of subsymbolic core). This follows Kahneman's System 1/2 and the neuro-symbolic AI literature (Colelough & Regli 2025). The agentic pattern (LLM + memory + tools + reasoning loop) is an **implementation of the hybrid paradigm**, not a new paradigm.
+
+**Representation subtypes** (e.g., `llm_eventsat`, `agentic_eventsat`, `subsymbolic_eventsat`) are design choices *within* paradigms, specified via `representation_config.type` in YAML. The top-level `representation` field remains one of: `symbolic`, `subsymbolic`, `hybrid`.
+
+**Phase 3 orthogonality observation:** With deterministic symbolic representations, some loop × representation combinations (e.g., SDA vs ReAct with `rule_based_eventsat`) produce identical decisions because the rules always return the same output regardless of reasoning iteration. The ReAct loop's reason→act→observe cycle converges in one iteration since there is no "reasoning" to iterate on. With hybrid/subsymbolic representations, these combinations **will** produce meaningfully different outcomes: LLMs generate different reasoning traces across iterations, and RL policies have stochastic exploration. This is expected behaviour, not a design flaw — it validates that the loop dimension becomes load-bearing when the representation has non-deterministic reasoning.
 
 **Note:** Same representation can work with different decision loops. The representation provides the "what," the decision loop provides the "when/how."
 
@@ -340,8 +354,8 @@ seed: 42
 
 # Morphological Matrix Dimensions
 agent_organization: "centralized"  # centralized | hierarchical | distributed
-decision_loop: "sda"               # sda | ooda | react | coala | [custom]
-representation: "symbolic"          # symbolic | hybrid | neural
+decision_loop: "sda"               # sda | ooda | react | [custom]
+representation: "symbolic"          # symbolic | subsymbolic | hybrid
 emergence_mode: "hand_designed"    # hand_designed | learned
 operations_paradigm: "autonomous_hybrid"  # autonomous_hybrid | autonomous_ground | conventional_ground
 
@@ -502,7 +516,7 @@ A lower CV means the architecture delivers reliably similar results regardless o
 - Human-evaluable justification rate (fraction of decisions with accessible rationale).
 - Compliance with operator-interpretable decision rules (for symbolic architectures).
 
-**Note:** Operationalization will depend on architecture type — symbolic representations yield inherent explainability; neural/emergent representations require post-hoc methods (e.g., attention visualization, SHAP values). The metric must be defined so it is architecture-agnostic in collection but architecture-sensitive in interpretation.
+**Note:** Operationalization will depend on architecture type — symbolic representations yield inherent explainability; subsymbolic/hybrid representations may require post-hoc methods (e.g., attention visualization, SHAP values). The metric must be defined so it is architecture-agnostic in collection but architecture-sensitive in interpretation.
 
 ***
 
@@ -588,25 +602,26 @@ class MetricsCollector(ABC):
 
 **Planned (next phases):**
 
-- Add decision loops: CoALA (Sumers et al. 2024) — requires LLM representations first
-- Add representations: LLM-based (Rodriguez-Fernandez et al. 2024, Li 2025),
-  neural/RL (Wang et al. 2022), neurosymbolic (Navarro 2025)
+- Add hybrid representations: LLM-based (Rodriguez-Fernandez et al. 2024, Li 2025),
+  agentic/CoALA-style (Sumers et al. 2024, Sapkota et al. 2026)
+- Add subsymbolic representations: RL policies (Wang et al. 2022)
+- Implement emergence mode "learned" (RL training pipeline)
 - Scale constellation size: 1 → 5 → 20 → 100
 
 **Note:** Each new component requires theoretical justification and validation against baselines
 
 ***
 
-### Phase 4: Learned Variants (Weeks 17-20)
+### Phase 4: Hybrid & Subsymbolic Representations + Learned Emergence
 
-**Goal:** Implement emergence mode "learned"
+**Goal:** Expand representation dimension (hybrid, subsymbolic) and emergence mode (learned)
 
 **Deliverables:**
 
-1. RL training pipeline for neural representations
-2. Learned policy integration
-3. Comparison: hand-designed vs learned for same decision loop
-4. Analysis of emergence vs non-emergence trade-offs
+1. Phase 4a: LLM hybrid representation (Rodriguez-Fernandez et al. 2024, Li 2025)
+2. Phase 4b: Subsymbolic/RL representation with PPO training pipeline (Wang et al. 2022)
+3. Phase 4c: Agentic hybrid representation — CoALA architecture as representation type (Sumers et al. 2024, Sapkota et al. 2026)
+4. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
 
 ***
 
@@ -675,7 +690,7 @@ dev = [
 ]
 
 rl = [
-    "torch",           # For neural representations (optional)
+    "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
 ]
 
@@ -919,7 +934,7 @@ Scenarios are implemented sequentially:
 
 1. ~~**Operational scenario selection**~~ → **decided**: EventSat, Flamingo, Space Data Centers
 2. **First decision loop choice** (which to implement first for EventSat?)
-3. **First representation choice** (symbolic | hybrid | neural?)
+3. **First representation choice** (symbolic | hybrid | subsymbolic?)
 4. **Hand-designed logic specifications** (rules, prompts, etc.)
 5. **EventSat-specific constraints** (visibility windows, power model, downlink budget)
 
@@ -973,13 +988,30 @@ Every experiment must be fully reproducible from configuration file and random s
 - Reuse: Orekit integration, tool interfaces, data pipeline concepts
 
 
-### Scientific Papers (examples for decision loops)
+### Scientific Papers
 
-- CoALA: Sumers et al. (2023) "Cognitive Architectures for Language Agents", TMLR
-- ReAct: Yao et al. (2023) "ReAct: Synergizing Reasoning and Acting in Language Models"
+**Cognitive paradigm taxonomy:**
+- Brooks (1991) "Intelligence Without Representation", Artificial Intelligence 47(1)
+- Colelough & Regli (2025) "Neuro-Symbolic AI in 2024: A Systematic Review"
+- Navarro (2025) "Enhancing Cognitive Functions in LLMs Towards AGI"
+
+**Decision loops:**
+- ReAct: Yao et al. (2023) "ReAct: Synergizing Reasoning and Acting in Language Models", ICLR
 - Tree of Thoughts: Yao et al. (2023) "Tree of Thoughts: Deliberate Problem Solving with LLMs"
 
-**Note:** Specific papers to follow will be provided per component during implementation.
+**Representations:**
+- CoALA (architecture blueprint): Sumers et al. (2024) "Cognitive Architectures for Language Agents", TMLR
+- LLM for sat ops: Rodriguez-Fernandez et al. (2024) "Language Models are Spacecraft Operators"
+- LLM agent: Li (2025) "Developing AI Agents for Satellite Operations"
+- RL for sat scheduling: Wang et al. (2022) "DRL-based Autonomous Mission Planning for AEOSs"
+
+**Agentic AI:**
+- Sapkota et al. (2026) "AI Agents vs. Agentic AI: A Conceptual Taxonomy"
+- Masterman et al. (2024) "The Landscape of Emerging AI Agent Architectures"
+- V et al. (2026) "Agentic AI: Architectures, Taxonomies, and Evaluation of LLM Agents"
+- Kim et al. (2025) "Towards a Science of Scaling Agent Systems"
+
+**Note:** See Zotero library for full references. Each implementation must cite its source paper.
 
 ***
 

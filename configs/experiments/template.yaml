@@ -6,10 +6,10 @@
 # ─── Experiment Identification ───────────────────────────────────────
 # Naming convention: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>
 #   org:  cen | hier | dist
-#   loop: sda | ooda | coala
-#   repr: symb | hybr
-#   emrg: hd | learn
-#   ops:  ah (autonomous_hybrid) | cg (conventional_ground)
+#   loop: sda | ooda | react
+#   repr: symb | hybr | subm
+#   emrg: hd | le
+#   ops:  ah (autonomous_hybrid) | ag (autonomous_ground) | cg (conventional_ground)
 # Example: eventsat_cen_sda_symb_hd_ah
 experiment_id: "eventsat_<org>_<loop>_<repr>_<emrg>_<ops>"
 description: "Brief description of experimental configuration"
@@ -21,10 +21,10 @@ seed: 42
 # agent_organization: centralized | hierarchical | distributed
 agent_organization: "centralized"
 
-# decision_loop: sda | ooda | coala | <custom>
+# decision_loop: sda | ooda | react | <custom>
 decision_loop: "sda"
 
-# representation: symbolic | hybrid | neural
+# representation: symbolic | subsymbolic | hybrid
 representation: "symbolic"
 
 # emergence_mode: hand_designed | learned
@@ -49,7 +49,7 @@ representation_config:
   # Representation-specific parameters
   # Symbolic: rule set config
   # Hybrid: LLM model name, tool list
-  # Neural: network architecture, checkpoint path
+  # Subsymbolic: network architecture, checkpoint path
   {}
 
 emergence_config:

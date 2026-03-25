@@ -32,7 +32,7 @@ orbital = [
 ]
 
 rl = [
-    "torch",           # For neural representations (optional)
+    "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
 ]
 

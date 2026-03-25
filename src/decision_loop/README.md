@@ -23,7 +23,10 @@ For each new decision loop:
 | SDA    | Done   | Sense-Decide-Act — classical reactive agent pattern           |
 | OODA   | Done   | Boyd's OODA cycle; Miller et al. (2021), Hartmann et al. (2024) |
 | ReAct  | Done   | Yao et al. (2023) "ReAct", ICLR 2023; Li (2025)              |
-| CoALA  | Planned | Sumers et al. (2024) "Cognitive Architectures for Language Agents" |
 
 All loops produce a `DecisionContext` (see `context.py`) consumed by representations.
 See `docs/implementations.md` for full paper basis and design rationale.
+
+**Note:** CoALA (Sumers et al. 2024) is an architecture blueprint, not a decision loop.
+It is implemented as a hybrid representation type (`agentic_eventsat`).
+See `src/representation/` for details.

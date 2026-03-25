@@ -10,7 +10,7 @@ Examples:
   - SDA:   DecisionContext(state=encoded, loop_type="sda", enrichments={})
   - OODA:  DecisionContext(state=encoded, loop_type="ooda",
              enrichments={"situation_class": ..., "urgency": ..., ...})
-  - CoALA: enrichments={"prompt": ..., "reasoning_steps": [...]}
+  - Hybrid/Agentic: enrichments={"prompt": ..., "reasoning_steps": [...]}
   - RL:    enrichments={"tensor_obs": ..., "policy_logits": ..., "value_estimate": ...}
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ class DecisionContext:
 
     Attributes:
         state: Raw encoded observation (always present, loop-agnostic).
-        loop_type: Identifier for the producing loop ("sda", "ooda", "coala", ...).
+        loop_type: Identifier for the producing loop ("sda", "ooda", "react", ...).
         memory: Agent memory reference (FixedMemory or similar).
         enrichments: Loop-specific data (orient assessment, LLM prompts, tensors).
         loop_metadata: Operational metadata (latency, iterations, timing).

@@ -148,7 +148,7 @@ class ExperimentRunner:
         """
         random.seed(seed)
         np.random.seed(seed)
-        # torch seed would go here if using neural representations
+        # torch seed would go here if using subsymbolic representations
         logger.debug("Random seeds set to %d", seed)
 
     def _initialize_components(self) -> None:

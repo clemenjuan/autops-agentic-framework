@@ -13,8 +13,8 @@ dimensions are:
 | Dimension              | Options                                |
 |------------------------|----------------------------------------|
 | **Organization**       | Centralized, Hierarchical, Distributed |
-| **Decision Loop**      | SDA, OODA, ReAct, (CoALA planned)      |
-| **Representation**     | Symbolic, Hybrid (Neuro-symbolic)      |
+| **Decision Loop**      | SDA, OODA, ReAct                       |
+| **Representation**     | Symbolic, Subsymbolic, Hybrid          |
 | **Emergence**          | Hand-designed, Learned                 |
 | **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground |
 
@@ -102,7 +102,7 @@ autops-demo/
 |   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
 |   +-- agent_organization/   # Centralized / Hierarchical / Distributed
 |   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
-|   +-- representation/       # Symbolic / Neuro-symbolic
+|   +-- representation/       # Symbolic / Subsymbolic / Hybrid
 |   +-- memory/               # Memory abstraction + FixedMemory impl
 |   +-- emergence/            # Emergence controller & registry
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)

@@ -35,12 +35,22 @@ uv run autops analyze data/results/eventsat_cen_sda_symb_hd_ah/
 - Feature branches only (`feature/<name>`), never commit to main
 - Conventional commits (feat:, fix:, refactor:, test:, docs:)
 - Ask before changing morphological matrix dimensions or adding dependencies
-- `docs/FOUNDATION_SPEC.md` is the governing document — check it first
+- **Before planning new components:** check `docs/FOUNDATION_SPEC.md` (scientific grounding) + Zotero library (literature). Every implementation must be grounded in specific papers.
+- **After implementation:** update `docs/implementations.md` (what was built) + `docs/FOUNDATION_SPEC.md` if scientific grounding changed. Do NOT create new doc files.
+
+## Doc map (single source per topic — no duplication)
+- **Research grounding** (RQs, morphological matrix, cognitive paradigm taxonomy, design principles, phase roadmap): `docs/FOUNDATION_SPEC.md`
+- **What's been built** (component registry, paper basis, design decisions): `docs/implementations.md`
+- **How to add new components** (step-by-step guide): `docs/implementation_guide.md`
+- **Metrics definitions**: `docs/metrics.md`
+- **Scenario specifications**: `docs/scenarios.md`
+- **System architecture diagram + data flow**: `docs/architecture.md`
+- **EventSat physics parameters**: this file (CLAUDE.md), section below
 
 ## Layout
 - `src/` — environment (+ orbital/, scenarios/), agent_organization, decision_loop, representation, memory, emergence, operations, orchestration, tools
 - `configs/` — experiment YAMLs + scenario definitions
-- `tests/` — pytest suite (159 tests total)
+- `tests/` — pytest suite
 - `data/results/`, `data/trained_models/` — git-ignored, runtime only
 
 ## EventSat scenario physics (current)

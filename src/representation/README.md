@@ -22,11 +22,16 @@ See `docs/implementations.md` for full paper basis and design rationale.
 - Deterministic given the same inputs
 - Must document the rule set or planning formalism used
 
-### Hybrid / Neuro-symbolic Representations
-- Combine LLM reasoning with symbolic tools
+### Hybrid Representations
+- Combine subsymbolic core (LLM, DNN) with symbolic tools/constraints
 - May include MARL-based sub-components
-- Must clearly separate the neural and symbolic parts
+- Must clearly separate the subsymbolic and symbolic parts
 - Document the integration architecture
+
+### Subsymbolic Representations
+- Implicit learned policies (RL-trained networks, base LLMs)
+- Knowledge lives in network weights/embeddings
+- Require training pipeline and checkpoint management
 
 ## Checklist
 

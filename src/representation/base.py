@@ -7,10 +7,10 @@ the decision loop provides the "when/how" (temporal control flow).
 
 The same representation can work with different decision loops.
 
-Types:
-- **Symbolic**: Rules, planners, constraint solvers (hand-designed logic).
-- **Hybrid / Neuro-symbolic**: LLM reasoning + symbolic tools + MARL-networks.
-- **Neural**: Learned policies (RL-trained networks).
+Cognitive paradigms (Brooks 1991, Colelough & Regli 2025):
+- **Symbolic**: Explicit declarative knowledge — rules, planners, constraint solvers.
+- **Subsymbolic**: Implicit learned representations — RL policies, DNNs, base LLMs.
+- **Hybrid**: Integration of symbolic + subsymbolic — LLM + tools/memory, DNN + logic.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ class Representation(ABC):
         """Return a human-readable rationale for the last decision.
 
         Symbolic representations should always provide a rationale.
-        Neural representations return ``None`` unless post-hoc
+        Subsymbolic representations return ``None`` unless post-hoc
         explanation is available.
 
         Returns:
