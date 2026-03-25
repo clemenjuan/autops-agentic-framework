@@ -35,7 +35,7 @@ The metrics framework is designed to capture multiple performance dimensions for
 
 **Considerations:**
 - Symbolic representations are typically faster than LLM-based ones.
-- Neural representations have inference-time vs. training-time trade-offs.
+- Subsymbolic representations have inference-time vs. training-time trade-offs.
 - Must account for communication overhead in distributed organizations.
 
 ---
@@ -111,13 +111,13 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 
 **Definition:** The degree to which an architecture's decisions can be interpreted and justified to human operators.
 
-**Rationale:** Mission safety and human-machine trust require that operators understand *why* the system acted as it did, not just *what* it did. RQ2 explicitly asks how architecture choice determines the type and degree of explainability available. Architectures differ fundamentally: symbolic representations are inherently interpretable; neural/emergent representations require post-hoc methods.
+**Rationale:** Mission safety and human-machine trust require that operators understand *why* the system acted as it did, not just *what* it did. RQ2 explicitly asks how architecture choice determines the type and degree of explainability available. Architectures differ fundamentally: symbolic representations are inherently interpretable; subsymbolic/hybrid representations may require post-hoc methods.
 
 **Measurement (candidates — require theoretical development):**
 - Presence and completeness of decision traces or reasoning logs (binary or graded).
 - Human-evaluable justification rate: fraction of decisions accompanied by an accessible, operator-readable rationale.
 - Compliance with operator-interpretable rules (for symbolic architectures).
-- For neural architectures: attention visualization coverage, SHAP value availability.
+- For subsymbolic architectures: attention visualization coverage, SHAP value availability.
 
 **Considerations:**
 - The metric must be architecture-agnostic in *collection* but architecture-sensitive in *interpretation*.
@@ -248,4 +248,4 @@ Status: ⚠️ Metadata recorded; 2D scaling surface requires multi-constellatio
 
 ### ~~Priority 8 — Explainability instrumentation~~ ✅ Done
 
-`explainability_score = decisions_with_rationale / n_steps`. Symbolic (`rule_based_eventsat`) yields 1.0; neural/hybrid will yield lower values.
+`explainability_score = decisions_with_rationale / n_steps`. Symbolic (`rule_based_eventsat`) yields 1.0; subsymbolic/hybrid will yield lower values.

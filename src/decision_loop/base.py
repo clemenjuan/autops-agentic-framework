@@ -3,7 +3,7 @@ Decision Loop — Abstract Base Class.
 
 Defines the temporal control flow pattern for agent reasoning. Each
 concrete implementation must **strictly follow** an established research
-paper (e.g. CoALA follows Sumers et al. 2023).
+paper (e.g. OODA follows Miller et al. 2021, ReAct follows Yao et al. 2023).
 
 The decision loop orchestrates *when* and *how* the representation module
 is invoked; the representation module provides the *what* (actual

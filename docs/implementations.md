@@ -98,8 +98,9 @@ its paper basis, and key design decisions. Grows as new components are added.
   - `grounding_violations`: List of violation dicts from previous iterations
 - **Note on naming**: Deployed frontier systems (Claude, GPT-4o, Gemini tools API)
   standardize on ReAct-style reason-act-observe cycles in their orchestration layers.
-  CoALA (Sumers et al. 2024) is a higher-level framework that subsumes ReAct; it will
-  be implemented as a separate, distinct loop in a future phase.
+  CoALA (Sumers et al. 2024) is a higher-level architecture blueprint that subsumes
+  ReAct; it is implemented as a hybrid representation type (`agentic_eventsat`),
+  not as a separate decision loop.
 
 ---
 

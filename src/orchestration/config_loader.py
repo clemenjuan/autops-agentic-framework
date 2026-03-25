@@ -121,7 +121,7 @@ class ExperimentConfig(BaseModel):
     # ------------------------------------------------------------------
 
     VALID_ORGANIZATIONS: ClassVar[Set[str]] = {"centralized", "hierarchical", "distributed"}
-    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "hybrid", "neural"}
+    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
     VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
         "autonomous_hybrid", "autonomous_ground", "conventional_ground",
@@ -179,7 +179,7 @@ class ExperimentConfig(BaseModel):
 
     # Deterministic representations whose output cannot be improved by
     # iterative loop architectures (OODA orient, ReAct iteration).
-    # Future LLM/neural representations should NOT be in this set.
+    # Future hybrid/subsymbolic representations should NOT be in this set.
     _DETERMINISTIC_REPRESENTATIONS: ClassVar[Set[str]] = {
         "rule_based_eventsat",
         "schedule_based_eventsat",
@@ -196,7 +196,7 @@ class ExperimentConfig(BaseModel):
         # Deterministic rep + ground paradigm + non-SDA loop:
         # The loop cannot improve a deterministic planner's output, and
         # loop output is discarded between passes (schedule playback).
-        # This will NOT apply to future LLM/neural representations.
+        # This will NOT apply to future hybrid/subsymbolic representations.
         if (
             ops in ("autonomous_ground", "conventional_ground")
             and loop != "sda"
@@ -208,7 +208,7 @@ class ExperimentConfig(BaseModel):
                 f"improve a deterministic planner's output, and loop output "
                 f"is discarded between passes. Results will match SDA except "
                 f"for computational latency. This warning will not apply to "
-                f"future LLM/neural representations.",
+                f"future hybrid/subsymbolic representations.",
                 stacklevel=2,
             )
 

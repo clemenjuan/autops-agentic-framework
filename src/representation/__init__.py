@@ -4,8 +4,8 @@ Representation Module.
 Defines how knowledge and decisions are represented within decision loops.
 The representation provides the "what" while the decision loop provides the "when/how".
 
-Types:
-- Symbolic: Rules, planners, constraints (hand-designed logic)
-- Hybrid/Neuro-symbolic: LLM reasoning + symbolic tools + MARL-networks
-- Neural: Learned policies (RL-trained networks)
+Cognitive paradigms (Brooks 1991, Colelough & Regli 2025):
+- Symbolic: Explicit declarative knowledge — rules, planners, constraint solvers.
+- Subsymbolic: Implicit learned representations — RL policies, DNNs, base LLMs.
+- Hybrid: Integration of symbolic + subsymbolic — LLM + tools/memory, DNN + logic.
 """

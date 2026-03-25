@@ -22,8 +22,8 @@ import yaml
 
 # Default morphological matrix dimensions
 ORGANIZATIONS = ["centralized", "hierarchical", "distributed"]
-DECISION_LOOPS = ["sda", "ooda", "coala"]
-REPRESENTATIONS = ["symbolic", "hybrid", "neural"]
+DECISION_LOOPS = ["sda", "ooda", "react"]
+REPRESENTATIONS = ["symbolic", "subsymbolic", "hybrid"]
 EMERGENCE_MODES = ["hand_designed", "learned"]
 
 
