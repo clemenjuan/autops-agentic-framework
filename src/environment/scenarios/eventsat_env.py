@@ -153,6 +153,9 @@ class EventSatEnvironment(SatelliteEnvironment):
         # Misc
         self._orbital_ctx: Optional[OrbitalContext] = None
         self.active_anomaly = None
+        # RL sub-actions (set in step(), initialised here for get_observation() safety)
+        self._data_priority: int = 0
+        self._pipeline_routing: int = 0
         self.forced_safe_steps = 0
         # Dedicated RNG for anomaly injection — isolated from the global stream
         # so that different recovery timings between ops paradigms don't desync
@@ -204,6 +207,8 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.previous_mode = "charging"
         self.active_anomaly = None
         self.forced_safe_steps = 0
+        self._data_priority = 0
+        self._pipeline_routing = 0
         self._anomaly_rng = random.Random(seed * 131 + 7919 if seed is not None else None)
         self.episode_reward = 0.0
         self._step_metrics = {}
@@ -235,7 +240,15 @@ class EventSatEnvironment(SatelliteEnvironment):
 
     def step(self, actions):
         sat_action = actions.get("eventsat_0", {})
-        requested_mode = sat_action.get("mode", "charging") if isinstance(sat_action, dict) else "charging"
+        if isinstance(sat_action, dict):
+            requested_mode = sat_action.get("mode", "charging")
+            # RL sub-actions (MultiDiscrete): ignored by symbolic/LLM representations
+            self._data_priority = int(sat_action.get("data_priority", 0))       # 0=normal, 1=urgent
+            self._pipeline_routing = int(sat_action.get("pipeline_routing", 0)) # 0=compress_first, 1=detect_first
+        else:
+            requested_mode = "charging"
+            self._data_priority = 0
+            self._pipeline_routing = 0
         resolved_mode = self._resolve_mode(requested_mode)
         forced = resolved_mode != requested_mode
 
@@ -322,6 +335,7 @@ class EventSatEnvironment(SatelliteEnvironment):
     def get_observation(self):
         in_sun = self._is_in_sunlight()
         pass_active = self._is_ground_pass_active()
+        orbital_lookahead = self._compute_orbital_lookahead()
         sat = SatelliteState(
             satellite_id="eventsat_0",
             position=[0.0, 0.0, 500.0],
@@ -346,6 +360,8 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "health_status": "nominal" if self.active_anomaly is None else self.active_anomaly,
                 "undetected_observations": self.undetected_observations,
                 "daily_downlink_budget_mb": self.daily_downlink_budget_mb,
+                # Orbital lookahead (RL observation space Groups 2, BSK-RL pattern)
+                **orbital_lookahead,
             },
         )
         constellation = ConstellationState(
@@ -463,8 +479,28 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["storage_overflow"] = storage_overflow
 
         elif mode == "payload_compress":
-            had_data = self.uncompressed_observations > 0
-            if had_data:
+            # RL sub-action: detect_first → if detection backlog exists and no compression backlog,
+            # advance detection instead (agent wants to prioritize detection pipeline)
+            if (
+                getattr(self, "_pipeline_routing", 0) == 1
+                and self.undetected_observations > 0
+                and self.uncompressed_observations == 0
+            ):
+                # Redirect: treat as payload_detect step (detect_first routing)
+                self.detection_progress += 1
+                if self.detection_progress >= self.detection_steps:
+                    self.undetected_observations -= 1
+                    self.obc_data_mb += self.detection_metadata_mb
+                    self.total_detections += 1
+                    self.detection_progress = 0
+                    action_info["detection_completed"] = True
+                else:
+                    action_info["detection_in_progress"] = True
+                action_info["pipeline_routed_to_detect"] = True
+                had_data = True
+            else:
+                had_data = self.uncompressed_observations > 0
+            if had_data and not action_info.get("pipeline_routed_to_detect"):
                 # P1: multi-step compression
                 self.compression_progress += 1
                 if self.compression_progress >= self.compression_time_factor:
@@ -483,8 +519,30 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["had_data_to_compress"] = had_data
 
         elif mode == "payload_detect":
-            had_data = self.undetected_observations > 0
-            if had_data:
+            # RL sub-action: compress_first → if compression backlog exists and no detection backlog,
+            # advance compression instead
+            if (
+                getattr(self, "_pipeline_routing", 0) == 0
+                and self.uncompressed_observations > 0
+                and self.undetected_observations == 0
+            ):
+                # Redirect: treat as payload_compress step (compress_first routing)
+                self.compression_progress += 1
+                if self.compression_progress >= self.compression_time_factor:
+                    self.uncompressed_observations -= 1
+                    compressed_size = self.observation_size_mb / self.compression_ratio
+                    self.jetson_raw_mb = max(0.0, self.jetson_raw_mb - self.observation_size_mb)
+                    self.jetson_compressed_mb += compressed_size
+                    self.compression_progress = 0
+                    self.undetected_observations += 1
+                    action_info["compression_completed"] = True
+                else:
+                    action_info["compression_in_progress"] = True
+                action_info["pipeline_routed_to_compress"] = True
+                had_data = True
+            else:
+                had_data = self.undetected_observations > 0
+            if had_data and not action_info.get("pipeline_routed_to_compress"):
                 self.detection_progress += 1
                 if self.detection_progress >= self.detection_steps:
                     # Detection complete: produce small metadata → OBC
@@ -510,10 +568,14 @@ class EventSatEnvironment(SatelliteEnvironment):
             if pass_active:
                 # P3: only downlink from OBC
                 dl_mb = (self.downlink_rate_kbps / 8.0) * (self.step_duration_s / 1000.0)
+                # RL sub-action: urgent data_priority → 1.5x downlink chunk
+                if getattr(self, "_data_priority", 0) == 1:
+                    dl_mb *= 1.5
                 actual_dl = min(dl_mb, self.obc_data_mb)
                 self.obc_data_mb -= actual_dl
                 self.data_downlinked_mb += actual_dl
                 action_info["data_downlinked_mb"] = actual_dl
+                action_info["data_priority_urgent"] = getattr(self, "_data_priority", 0) == 1
 
         # --- Reward computation ---
         obs_hours = self.total_observation_s / 3600.0
@@ -568,6 +630,74 @@ class EventSatEnvironment(SatelliteEnvironment):
             )
             return self.active_anomaly
         return None
+
+    def _compute_time_to_next_event(self, current_step: int, intervals) -> int:
+        """Return steps until the next interval starts (BSK-RL OpportunityProperties pattern).
+
+        Searches for the nearest interval whose start_step > current_step.
+        Returns orbital_period_steps if no future event is found.
+        """
+        min_steps = self.orbital_period_steps
+        for interval in intervals:
+            if interval.start_step > current_step:
+                gap = interval.start_step - current_step
+                if gap < min_steps:
+                    min_steps = gap
+        return min_steps
+
+    def _compute_orbital_lookahead(self) -> dict:
+        """Compute orbital lookahead features for the RL observation space (Group 2).
+
+        Based on BSK-RL Eclipse/OpportunityProperties patterns and EUCASS 2025
+        orbital phase encoding. All values are in steps (unnormalized); the
+        Gymnasium wrapper normalizes them to [0, 1].
+
+        Returns dict with keys: orbital_phase, time_to_next_eclipse,
+        time_to_next_pass, remaining_pass_duration.
+        """
+        step = self.current_step
+        orbital_period_steps = self.orbital_period_steps
+
+        # Orbital phase ∈ [0, 1): position within current orbit
+        orbital_phase = (step % orbital_period_steps) / orbital_period_steps
+
+        if self._orbital_ctx is not None:
+            # Eclipse lookahead
+            # If currently in eclipse, next eclipse = next eclipse entry after current one
+            time_to_next_eclipse = self._compute_time_to_next_event(step, self._orbital_ctx.eclipses)
+
+            # Ground pass lookahead
+            current_pass = self._orbital_ctx.get_current_pass(step)
+            if current_pass is not None:
+                remaining_pass_duration = max(0, current_pass.end_step - step)
+                # Next pass starts after current pass ends
+                future_passes = [p for p in self._orbital_ctx.ground_passes if p.start_step > step]
+                time_to_next_pass = (
+                    min(p.start_step - step for p in future_passes)
+                    if future_passes else orbital_period_steps
+                )
+            else:
+                remaining_pass_duration = 0
+                time_to_next_pass = self._compute_time_to_next_event(step, self._orbital_ctx.ground_passes)
+        else:
+            # Fallback: estimate from orbital period and eclipse fraction
+            phase_in_period = step % orbital_period_steps
+            eclipse_end_step = int(self.eclipse_fraction * orbital_period_steps)
+            if phase_in_period < eclipse_end_step:
+                time_to_next_eclipse = orbital_period_steps - phase_in_period
+            else:
+                time_to_next_eclipse = orbital_period_steps - phase_in_period + int(
+                    self.eclipse_fraction * orbital_period_steps
+                )
+            time_to_next_pass = orbital_period_steps
+            remaining_pass_duration = 0
+
+        return {
+            "orbital_phase": orbital_phase,
+            "time_to_next_eclipse": time_to_next_eclipse,
+            "time_to_next_pass": time_to_next_pass,
+            "remaining_pass_duration": remaining_pass_duration,
+        }
 
     def _generate_tasks(self, in_sun, pass_active):
         tasks = []

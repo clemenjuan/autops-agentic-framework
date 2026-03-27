@@ -243,6 +243,48 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
   the uncertainty of planning ahead based on stale telemetry.
 - **Operations paradigm**: Paired with `conventional_ground`.
 
+### Subsymbolic EventSat — Phase 4b (RL learned)
+
+- **File**: `src/representation/subsymbolic_eventsat.py`
+- **Registered as**: `subsymbolic_eventsat`
+- **Paradigm**: Subsymbolic (deep RL policy; Brooks 1991, Colelough & Regli 2025)
+- **Paper basis**:
+  - Oliver et al. EUCASS 2025 [8KDZ5Z53] — Dec-POMDP formulation, PPO [256,256] tanh,
+    negative reward baseline (more stable), gamma=0.966–0.98, 30 epochs, 50μs Jetson inference
+  - Hamilton et al. 2025 [GWQ3LK6H] — Observation space design ablation: task-relevant
+    sensors (orbital position, timing lookahead) drastically reduce sample complexity;
+    10-seed significance threshold; PPO clip=0.3, 30 SGD epochs
+  - BSK-RL Stephenson & Schaub [ACUQK9VV] — Gymnasium wrapper pattern; Eclipse and
+    OpportunityProperties lookahead; semi-MDP variable-duration actions; modular obs
+  - Wang et al. 2022 [RRFQ6WCN] — Resource state (battery, memory) + visibility windows;
+    encoder-decoder for task scheduling
+- **Observation space (25D)**:
+  - Group 1 (4D) — Resource fill fractions: battery_soc, obc_fill, jetson_raw_fill, jetson_compressed_fill
+  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass, remaining_pass_duration, episode_progress
+  - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
+  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
+  - Group 5 (7D) — Current mode one-hot
+- **Action space**: `MultiDiscrete([7, 2, 2])`:
+  - Sub-action 0: Primary operational mode (7 modes)
+  - Sub-action 1: data_priority {0=normal, 1=urgent} → 1.5x downlink in comms mode
+  - Sub-action 2: pipeline_routing {0=compress_first, 1=detect_first} → redirects between compression and detection pipelines
+- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) → 3 actor heads + 1 critic head; ~70K parameters
+- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), factored joint log-prob over MultiDiscrete heads
+- **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
+- **Symbolic grounding** (same constraints as LLMEventSat):
+  - Anomaly → forced safe (cannot be overridden)
+  - SoC < 0.20 → forced charging
+  - Communication without active pass → forced charging
+- **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
+- **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
+- **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms (AH/AG/CG)
+- **Training script**: `scripts/train_subsymbolic.py`
+- **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
+- **Supporting modules**: `src/emergence/rollout_buffer.py` (RolloutBuffer + GAE), `src/emergence/training_pipeline.py` (PPOTrainer)
+- **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
+- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
+
 ### LLM EventSat — Phase 4a (hybrid)
 
 - **File**: `src/representation/llm_eventsat.py`

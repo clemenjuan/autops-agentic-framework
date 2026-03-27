@@ -72,6 +72,9 @@ class ExperimentRunner:
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
+        # RL training components (populated if emergence_mode == "learned")
+        self._representation: Any = None
+        self._rollout_buffer: Any = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -148,7 +151,11 @@ class ExperimentRunner:
         """
         random.seed(seed)
         np.random.seed(seed)
-        # torch seed would go here if using subsymbolic representations
+        try:
+            import torch
+            torch.manual_seed(seed)
+        except ImportError:
+            pass
         logger.debug("Random seeds set to %d", seed)
 
     def _initialize_components(self) -> None:
@@ -261,6 +268,7 @@ class ExperimentRunner:
         import src.representation.schedule_based_eventsat  # register schedule planner
         import src.representation.conventional_schedule_eventsat  # register human schedule planner
         import src.representation.llm_eventsat  # register LLM hybrid representation
+        import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
@@ -270,6 +278,27 @@ class ExperimentRunner:
         # Seed stochastic representations for reproducibility
         if hasattr(representation, "seed"):
             representation.seed(self.config.seed)
+        # Store representation reference for RL training access
+        self._representation = representation
+        # Set up PPO training components if learned mode
+        if (
+            self.config.emergence_mode == "learned"
+            and hasattr(representation, "set_trainer")
+            and not self.config.representation_config.get("rl_mock", False)
+        ):
+            try:
+                from src.emergence.rollout_buffer import RolloutBuffer
+                from src.emergence.training_pipeline import PPOTrainer
+                rollout_size = self.config.emergence_config.get("rollout_fragment", 128)
+                self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
+                trainer = PPOTrainer(
+                    policy=representation._policy,
+                    config=self.config.emergence_config,
+                )
+                representation.set_trainer(trainer)
+                logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
+            except ImportError as e:
+                logger.warning("Could not initialise PPO trainer: %s", e)
         loop_type = self.config.decision_loop
         if loop_type == 'sda':
             from src.decision_loop.sda_loop import SDALoop
@@ -370,6 +399,18 @@ class ExperimentRunner:
 
         episode_duration = time.perf_counter() - episode_start
 
+        # --- RL training update (learned mode only) ---
+        if (
+            self._rollout_buffer is not None
+            and self._representation is not None
+            and self._rollout_buffer.size > 0
+        ):
+            self._representation.update({
+                "buffer": self._rollout_buffer,
+                "episode": episode_id,
+            })
+            self._rollout_buffer.reset()
+
         # --- Finalise episode metrics ---
         episode_metrics = None
         if self._metrics_collector is not None:
@@ -464,6 +505,26 @@ class ExperimentRunner:
             new_observation = step_result.observation
             rewards = step_result.rewards
             info = step_result.info
+
+        # 6b. Collect RL trajectory step (learned mode only)
+        if self._rollout_buffer is not None and self._representation is not None:
+            step_data_rl = None
+            if hasattr(self._representation, "get_last_step_data"):
+                step_data_rl = self._representation.get_last_step_data()
+            if step_data_rl is not None and not self._rollout_buffer.is_full:
+                scalar_reward = float(sum(rewards.values())) if rewards else 0.0
+                done = (
+                    self._environment.is_done()
+                    if self._environment is not None else False
+                )
+                self._rollout_buffer.store(
+                    obs=step_data_rl["obs_vec"],
+                    action=step_data_rl["action_vec"],
+                    reward=scalar_reward,
+                    value=step_data_rl["value"],
+                    log_prob=step_data_rl["log_prob"],
+                    done=done,
+                )
 
         # 7. Update ground knowledge on downlink (communication mode during pass)
         if (

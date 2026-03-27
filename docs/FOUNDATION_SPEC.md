@@ -642,10 +642,7 @@ class MetricsCollector(ABC):
 
 **Planned (next phases):**
 
-- Add hybrid representations: LLM-based (Rodriguez-Fernandez et al. 2024, Li 2025),
-  agentic/CoALA-style (Sumers et al. 2024, Sapkota et al. 2026)
-- Add subsymbolic representations: RL policies (Wang et al. 2022)
-- Implement emergence mode "learned" (RL training pipeline)
+- Add agentic hybrid representation: CoALA-style (Sumers et al. 2024, Sapkota et al. 2026)
 - Scale constellation size: 1 → 5 → 20 → 100
 
 **Note:** Each new component requires theoretical justification and validation against baselines
@@ -656,10 +653,13 @@ class MetricsCollector(ABC):
 
 **Goal:** Expand representation dimension (hybrid, subsymbolic) and emergence mode (learned)
 
-**Deliverables:**
+**Completed:**
 
-1. Phase 4a: LLM hybrid representation (Rodriguez-Fernandez et al. 2024, Li 2025)
-2. Phase 4b: Subsymbolic/RL representation with PPO training pipeline (Wang et al. 2022)
+1. Phase 4a: LLM hybrid representation — `llm_eventsat`, 9 configs, 48 tests (Rodriguez-Fernandez et al. 2024, Li 2025)
+2. Phase 4b: Subsymbolic/RL representation — `subsymbolic_eventsat` with PPO training pipeline, Gymnasium wrapper, 25D obs space, MultiDiscrete action space, 9 configs, 67 tests (Oliver et al. EUCASS 2025, Hamilton et al. 2025, BSK-RL)
+
+**Planned:**
+
 3. Phase 4c: Agentic hybrid representation — CoALA architecture as representation type (Sumers et al. 2024, Sapkota et al. 2026)
 4. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
 

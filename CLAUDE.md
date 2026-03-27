@@ -12,12 +12,14 @@ PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive
 ```bash
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (354 tests)
+uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (413 tests)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml
 uv run autops run configs/experiments/eventsat_cen_sda_hybr_hd_ah.yaml  # LLM hybrid
+uv run autops run configs/experiments/eventsat_cen_sda_subm_le_ah.yaml  # RL subsymbolic
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
@@ -55,8 +57,8 @@ src/
   emergence/          # controller.py — @register() factory for representations
   operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
-configs/experiments/  # 19 YAML configs (9 symbolic Phase 3 + 9 hybrid Phase 4a + 1 template)
-tests/                # 16 test modules, 354 tests
+configs/experiments/  # 28 YAML configs (9 symbolic + 9 hybrid Phase 4a + 9 subsymbolic Phase 4b + 1 template)
+tests/                # 17 test modules, 413 tests
 ```
 
 **Key interfaces:**
