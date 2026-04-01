@@ -183,8 +183,11 @@ class ReActLoop(DecisionLoop):
 
         return action, memory
 
-    def get_metrics(self) -> Dict[str, float]:
+    def get_metrics(self) -> Dict[str, Any]:
         """Return ReAct-specific metrics (Yao et al. framework)."""
+        rationale = ""
+        if hasattr(self.representation, "get_rationale"):
+            rationale = self.representation.get_rationale() or ""
         return {
             "decision_latency_s": self._last_total_latency,
             "reasoning_depth": float(self._last_reasoning_depth),
@@ -193,6 +196,7 @@ class ReActLoop(DecisionLoop):
             "converged": float(self._last_converged),
             "has_rationale": float(self._last_has_rationale),
             "total_decisions": float(self._total_steps),
+            "rationale": rationale,
         }
 
     def reset(self) -> None:

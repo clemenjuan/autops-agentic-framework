@@ -21,6 +21,10 @@ class AutonomousHybrid(OperationsParadigm):
     def can_act(self, step: int, ground_pass_active: bool) -> bool:
         return True
 
+    def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
+        """Onboard autonomy runs inference every step."""
+        return True
+
     def can_self_recover_anomaly(self) -> bool:
         """Onboard FDIR can clear anomalies without ground contact."""
         return True

@@ -108,8 +108,15 @@ class LLMClient:
         temp = temperature if temperature is not None else self.temperature
         response = self._call_with_failover(system_prompt, user_prompt, temp, json_mode)
 
-        # Cache the response
-        self._cache_put(cache_key, response)
+        logger.debug(
+            "LLM [%s] prompt: %.200s...", self._last_provider, user_prompt[:200]
+        )
+        logger.debug(
+            "LLM [%s] response: %.500s", self._last_provider, response[:500]
+        )
+
+        # Cache the response (with prompts for debugging)
+        self._cache_put(cache_key, response, system_prompt, user_prompt)
         return response
 
     def get_metrics(self) -> Dict[str, float]:
@@ -282,12 +289,20 @@ class LLMClient:
                 return None
         return None
 
-    def _cache_put(self, key: str, response: str) -> None:
-        """Write a response to cache."""
+    def _cache_put(
+        self,
+        key: str,
+        response: str,
+        system_prompt: str = "",
+        user_prompt: str = "",
+    ) -> None:
+        """Write a response to cache (with prompts for debugging)."""
         path = self.cache_dir / f"{key}.json"
         data = {
             "model": self.model,
             "temperature": self.temperature,
+            "system_prompt": system_prompt,
+            "user_prompt": user_prompt,
             "response": response,
             "timestamp": time.time(),
         }

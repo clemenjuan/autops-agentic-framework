@@ -128,6 +128,14 @@ class AutonomousGround(OperationsParadigm):
             events=[],
         )
 
+    def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
+        """Ground inference only during passes when fresh telemetry is available.
+
+        Between passes, the satellite executes the pre-uploaded schedule and
+        the ground has no new data to plan with (Rossi et al. 2023).
+        """
+        return ground_pass_active
+
     def can_act(self, step: int, ground_pass_active: bool) -> bool:
         """Commands can only be uplinked during ground passes."""
         return ground_pass_active
