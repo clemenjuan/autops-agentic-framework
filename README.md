@@ -23,14 +23,20 @@ identical scenario conditions.
 
 ### Current Status
 
-**Phase 3** — three decision loops × three operations paradigms = 9 experiment configurations:
+**Phase 4 complete** — 37 experiment configurations across the full morphological matrix:
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
 - **Operations paradigms**: Autonomous Hybrid (onboard real-time), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints)
-- **Representations**: Rule-based EventSat (OODA-aware + ReAct-capable), Schedule-based EventSat, Conventional Schedule EventSat (human cognitive constraints)
+- **Representations** (4 types, 5 implementations):
+  - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
+  - *Hybrid — LLM single-shot*: `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
+  - *Hybrid — Agentic*: `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
+  - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Oliver et al. 2025) — 25D obs, MultiDiscrete actions, trainable policy
+- **Inference gating**: Ground-based paradigms (AG/CG) only run LLM/agentic inference during ground passes (Rossi et al. 2023)
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
-- 7 research metrics + loop-specific metrics (OODA orient latency/urgency, ReAct reasoning depth/convergence)
+- 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling loops from representations
+- 493 tests across 18 test modules
 
 ## Quick Start
 
@@ -52,18 +58,6 @@ uv run python -m pytest tests/ -v -o "addopts="
 # Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>_v<N>)
 # SDA loop (baseline)
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml    # autonomous hybrid
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ag.yaml    # autonomous ground
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_cg.yaml    # conventional ground
-
-# OODA loop
-uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_ah.yaml   # autonomous hybrid
-uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_ag.yaml   # autonomous ground
-uv run autops run configs/experiments/eventsat_cen_ooda_symb_hd_cg.yaml   # conventional ground
-
-# ReAct loop
-uv run autops run configs/experiments/eventsat_cen_react_symb_hd_ah.yaml  # autonomous hybrid
-uv run autops run configs/experiments/eventsat_cen_react_symb_hd_ag.yaml  # autonomous ground
-uv run autops run configs/experiments/eventsat_cen_react_symb_hd_cg.yaml  # conventional ground
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
@@ -77,9 +71,13 @@ uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --analyze
 # Generate config combinations from template
 uv run autops generate --template configs/experiments/template.yaml
 
+# Quick sanity check
+uv run autops batch configs/experiments --episodes 1 --steps 200
+
 # Run all generated configs or all experiments in a folder
 uv run autops batch configs/experiments/generated/
 uv run autops batch configs/experiments/
+uv run autops batch configs/experiments --episodes 5 --steps 10080
 ```
 
 ### Analyzing Results
@@ -102,19 +100,19 @@ autops-demo/
 |   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
 |   +-- agent_organization/   # Centralized / Hierarchical / Distributed
 |   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
-|   +-- representation/       # Symbolic / Subsymbolic / Hybrid
+|   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
 |   +-- memory/               # Memory abstraction + FixedMemory impl
-|   +-- emergence/            # Emergence controller & registry
+|   +-- emergence/            # Emergence controller, registry, rollout buffer, training pipeline
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
-|   +-- tools/                # Domain-specific tools (placeholder)
 +-- configs/
-|   +-- experiments/          # YAML experiment configurations
+|   +-- experiments/          # 37 YAML experiment configurations + template
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
-+-- tests/                    # Unit and integration tests
+|   +-- train_subsymbolic.py  # PPO training script for RL representation
++-- tests/                    # 18 test modules, 493 tests
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
@@ -124,6 +122,7 @@ autops-demo/
 +-- data/
 |   +-- results/              # Experiment outputs (git-ignored)
 |   +-- trained_models/       # Learned representations (git-ignored)
+|   +-- llm_cache/            # LLM response cache with prompts (git-ignored)
 ```
 
 ## Configuration
@@ -167,12 +166,11 @@ uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
 - [Scenario Descriptions](docs/scenarios.md)
 
 ## Contact
-
-TUM Chair of Spacecraft Systems  
+ 
 Clemente J. Juan Oliver  
 clemente.juan@tum.de
 
 ---
 
 **Supported by**:  
-AUTOPS project, Bavarian Joint Research Program (BayVFP), MRF-2307-0004
+AUTOPS project, Bavarian Joint Research Program (BayVFP), MRF-2307-0004.
