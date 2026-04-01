@@ -412,6 +412,7 @@ class TestMetrics:
             "orient_cases_retrieved",
             "total_decisions",
             "has_rationale",
+            "rationale",
         }
         assert set(metrics.keys()) == expected_keys
 

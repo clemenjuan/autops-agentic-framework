@@ -1,0 +1,464 @@
+"""
+Agentic Tools — Domain-specific tools for CoALA-style agentic reasoning.
+
+Pure functions operating on state/memory dicts — no side effects, no LLM calls.
+Tools are invoked by the agentic representation during its Plan-Tool-Reflect-Decide
+loop to query satellite state, check constraints, and evaluate plans.
+
+Papers:
+- Sumers et al. (2024) [CoALA] — action decomposition into internal (reasoning,
+  retrieval) and external (tool use, grounding) actions
+- Li (2025) — tool-augmented AI agents for satellite operations
+"""
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+
+# ======================================================================
+# Tool type definition
+# ======================================================================
+
+class ToolDef:
+    """Tool definition with schema for prompt embedding."""
+
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        parameters: Dict[str, str],
+        func: Any,
+    ) -> None:
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.func = func
+
+    def to_schema(self) -> Dict[str, Any]:
+        """Return schema dict for prompt embedding."""
+        return {
+            "name": self.name,
+            "description": self.description,
+            "parameters": self.parameters,
+        }
+
+
+# ======================================================================
+# Tool registry
+# ======================================================================
+
+TOOL_REGISTRY: Dict[str, ToolDef] = {}
+
+
+def _register_tool(
+    name: str, description: str, parameters: Dict[str, str],
+):
+    """Decorator to register an agentic tool."""
+    def decorator(func):
+        TOOL_REGISTRY[name] = ToolDef(
+            name=name,
+            description=description,
+            parameters=parameters,
+            func=func,
+        )
+        return func
+    return decorator
+
+
+# ======================================================================
+# Mode feasibility helper
+# ======================================================================
+
+VALID_MODES = [
+    "charging", "communication", "payload_observe", "payload_compress",
+    "payload_detect", "payload_send", "safe",
+]
+
+# Modes that require minimum SoC thresholds
+_ENERGY_INTENSIVE_MODES = frozenset({
+    "payload_observe", "payload_compress", "payload_detect",
+    "payload_send", "communication",
+})
+
+_SOC_HARD_LIMIT = 0.20
+_SOC_PREFERRED = 0.35
+
+
+def _get_feasible_modes(state: Dict[str, Any]) -> List[str]:
+    """Return list of feasible modes given current state."""
+    soc = state.get("battery_soc", 0.5)
+    pass_active = state.get("ground_pass_active", False)
+    health = state.get("health_status", "nominal")
+
+    if health != "nominal":
+        return ["safe"]
+
+    feasible = []
+    for mode in VALID_MODES:
+        if mode == "safe":
+            feasible.append(mode)
+            continue
+        if soc < _SOC_HARD_LIMIT:
+            if mode == "charging":
+                feasible.append(mode)
+            continue
+        if mode == "communication" and not pass_active:
+            continue
+        if mode in _ENERGY_INTENSIVE_MODES and soc < _SOC_PREFERRED:
+            # Feasible but risky
+            feasible.append(mode)
+            continue
+        feasible.append(mode)
+
+    if "charging" not in feasible:
+        feasible.insert(0, "charging")
+    return feasible
+
+
+# ======================================================================
+# Tool implementations
+# ======================================================================
+
+@_register_tool(
+    name="check_battery",
+    description="Assess battery state of charge, charging conditions, and which modes are feasible.",
+    parameters={"state": "Current satellite state dict"},
+)
+def check_battery(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Battery assessment with mode feasibility analysis."""
+    soc = state.get("battery_soc", 0.5)
+    in_sunlight = state.get("in_sunlight", False)
+
+    if soc >= _SOC_PREFERRED:
+        charging_assessment = "good"
+    elif soc >= _SOC_HARD_LIMIT:
+        charging_assessment = "low"
+    else:
+        charging_assessment = "critical"
+
+    return {
+        "soc": round(soc, 3),
+        "in_sunlight": in_sunlight,
+        "charging_rate": "nominal" if in_sunlight else "none (eclipse)",
+        "charging_assessment": charging_assessment,
+        "below_preferred": soc < _SOC_PREFERRED,
+        "below_hard_limit": soc < _SOC_HARD_LIMIT,
+        "feasible_modes": _get_feasible_modes(state),
+    }
+
+
+@_register_tool(
+    name="check_ground_pass",
+    description="Check ground station pass status: active, time to next pass, remaining duration, and data ready for downlink.",
+    parameters={"state": "Current satellite state dict"},
+)
+def check_ground_pass(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Ground pass window assessment."""
+    active = state.get("ground_pass_active", False)
+    obc_data = state.get("obc_data_mb", 0.0)
+
+    # Orbital lookahead from extended metadata (Phase 4b env extension)
+    time_to_next = state.get("time_to_next_pass", None)
+    remaining = state.get("remaining_pass_duration", 0)
+
+    result: Dict[str, Any] = {
+        "active": active,
+        "obc_data_mb": round(obc_data, 2),
+        "data_ready_for_downlink": obc_data > 0,
+    }
+
+    if time_to_next is not None:
+        result["time_to_next"] = f"~{int(time_to_next)} steps"
+    else:
+        result["time_to_next"] = "unknown"
+
+    if active:
+        result["remaining_duration"] = int(remaining) if remaining else 0
+        result["recommendation"] = (
+            "communicate" if obc_data > 0 else "no data to downlink"
+        )
+    else:
+        result["remaining_duration"] = 0
+        result["recommendation"] = "pass not active — cannot communicate"
+
+    return result
+
+
+@_register_tool(
+    name="check_data_pipeline",
+    description="Check data pipeline status: Jetson raw/compressed, OBC data, uncompressed/undetected counts, and identify bottleneck.",
+    parameters={"state": "Current satellite state dict"},
+)
+def check_data_pipeline(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
+    """Data pipeline status with bottleneck identification."""
+    jetson_raw = state.get("jetson_raw_mb", 0.0)
+    jetson_compressed = state.get("jetson_compressed_mb", 0.0)
+    obc_data = state.get("obc_data_mb", 0.0)
+    uncompressed = state.get("uncompressed_observations", 0)
+    undetected = state.get("undetected_observations", 0)
+    compression_progress = state.get("compression_progress", 0)
+    daily_budget = state.get("daily_downlink_budget_mb", 27.0)
+
+    # Identify bottleneck
+    if uncompressed > 0:
+        bottleneck = "compression_needed"
+    elif undetected > 0:
+        bottleneck = "detection_needed"
+    elif jetson_compressed > 0:
+        bottleneck = "send_to_obc_needed"
+    elif obc_data > 0:
+        bottleneck = "downlink_needed"
+    else:
+        bottleneck = "none"
+
+    # Build summary
+    parts = []
+    if uncompressed > 0:
+        parts.append(f"{uncompressed} uncompressed obs on Jetson")
+    if undetected > 0:
+        parts.append(f"{undetected} undetected obs")
+    if jetson_compressed > 0:
+        parts.append(f"{jetson_compressed:.1f} MB compressed on Jetson")
+    if obc_data > 0:
+        parts.append(f"{obc_data:.1f} MB on OBC ready for downlink")
+    if not parts:
+        parts.append("pipeline empty")
+
+    return {
+        "jetson_raw_mb": round(jetson_raw, 2),
+        "jetson_compressed_mb": round(jetson_compressed, 2),
+        "obc_data_mb": round(obc_data, 2),
+        "uncompressed": uncompressed,
+        "undetected": undetected,
+        "compression_progress": compression_progress,
+        "daily_downlink_budget_mb": round(daily_budget, 2),
+        "bottleneck": bottleneck,
+        "pipeline_summary": "; ".join(parts),
+    }
+
+
+@_register_tool(
+    name="check_constraints",
+    description="Pre-validate whether a proposed mode is feasible given the current state. Returns violations and warnings.",
+    parameters={"state": "Current satellite state dict", "proposed_mode": "Mode to check (string)"},
+)
+def check_constraints(
+    state: Dict[str, Any], proposed_mode: str = "charging", **kwargs,
+) -> Dict[str, Any]:
+    """Constraint check for a proposed mode."""
+    soc = state.get("battery_soc", 0.5)
+    pass_active = state.get("ground_pass_active", False)
+    health = state.get("health_status", "nominal")
+
+    violations: List[Dict[str, str]] = []
+    warnings: List[Dict[str, str]] = []
+
+    # Hard constraints
+    if health != "nominal" and proposed_mode != "safe":
+        violations.append({
+            "constraint": "anomaly",
+            "reason": f"Anomaly active ({health}); only safe mode allowed.",
+        })
+
+    if soc < _SOC_HARD_LIMIT and proposed_mode != "charging":
+        violations.append({
+            "constraint": "battery_critical",
+            "reason": f"SoC {soc:.2f} below hard limit {_SOC_HARD_LIMIT}; must charge.",
+        })
+
+    if proposed_mode == "communication" and not pass_active:
+        violations.append({
+            "constraint": "ground_pass",
+            "reason": "No active ground pass; cannot communicate.",
+        })
+
+    # Warnings
+    if soc < _SOC_PREFERRED and proposed_mode in _ENERGY_INTENSIVE_MODES:
+        warnings.append({
+            "constraint": "battery_low",
+            "reason": f"SoC {soc:.2f} below preferred {_SOC_PREFERRED}; consider charging first.",
+        })
+
+    if proposed_mode not in VALID_MODES:
+        violations.append({
+            "constraint": "invalid_mode",
+            "reason": f"'{proposed_mode}' is not a valid EventSat mode.",
+        })
+
+    return {
+        "proposed_mode": proposed_mode,
+        "feasible": len(violations) == 0,
+        "violations": violations,
+        "warnings": warnings,
+    }
+
+
+@_register_tool(
+    name="recall_history",
+    description="Query episodic memory: retrieve recent mode history, mode frequency counts, and battery trend.",
+    parameters={"memory": "FixedMemory instance or None", "n": "Number of recent steps (default 5)"},
+)
+def recall_history(
+    state: Dict[str, Any],
+    memory: Optional[Any] = None,
+    n: int = 5,
+    **kwargs,
+) -> Dict[str, Any]:
+    """Query episodic memory for recent mode history and trends."""
+    last_modes: List[str] = []
+    battery_values: List[float] = []
+
+    if memory is not None:
+        try:
+            history = memory.query("history") or []
+        except Exception:
+            history = []
+
+        for entry in history[-n:]:
+            sats = entry.get("satellites", {})
+            sat = sats.get("eventsat_0", {})
+            if isinstance(sat, dict):
+                mode = sat.get("status", "unknown")
+                soc = sat.get("resources", {}).get("battery_soc", None)
+            else:
+                mode = getattr(sat, "status", "unknown")
+                res = getattr(sat, "resources", {}) or {}
+                soc = res.get("battery_soc", None)
+            last_modes.append(mode)
+            if soc is not None:
+                battery_values.append(soc)
+
+    # Compute mode counts
+    mode_counts: Dict[str, int] = {}
+    for m in last_modes:
+        mode_counts[m] = mode_counts.get(m, 0) + 1
+
+    # Battery trend
+    if len(battery_values) >= 2:
+        if battery_values[-1] > battery_values[0] + 0.01:
+            battery_trend = "rising"
+        elif battery_values[-1] < battery_values[0] - 0.01:
+            battery_trend = "falling"
+        else:
+            battery_trend = "stable"
+    else:
+        battery_trend = "insufficient_data"
+
+    return {
+        "last_modes": last_modes,
+        "mode_counts": mode_counts,
+        "battery_trend": battery_trend,
+        "history_depth": len(last_modes),
+    }
+
+
+@_register_tool(
+    name="evaluate_plan",
+    description="Heuristic evaluation of a proposed mode: estimated utility and risk factors.",
+    parameters={"state": "Current satellite state dict", "proposed_mode": "Mode to evaluate (string)"},
+)
+def evaluate_plan(
+    state: Dict[str, Any], proposed_mode: str = "charging", **kwargs,
+) -> Dict[str, Any]:
+    """Heuristic plan evaluation — estimated utility and risks."""
+    soc = state.get("battery_soc", 0.5)
+    pass_active = state.get("ground_pass_active", False)
+    obc_data = state.get("obc_data_mb", 0.0)
+    in_sunlight = state.get("in_sunlight", False)
+    uncompressed = state.get("uncompressed_observations", 0)
+    undetected = state.get("undetected_observations", 0)
+    jetson_compressed = state.get("jetson_compressed_mb", 0.0)
+
+    risk_factors: List[str] = []
+    utility = 0.5  # baseline
+
+    if proposed_mode == "charging":
+        utility = 0.4 if soc > _SOC_PREFERRED else 0.7
+        if not in_sunlight:
+            risk_factors.append("in eclipse — charging ineffective")
+            utility -= 0.2
+
+    elif proposed_mode == "communication":
+        if pass_active and obc_data > 0:
+            utility = 0.9
+        elif pass_active:
+            utility = 0.3
+            risk_factors.append("pass active but no OBC data to downlink")
+        else:
+            utility = 0.0
+            risk_factors.append("no ground pass — communication blocked")
+
+    elif proposed_mode == "payload_observe":
+        utility = 0.7
+        if soc < _SOC_PREFERRED:
+            risk_factors.append("battery below preferred — observation drains power")
+            utility -= 0.2
+
+    elif proposed_mode == "payload_compress":
+        if uncompressed > 0:
+            utility = 0.7
+        else:
+            utility = 0.1
+            risk_factors.append("no uncompressed observations to process")
+
+    elif proposed_mode == "payload_detect":
+        if undetected > 0:
+            utility = 0.7
+        else:
+            utility = 0.1
+            risk_factors.append("no undetected observations to process")
+
+    elif proposed_mode == "payload_send":
+        if jetson_compressed > 0:
+            utility = 0.6
+        else:
+            utility = 0.1
+            risk_factors.append("no compressed data on Jetson to send")
+
+    elif proposed_mode == "safe":
+        utility = 0.2
+        risk_factors.append("safe mode — minimal operations")
+
+    # Common risk: low battery
+    if soc < _SOC_PREFERRED and proposed_mode in _ENERGY_INTENSIVE_MODES:
+        risk_factors.append("SoC below preferred threshold")
+
+    recommendation = "proceed" if utility >= 0.5 and not risk_factors else "reconsider"
+    if utility >= 0.5:
+        recommendation = "proceed"
+
+    return {
+        "proposed_mode": proposed_mode,
+        "estimated_utility": round(max(0.0, min(1.0, utility)), 2),
+        "risk_factors": risk_factors,
+        "recommendation": recommendation,
+    }
+
+
+# ======================================================================
+# Public API
+# ======================================================================
+
+def execute_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    state: Dict[str, Any],
+    memory: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Execute a registered tool by name.
+
+    Returns tool result dict, or error dict for unknown tools.
+    """
+    tool_def = TOOL_REGISTRY.get(tool_name)
+    if tool_def is None:
+        return {"error": f"Unknown tool '{tool_name}'", "available": list(TOOL_REGISTRY.keys())}
+
+    return tool_def.func(state=state, memory=memory, **args)
+
+
+def get_tool_schemas() -> List[Dict[str, Any]]:
+    """Return list of tool schemas for prompt embedding."""
+    return [t.to_schema() for t in TOOL_REGISTRY.values()]
+
+
+TOOL_SCHEMAS = get_tool_schemas()

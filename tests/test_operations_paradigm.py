@@ -417,3 +417,43 @@ class TestExperimentRunnerIntegration:
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 200
+
+
+# -----------------------------------------------------------------
+# Inference Gating (should_allow_inference)
+# -----------------------------------------------------------------
+
+
+class TestInferenceGating:
+    """Verify that operations paradigms correctly gate inference timing.
+
+    Ground-based paradigms (AG/CG) should only allow inference during
+    ground passes, when fresh telemetry is available (Rossi et al. 2023).
+    """
+
+    def test_ah_always_allows_inference(self):
+        """AutonomousHybrid allows inference every step (onboard autonomy)."""
+        ah = AutonomousHybrid()
+        assert ah.should_allow_inference(0, ground_pass_active=False) is True
+        assert ah.should_allow_inference(50, ground_pass_active=True) is True
+        assert ah.should_allow_inference(100, ground_pass_active=False) is True
+
+    def test_ag_allows_inference_only_during_pass(self):
+        """AutonomousGround allows inference only when ground pass active."""
+        ag = AutonomousGround(config={"orbital_period_steps": 93})
+        assert ag.should_allow_inference(10, ground_pass_active=False) is False
+        assert ag.should_allow_inference(50, ground_pass_active=True) is True
+        assert ag.should_allow_inference(60, ground_pass_active=False) is False
+
+    def test_cg_allows_inference_only_during_pass(self):
+        """ConventionalGround allows inference only when ground pass active."""
+        from src.operations.conventional_ground import ConventionalGround
+        cg = ConventionalGround(config={"orbital_period_steps": 93})
+        assert cg.should_allow_inference(10, ground_pass_active=False) is False
+        assert cg.should_allow_inference(50, ground_pass_active=True) is True
+        assert cg.should_allow_inference(60, ground_pass_active=False) is False
+
+    def test_base_default_allows_inference(self):
+        """Base class default returns True (backward compatible)."""
+        ah = AutonomousHybrid()
+        assert ah.should_allow_inference(0, ground_pass_active=False) is True

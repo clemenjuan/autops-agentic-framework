@@ -72,6 +72,11 @@ class ExperimentRunner:
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
+        # RL training components (populated if emergence_mode == "learned")
+        self._representation: Any = None
+        self._rollout_buffer: Any = None
+        # Decision trace writer (active when log_level == DEBUG)
+        self._decisions_file: Any = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -148,7 +153,11 @@ class ExperimentRunner:
         """
         random.seed(seed)
         np.random.seed(seed)
-        # torch seed would go here if using subsymbolic representations
+        try:
+            import torch
+            torch.manual_seed(seed)
+        except ImportError:
+            pass
         logger.debug("Random seeds set to %d", seed)
 
     def _initialize_components(self) -> None:
@@ -261,6 +270,8 @@ class ExperimentRunner:
         import src.representation.schedule_based_eventsat  # register schedule planner
         import src.representation.conventional_schedule_eventsat  # register human schedule planner
         import src.representation.llm_eventsat  # register LLM hybrid representation
+        import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
+        import src.representation.agentic_eventsat  # register agentic hybrid representation
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
@@ -270,6 +281,27 @@ class ExperimentRunner:
         # Seed stochastic representations for reproducibility
         if hasattr(representation, "seed"):
             representation.seed(self.config.seed)
+        # Store representation reference for RL training access
+        self._representation = representation
+        # Set up PPO training components if learned mode
+        if (
+            self.config.emergence_mode == "learned"
+            and hasattr(representation, "set_trainer")
+            and not self.config.representation_config.get("rl_mock", False)
+        ):
+            try:
+                from src.emergence.rollout_buffer import RolloutBuffer
+                from src.emergence.training_pipeline import PPOTrainer
+                rollout_size = self.config.emergence_config.get("rollout_fragment", 128)
+                self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
+                trainer = PPOTrainer(
+                    policy=representation._policy,
+                    config=self.config.emergence_config,
+                )
+                representation.set_trainer(trainer)
+                logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
+            except ImportError as e:
+                logger.warning("Could not initialise PPO trainer: %s", e)
         loop_type = self.config.decision_loop
         if loop_type == 'sda':
             from src.decision_loop.sda_loop import SDALoop
@@ -354,6 +386,15 @@ class ExperimentRunner:
         if self._operations_paradigm is not None:
             self._operations_paradigm.reset()
 
+        # --- Decision trace (active when log_level == DEBUG) ---
+        if self.config.log_level.upper() == "DEBUG":
+            decisions_path = self.output_dir / f"decisions_ep{episode_id}.jsonl"
+            self._decisions_file = open(
+                decisions_path, "w", encoding="utf-8"
+            )
+        else:
+            self._decisions_file = None
+
         # --- Step loop ---
         max_steps = self.config.max_steps
         step_data: List[Dict[str, Any]] = []
@@ -368,7 +409,24 @@ class ExperimentRunner:
             # Update observation for next step
             observation = step_info.get("observation")
 
+        # --- Close decision trace ---
+        if self._decisions_file is not None:
+            self._decisions_file.close()
+            self._decisions_file = None
+
         episode_duration = time.perf_counter() - episode_start
+
+        # --- RL training update (learned mode only) ---
+        if (
+            self._rollout_buffer is not None
+            and self._representation is not None
+            and self._rollout_buffer.size > 0
+        ):
+            self._representation.update({
+                "buffer": self._rollout_buffer,
+                "episode": episode_id,
+            })
+            self._rollout_buffer.reset()
 
         # --- Finalise episode metrics ---
         episode_metrics = None
@@ -423,38 +481,65 @@ class ExperimentRunner:
         else:
             agent_obs = {}
 
-        # 3. Decision loops (timed for latency metric)
+        # 3. Check if inference is allowed (ground paradigms skip between passes)
+        inference_allowed = True
+        if self._operations_paradigm is not None:
+            inference_allowed = self._operations_paradigm.should_allow_inference(
+                step, ground_pass_active
+            )
+
+        # 4. Decision loops (timed for latency metric)
         agent_actions = {}
-        decision_metrics: Dict[str, Any] = {}
-        for agent_id, loop in self._decision_loops.items():
-            obs = agent_obs.get(agent_id)
-            t0 = time.perf_counter()
-            action, self._memory = loop.process(obs, self._memory)
-            decision_latency = time.perf_counter() - t0
-            from src.agent_organization.base import AgentAction
+        decision_metrics: Dict[str, Any] = {"inference_allowed": inference_allowed}
+        from src.agent_organization.base import AgentAction
 
-            agent_actions[agent_id] = AgentAction(agent_id=agent_id, action=action)
-            # Collect decision loop metrics (latency, rationale, etc.)
-            loop_metrics = loop.get_metrics() if hasattr(loop, "get_metrics") else {}
-            decision_metrics = {
-                "decision_latency_s": decision_latency,
-                "has_rationale": loop_metrics.get("has_rationale", False),
-                **loop_metrics,
-            }
+        if inference_allowed:
+            for agent_id, loop in self._decision_loops.items():
+                obs = agent_obs.get(agent_id)
+                t0 = time.perf_counter()
+                action, self._memory = loop.process(obs, self._memory)
+                decision_latency = time.perf_counter() - t0
 
-        # 4. Collect actions
+                agent_actions[agent_id] = AgentAction(
+                    agent_id=agent_id, action=action
+                )
+                # Collect decision loop metrics (latency, rationale, etc.)
+                loop_metrics = (
+                    loop.get_metrics() if hasattr(loop, "get_metrics") else {}
+                )
+                decision_metrics.update({
+                    "decision_latency_s": decision_latency,
+                    "has_rationale": loop_metrics.get("has_rationale", False),
+                    **loop_metrics,
+                })
+        else:
+            # Between passes for ground paradigms: no inference, schedule
+            # playback in process_action() handles the action.
+            for agent_id in self._decision_loops:
+                fallback_mode = getattr(self, "_last_action_mode", "charging")
+                agent_actions[agent_id] = AgentAction(
+                    agent_id=agent_id,
+                    action={"eventsat_0": {"mode": fallback_mode}},
+                )
+            decision_metrics.update({
+                "decision_latency_s": 0.0,
+                "has_rationale": False,
+                "inference_skipped": True,
+            })
+
+        # 5. Collect actions
         if self._organization is not None:
             env_actions = self._organization.collect_actions(agent_actions)
         else:
             env_actions = {}
 
-        # 5. Process actions through operations paradigm (may buffer/gate)
+        # 6. Process actions through operations paradigm (may buffer/gate)
         if self._operations_paradigm is not None:
             env_actions = self._operations_paradigm.process_action(
                 env_actions, step, ground_pass_active
             )
 
-        # 6. Environment step
+        # 7. Environment step
         rewards: Dict[str, float] = {}
         info: Dict[str, Any] = {}
         new_observation = observation
@@ -465,7 +550,27 @@ class ExperimentRunner:
             rewards = step_result.rewards
             info = step_result.info
 
-        # 7. Update ground knowledge on downlink (communication mode during pass)
+        # 7b. Collect RL trajectory step (learned mode only)
+        if self._rollout_buffer is not None and self._representation is not None:
+            step_data_rl = None
+            if hasattr(self._representation, "get_last_step_data"):
+                step_data_rl = self._representation.get_last_step_data()
+            if step_data_rl is not None and not self._rollout_buffer.is_full:
+                scalar_reward = float(sum(rewards.values())) if rewards else 0.0
+                done = (
+                    self._environment.is_done()
+                    if self._environment is not None else False
+                )
+                self._rollout_buffer.store(
+                    obs=step_data_rl["obs_vec"],
+                    action=step_data_rl["action_vec"],
+                    reward=scalar_reward,
+                    value=step_data_rl["value"],
+                    log_prob=step_data_rl["log_prob"],
+                    done=done,
+                )
+
+        # 8. Update ground knowledge on downlink (communication mode during pass)
         if (
             self._operations_paradigm is not None
             and ground_pass_active
@@ -477,7 +582,7 @@ class ExperimentRunner:
 
         step_duration = time.perf_counter() - step_start
 
-        # 8. Record metrics through the collector pipeline
+        # 9. Record metrics through the collector pipeline
         if self._metrics_collector is not None:
             self._metrics_collector.record_step(
                 timestep=step,
@@ -488,6 +593,18 @@ class ExperimentRunner:
                 info=info,
                 decision_metrics=decision_metrics,
             )
+
+        # 10. Write decision trace (DEBUG only)
+        if self._decisions_file is not None:
+            resolved_mode = info.get("resolved_mode", "unknown")
+            trace_entry = {
+                "step": step,
+                "mode": resolved_mode,
+                "rationale": decision_metrics.get("rationale", ""),
+                "inference": inference_allowed,
+                "latency_s": round(decision_metrics.get("decision_latency_s", 0.0), 4),
+            }
+            self._decisions_file.write(json.dumps(trace_entry) + "\n")
 
         return {
             "step": step,

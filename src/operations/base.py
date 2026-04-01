@@ -165,6 +165,26 @@ class OperationsParadigm(ABC):
         """
         return False
 
+    def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
+        """Whether the representation should run full inference this step.
+
+        For ground-based paradigms, inference is only meaningful when fresh
+        telemetry is available (during ground passes). Between passes, the
+        satellite executes the pre-uploaded schedule and ground has no new
+        data to act on (Rossi et al. 2023: ground computation triggered by
+        "data collected in prior downlinks").
+
+        For onboard paradigms, inference runs every step.
+
+        Args:
+            step: Current simulation step.
+            ground_pass_active: Whether a ground pass is currently active.
+
+        Returns:
+            True if the representation should run full inference.
+        """
+        return True  # Default: always allowed (backward compatible)
+
     def get_name(self) -> str:
         """Return the paradigm name."""
         return self.__class__.__name__

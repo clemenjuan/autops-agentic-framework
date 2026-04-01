@@ -158,8 +158,11 @@ class OODALoop(DecisionLoop):
 
         return action, updated_memory
 
-    def get_metrics(self) -> Dict[str, float]:
+    def get_metrics(self) -> Dict[str, Any]:
         """Return OODA-specific metrics (Miller et al. TPM framework)."""
+        rationale = ""
+        if hasattr(self.representation, "get_rationale"):
+            rationale = self.representation.get_rationale() or ""
         return {
             # Total OODA loop duration (gamma-distributed TPM)
             "decision_latency_s": self._last_total_latency,
@@ -174,6 +177,7 @@ class OODALoop(DecisionLoop):
             # Standard
             "total_decisions": float(self._total_steps),
             "has_rationale": float(self._last_has_rationale),
+            "rationale": rationale,
         }
 
     def reset(self) -> None:

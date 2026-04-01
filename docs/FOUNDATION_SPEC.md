@@ -642,10 +642,6 @@ class MetricsCollector(ABC):
 
 **Planned (next phases):**
 
-- Add hybrid representations: LLM-based (Rodriguez-Fernandez et al. 2024, Li 2025),
-  agentic/CoALA-style (Sumers et al. 2024, Sapkota et al. 2026)
-- Add subsymbolic representations: RL policies (Wang et al. 2022)
-- Implement emergence mode "learned" (RL training pipeline)
 - Scale constellation size: 1 → 5 → 20 → 100
 
 **Note:** Each new component requires theoretical justification and validation against baselines
@@ -656,12 +652,17 @@ class MetricsCollector(ABC):
 
 **Goal:** Expand representation dimension (hybrid, subsymbolic) and emergence mode (learned)
 
-**Deliverables:**
+**Completed:**
 
-1. Phase 4a: LLM hybrid representation (Rodriguez-Fernandez et al. 2024, Li 2025)
-2. Phase 4b: Subsymbolic/RL representation with PPO training pipeline (Wang et al. 2022)
-3. Phase 4c: Agentic hybrid representation — CoALA architecture as representation type (Sumers et al. 2024, Sapkota et al. 2026)
-4. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
+1. Phase 4a: LLM hybrid representation — `llm_eventsat`, 9 configs, 48 tests (Rodriguez-Fernandez et al. 2024, Li 2025)
+2. Phase 4b: Subsymbolic/RL representation — `subsymbolic_eventsat` with PPO training pipeline, Gymnasium wrapper, 25D obs space, MultiDiscrete action space, 9 configs, 67 tests (Oliver et al. EUCASS 2025, Hamilton et al. 2025, BSK-RL)
+
+3. Phase 4c: Agentic hybrid representation — `agentic_eventsat`, CoALA-style multi-step reasoning with 6 domain tools, 9 configs, 76 tests (Sumers et al. 2024, Sapkota et al. 2026, Li 2025)
+4. Phase 4d: Inference gating by operations paradigm — AG/CG skip LLM inference between passes (Rossi et al. 2023, Sellmaier et al. 2022). LLM cache stores prompts. Decision trace JSONL (DEBUG mode). Cross-cutting architecture documentation in `implementations.md`. 493 total tests.
+
+**Planned:**
+
+5. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
 
 ***
 

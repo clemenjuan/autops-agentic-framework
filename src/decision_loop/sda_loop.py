@@ -48,9 +48,13 @@ class SDALoop(DecisionLoop):
         )
         return action, memory
 
-    def get_metrics(self) -> Dict[str, float]:
+    def get_metrics(self) -> Dict[str, Any]:
+        rationale = ""
+        if hasattr(self.representation, "get_rationale"):
+            rationale = self.representation.get_rationale() or ""
         return {
             "decision_latency_s": self._last_latency,
             "total_decisions": float(self._total_steps),
             "has_rationale": float(self._last_has_rationale),
+            "rationale": rationale,
         }

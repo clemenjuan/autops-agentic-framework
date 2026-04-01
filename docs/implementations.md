@@ -243,6 +243,48 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
   the uncertainty of planning ahead based on stale telemetry.
 - **Operations paradigm**: Paired with `conventional_ground`.
 
+### Subsymbolic EventSat — Phase 4b (RL learned)
+
+- **File**: `src/representation/subsymbolic_eventsat.py`
+- **Registered as**: `subsymbolic_eventsat`
+- **Paradigm**: Subsymbolic (deep RL policy; Brooks 1991, Colelough & Regli 2025)
+- **Paper basis**:
+  - Oliver et al. EUCASS 2025 [8KDZ5Z53] — Dec-POMDP formulation, PPO [256,256] tanh,
+    negative reward baseline (more stable), gamma=0.966–0.98, 30 epochs, 50μs Jetson inference
+  - Hamilton et al. 2025 [GWQ3LK6H] — Observation space design ablation: task-relevant
+    sensors (orbital position, timing lookahead) drastically reduce sample complexity;
+    10-seed significance threshold; PPO clip=0.3, 30 SGD epochs
+  - BSK-RL Stephenson & Schaub [ACUQK9VV] — Gymnasium wrapper pattern; Eclipse and
+    OpportunityProperties lookahead; semi-MDP variable-duration actions; modular obs
+  - Wang et al. 2022 [RRFQ6WCN] — Resource state (battery, memory) + visibility windows;
+    encoder-decoder for task scheduling
+- **Observation space (25D)**:
+  - Group 1 (4D) — Resource fill fractions: battery_soc, obc_fill, jetson_raw_fill, jetson_compressed_fill
+  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass, remaining_pass_duration, episode_progress
+  - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
+  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
+  - Group 5 (7D) — Current mode one-hot
+- **Action space**: `MultiDiscrete([7, 2, 2])`:
+  - Sub-action 0: Primary operational mode (7 modes)
+  - Sub-action 1: data_priority {0=normal, 1=urgent} → 1.5x downlink in comms mode
+  - Sub-action 2: pipeline_routing {0=compress_first, 1=detect_first} → redirects between compression and detection pipelines
+- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) → 3 actor heads + 1 critic head; ~70K parameters
+- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), factored joint log-prob over MultiDiscrete heads
+- **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
+- **Symbolic grounding** (same constraints as LLMEventSat):
+  - Anomaly → forced safe (cannot be overridden)
+  - SoC < 0.20 → forced charging
+  - Communication without active pass → forced charging
+- **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
+- **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
+- **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms (AH/AG/CG)
+- **Training script**: `scripts/train_subsymbolic.py`
+- **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
+- **Supporting modules**: `src/emergence/rollout_buffer.py` (RolloutBuffer + GAE), `src/emergence/training_pipeline.py` (PPOTrainer)
+- **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
+- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
+
 ### LLM EventSat — Phase 4a (hybrid)
 
 - **File**: `src/representation/llm_eventsat.py`
@@ -275,6 +317,65 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
 - **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
   `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
+
+### Agentic EventSat — Phase 4c (agentic hybrid)
+
+- **File**: `src/representation/agentic_eventsat.py`
+- **Registered as**: `agentic_eventsat`
+- **Paradigm**: Hybrid (LLM agent + symbolic tools + grounding constraints)
+- **Supporting modules**:
+  - `src/representation/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
+  - `src/representation/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
+- **Paper basis**:
+  - Sumers et al. (2024), "Cognitive Architectures for Language Agents" [CoALA] —
+    4-memory architecture (working, episodic, semantic, procedural), action decomposition
+    into internal (reasoning, retrieval) and external (tool use, grounding) actions.
+  - Sapkota et al. (2026) — agentic satellite operations.
+  - Li (2025), "AI Agents for Satellite Operations" [UAA3GIVK] — tool-augmented AI agents.
+  - Rodriguez-Fernandez et al. (2024) [WC5WU34U] — LLM prompt design (shared with Phase 4a).
+- **Architecture**: Multi-step Plan-Tool-Reflect-Decide loop within `select_action()`:
+  1. PLAN: LLM analyzes state and selects a tool to query.
+  2. TOOL: Domain tool executes (pure Python, no LLM), returns structured result.
+  3. REFLECT: LLM incorporates tool result, optionally calls another tool or decides.
+  4. DECIDE: LLM selects final mode after sufficient information gathering.
+  5. GROUND: Same symbolic safety constraints as llm_eventsat.
+- **Max LLM calls per decision**: `max_agentic_steps` (default 3, configurable in YAML).
+- **Domain tools** (6):
+  - `check_battery`: SoC, charging rate, feasible modes.
+  - `check_ground_pass`: Pass active, time to next, remaining duration, OBC data.
+  - `check_data_pipeline`: Pipeline status, bottleneck identification.
+  - `check_constraints`: Pre-validate proposed mode against hard/soft constraints.
+  - `recall_history`: Query episodic memory (recent modes, battery trend).
+  - `evaluate_plan`: Heuristic utility and risk assessment for proposed mode.
+- **CoALA memory mapping** (FixedMemory not modified):
+  - Working: `DecisionContext.state` + tool results accumulated in-loop.
+  - Episodic: `FixedMemory.history` + `task_history` (via `recall_history` tool).
+  - Semantic: Domain rules hardcoded in `AGENTIC_SYSTEM_PROMPT`.
+  - Procedural: Tool definitions in `TOOL_SCHEMAS`.
+- **Key comparison**: vs `llm_eventsat` (single-shot LLM) — does multi-step agentic
+  reasoning with tool use improve satellite operations decisions?
+- **Symbolic grounding**: Same as llm_eventsat (anomaly→safe, SoC<0.20→charging,
+  no-pass→no-comms).
+- **Mock mode**: `llm_mock: true` short-circuits to symbolic fallback (0 LLM calls).
+- **Loop interaction**: Plan-Tool-Reflect-Decide is the representation's internal
+  reasoning protocol (CoALA §3.2 "internal actions"), orthogonal to the outer decision
+  loop. OODA/ReAct enrichments ARE visible in the planning prompt (`format_planning_prompt`
+  includes a SITUATION ASSESSMENT block when enrichments are present), but the code does
+  not branch on `context.loop_type`. The LLM implicitly adapts to richer context. See
+  "Cross-Cutting Design Decisions" for the rationale.
+- **Inference gating**: For AG/CG ops paradigms, `should_allow_inference()` returns
+  `False` between passes. The experiment runner skips the agentic loop entirely; schedule
+  playback handles actions. This avoids wasted LLM API calls on stale inter-pass data
+  (Rossi et al. 2023 [5EG3E3BP]).
+- **Simulation assumption**: The 122B-parameter Qwen model represents upper-bound
+  reasoning quality, not a deployable onboard configuration. AH configs model ideal
+  onboard reasoning; AG/CG configs model ground-based inference.
+- **ReAct amplification**: ReAct outer loop (max 3 iterations) × agentic inner loop
+  (max 3 steps) = up to 9 LLM calls per decision step. Cost-controlled via
+  `max_agentic_steps` config (recommend 2 for ReAct experiments).
+- **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
+  `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
+- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_agnt_hd_{ah,ag,cg}.yaml`
 
 ---
 
@@ -354,23 +455,166 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
 
 ---
 
+## Cross-Cutting Design Decisions
+
+### Decision Loop × Representation Interaction Model
+
+All decision loops produce a `DecisionContext` containing `state`, `enrichments`, and
+`loop_metadata`. Representations consume this via their `select_action()` method. The
+interaction model differs by representation paradigm:
+
+- **Symbolic (rule-based, schedule-based)**: Explicit `if loop_type == "ooda"` branches
+  activate loop-specific rules (e.g., 6 OODA-aware rules in `rule_based_eventsat`:
+  R2e-OODA eclipse preparation, R2-OODA proactive charging, R3-OODA urgency-based pass,
+  R5-OODA observation batching, R6-OODA orient-confident observation). The
+  representation's behavior is deterministically different depending on which loop
+  calls it.
+- **LLM/Agentic (hybrid)**: Enrichments are serialized into prompt text. The LLM
+  receives richer context from OODA (situation class, urgency, trends, CBR matches) or
+  ReAct (reasoning trace, grounding violations) but no code branches on `loop_type`.
+  The LLM implicitly adapts its reasoning to the available context.
+- **Subsymbolic (RL)**: Enrichments are not used (the policy network operates on the
+  fixed 25D observation vector). Loop variation only affects the temporal calling
+  pattern (ReAct may call `select_action()` multiple times per step).
+
+**Why agentic doesn't branch on loop_type**: The Plan-Tool-Reflect-Decide protocol is
+a *representation-internal reasoning protocol* — what CoALA (Sumers et al. 2024 §3.2)
+calls "internal actions" (reasoning + retrieval). The outer decision loop determines
+*context richness*, not the representation's internal control flow:
+
+- SDA: Minimal context (raw state only) → agentic loop plans with state alone
+- OODA: Rich context (situation, urgency, trends) → agentic sees these in planning
+  prompt via `format_planning_prompt()` SITUATION ASSESSMENT block
+- ReAct: Iterative context (reasoning trace accumulates, violations feed back) →
+  agentic loop benefits from prior reasoning across ReAct iterations
+
+The scientific comparison axis is: *does the same agentic representation produce
+better decisions when given richer loop context?*
+
+### Operations Paradigm × Inference Location
+
+The operations paradigm controls three aspects of the decision pipeline
+(Sellmaier et al. 2022 [SGJTLF4D]; Rossi et al. 2023 [5EG3E3BP]):
+
+1. **Observation filtering**: What data the agent sees (real-time vs stale from last
+   downlink).
+2. **Inference gating**: When representation inference runs. Controlled by
+   `should_allow_inference()` — ground paradigms only invoke inference during passes
+   when fresh telemetry is available.
+3. **Action gating**: When actions are executed (every step vs schedule playback).
+
+| Paradigm | Observation | Inference | Action Execution | Literature Basis |
+|----------|-------------|-----------|-----------------|------------------|
+| **AH** | Real-time full state | Every step (onboard) | Every step (immediate) | Castano et al. 2022 [2IJJ7ILS]: "onboard autonomy technologies" |
+| **AG** | Stale between passes; fresh during pass | During passes only | Schedule playback between passes | Rossi et al. 2023 [5EG3E3BP]: ground computation triggered by "data collected in prior downlinks" |
+| **CG** | Same as AG | During passes only | One-pass delay (Sellmaier et al. 2022 [SGJTLF4D]) | ECSS-E-ST-70C [CIYT2V68]: commanding timelines |
+
+**Inference location for LLM/agentic representations**:
+
+- **AH**: LLM inference represents *ideal onboard reasoning*. The 122B-parameter Qwen
+  model used in experiments is an upper bound on reasoning quality, not a deployable
+  configuration. A real LEO satellite would use a smaller model (quantized <1B params)
+  or edge accelerator (Oliver et al. 2025 [8KDZ5Z53]: 50μs Jetson inference for RL).
+- **AG/CG**: LLM inference runs on ground infrastructure (cf. Rossi et al. 2023:
+  "Prediction Engine" on Kubernetes cloud). Inference is triggered by telemetry receipt
+  during passes. Between passes, the satellite executes the pre-uploaded schedule.
+  `should_allow_inference()` gates this in the experiment runner.
+
+**Latency assumption**: LLM call latency (~13s for qwen3.5:122b) is NOT modeled as
+communication delay. This is valid because: (a) for AH, onboard inference latency ≪
+60s timestep; (b) for AG/CG, ground compute time ≪ pass duration (~10 min for LEO at
+10° elevation, Sellmaier et al. 2022 §6.2).
+
+### Representation × Operations Paradigm Pairing
+
+| Repr Type | AH | AG | CG | Typical Inference |
+|-----------|----|----|-----|-------------------|
+| rule_based | Rules every step | Rules during pass → schedule | Rules during pass → delayed schedule | μs (onboard feasible) |
+| schedule_based | N/A | Greedy planner during pass | N/A | ms (onboard feasible) |
+| conventional_schedule | N/A | N/A | Human-modeled planner during pass | Minutes (ground + cognitive) |
+| llm_eventsat | LLM every step | LLM during pass → schedule | LLM during pass → delayed schedule | ~13s/call (ground only) |
+| agentic_eventsat | Agentic loop every step | Agentic during pass → schedule | Agentic during pass → delayed schedule | ~13–40s/decision (ground only) |
+| subsymbolic | DNN every step | DNN during pass → schedule | DNN during pass → delayed schedule | 50μs (onboard feasible) |
+
+### Observability and Debugging
+
+- **LLM cache** (`data/llm_cache/<model>/`): Each LLM call is cached with
+  `{model, temperature, system_prompt, user_prompt, response, timestamp}`.
+  Prompts are stored alongside responses for full debugging.
+- **Decision trace** (`data/results/<exp_id>/decisions_ep<N>.jsonl`): When
+  `log_level: DEBUG`, a JSONL file records per-step decisions:
+  `{step, mode, rationale, inference, latency_s}`.
+- **Experiment log** (`data/results/<exp_id>/experiment.log`): Full timestamped
+  log including anomaly injection/clearance, component initialization, and
+  (at DEBUG level) LLM prompt summaries and responses.
+
+---
+
 ## Experiment Configurations
 
-| Config ID | Org | Loop | Repr | Emergence | Ops | Phase |
-|-----------|-----|------|------|-----------|-----|-------|
-| `eventsat_cen_sda_symb_hd_ah` | Centralized | SDA | Rule-based | Hand-designed | Autonomous Hybrid | 2 |
-| `eventsat_cen_sda_symb_hd_ag` | Centralized | SDA | Schedule-based | Hand-designed | Autonomous Ground | 3 |
-| `eventsat_cen_sda_symb_hd_cg` | Centralized | SDA | Conventional Schedule | Hand-designed | Conventional Ground | 3 |
-| `eventsat_cen_ooda_symb_hd_ah` | Centralized | OODA | Rule-based | Hand-designed | Autonomous Hybrid | 3 |
-| `eventsat_cen_ooda_symb_hd_ag` | Centralized | OODA | Schedule-based | Hand-designed | Autonomous Ground | 3 |
-| `eventsat_cen_ooda_symb_hd_cg` | Centralized | OODA | Conventional Schedule | Hand-designed | Conventional Ground | 3 |
-| `eventsat_cen_react_symb_hd_ah` | Centralized | ReAct | Rule-based | Hand-designed | Autonomous Hybrid | 3 |
-| `eventsat_cen_react_symb_hd_ag` | Centralized | ReAct | Schedule-based | Hand-designed | Autonomous Ground | 3 |
-| `eventsat_cen_react_symb_hd_cg` | Centralized | ReAct | Conventional Schedule | Hand-designed | Conventional Ground | 3 |
+### Symbolic (Phase 2–3)
+
+| Config ID | Loop | Repr | Ops | Phase |
+|-----------|------|------|-----|-------|
+| `eventsat_cen_sda_symb_hd_ah` | SDA | Rule-based | Autonomous Hybrid | 2 |
+| `eventsat_cen_sda_symb_hd_ag` | SDA | Schedule-based | Autonomous Ground | 3 |
+| `eventsat_cen_sda_symb_hd_cg` | SDA | Conventional Schedule | Conventional Ground | 3 |
+| `eventsat_cen_ooda_symb_hd_ah` | OODA | Rule-based | Autonomous Hybrid | 3 |
+| `eventsat_cen_ooda_symb_hd_ag` | OODA | Schedule-based | Autonomous Ground | 3 |
+| `eventsat_cen_ooda_symb_hd_cg` | OODA | Conventional Schedule | Conventional Ground | 3 |
+| `eventsat_cen_react_symb_hd_ah` | ReAct | Rule-based | Autonomous Hybrid | 3 |
+| `eventsat_cen_react_symb_hd_ag` | ReAct | Schedule-based | Autonomous Ground | 3 |
+| `eventsat_cen_react_symb_hd_cg` | ReAct | Conventional Schedule | Conventional Ground | 3 |
+
+### LLM Hybrid (Phase 4a)
+
+| Config ID | Loop | Repr | Ops | Phase |
+|-----------|------|------|-----|-------|
+| `eventsat_cen_sda_hybr_hd_ah` | SDA | LLM EventSat | Autonomous Hybrid | 4a |
+| `eventsat_cen_sda_hybr_hd_ag` | SDA | LLM EventSat | Autonomous Ground | 4a |
+| `eventsat_cen_sda_hybr_hd_cg` | SDA | LLM EventSat | Conventional Ground | 4a |
+| `eventsat_cen_ooda_hybr_hd_ah` | OODA | LLM EventSat | Autonomous Hybrid | 4a |
+| `eventsat_cen_ooda_hybr_hd_ag` | OODA | LLM EventSat | Autonomous Ground | 4a |
+| `eventsat_cen_ooda_hybr_hd_cg` | OODA | LLM EventSat | Conventional Ground | 4a |
+| `eventsat_cen_react_hybr_hd_ah` | ReAct | LLM EventSat | Autonomous Hybrid | 4a |
+| `eventsat_cen_react_hybr_hd_ag` | ReAct | LLM EventSat | Autonomous Ground | 4a |
+| `eventsat_cen_react_hybr_hd_cg` | ReAct | LLM EventSat | Conventional Ground | 4a |
+
+### Subsymbolic RL (Phase 4b)
+
+| Config ID | Loop | Repr | Ops | Phase |
+|-----------|------|------|-----|-------|
+| `eventsat_cen_sda_subm_le_ah` | SDA | Subsymbolic EventSat | Autonomous Hybrid | 4b |
+| `eventsat_cen_sda_subm_le_ag` | SDA | Subsymbolic EventSat | Autonomous Ground | 4b |
+| `eventsat_cen_sda_subm_le_cg` | SDA | Subsymbolic EventSat | Conventional Ground | 4b |
+| `eventsat_cen_ooda_subm_le_ah` | OODA | Subsymbolic EventSat | Autonomous Hybrid | 4b |
+| `eventsat_cen_ooda_subm_le_ag` | OODA | Subsymbolic EventSat | Autonomous Ground | 4b |
+| `eventsat_cen_ooda_subm_le_cg` | OODA | Subsymbolic EventSat | Conventional Ground | 4b |
+| `eventsat_cen_react_subm_le_ah` | ReAct | Subsymbolic EventSat | Autonomous Hybrid | 4b |
+| `eventsat_cen_react_subm_le_ag` | ReAct | Subsymbolic EventSat | Autonomous Ground | 4b |
+| `eventsat_cen_react_subm_le_cg` | ReAct | Subsymbolic EventSat | Conventional Ground | 4b |
+
+### Agentic Hybrid (Phase 4c)
+
+| Config ID | Loop | Repr | Ops | Phase |
+|-----------|------|------|-----|-------|
+| `eventsat_cen_sda_agnt_hd_ah` | SDA | Agentic EventSat | Autonomous Hybrid | 4c |
+| `eventsat_cen_sda_agnt_hd_ag` | SDA | Agentic EventSat | Autonomous Ground | 4c |
+| `eventsat_cen_sda_agnt_hd_cg` | SDA | Agentic EventSat | Conventional Ground | 4c |
+| `eventsat_cen_ooda_agnt_hd_ah` | OODA | Agentic EventSat | Autonomous Hybrid | 4c |
+| `eventsat_cen_ooda_agnt_hd_ag` | OODA | Agentic EventSat | Autonomous Ground | 4c |
+| `eventsat_cen_ooda_agnt_hd_cg` | OODA | Agentic EventSat | Conventional Ground | 4c |
+| `eventsat_cen_react_agnt_hd_ah` | ReAct | Agentic EventSat | Autonomous Hybrid | 4c |
+| `eventsat_cen_react_agnt_hd_ag` | ReAct | Agentic EventSat | Autonomous Ground | 4c |
+| `eventsat_cen_react_agnt_hd_cg` | ReAct | Agentic EventSat | Conventional Ground | 4c |
+
+All configs: Centralized organization, hand-designed emergence (except subsymbolic: learned).
 
 ### Comparison axes
 
 - **Loop comparison** (same repr + ops): SDA vs OODA vs ReAct → decision quality vs latency
-- **Ops paradigm comparison** (same loop + repr): AH vs AG vs CG → cost of planning delay
-- **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints
+- **Ops paradigm comparison** (same loop + repr): AH vs AG vs CG → cost of planning delay and information staleness
+- **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints (Endsley 1995 SA degradation)
+- **Representation comparison** (same loop + ops): symbolic vs LLM vs agentic vs RL → cognitive paradigm effectiveness
+- **Single-shot vs agentic** (same loop + ops, AH only): `hybr_hd` vs `agnt_hd` → does multi-step reasoning with tools improve decisions?
 - **Ground ops baseline**: CG with conventional schedule + SDA loop → human lower bound
