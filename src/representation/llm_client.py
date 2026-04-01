@@ -40,7 +40,7 @@ class LLMClient:
         self.config = config or {}
         self.mock_mode: bool = self.config.get("llm_mock", False)
         self.temperature: float = self.config.get("llm_temperature", 0.0)
-        self.model: str = self.config.get("llm_model", "qwen3:8b")
+        self.model: str = self.config.get("llm_model", "qwen3.5:122b")
         self.provider: str = self.config.get("llm_provider", "auto")
 
         # Cache

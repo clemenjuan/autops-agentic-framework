@@ -642,7 +642,6 @@ class MetricsCollector(ABC):
 
 **Planned (next phases):**
 
-- Add agentic hybrid representation: CoALA-style (Sumers et al. 2024, Sapkota et al. 2026)
 - Scale constellation size: 1 → 5 → 20 → 100
 
 **Note:** Each new component requires theoretical justification and validation against baselines
@@ -658,9 +657,10 @@ class MetricsCollector(ABC):
 1. Phase 4a: LLM hybrid representation — `llm_eventsat`, 9 configs, 48 tests (Rodriguez-Fernandez et al. 2024, Li 2025)
 2. Phase 4b: Subsymbolic/RL representation — `subsymbolic_eventsat` with PPO training pipeline, Gymnasium wrapper, 25D obs space, MultiDiscrete action space, 9 configs, 67 tests (Oliver et al. EUCASS 2025, Hamilton et al. 2025, BSK-RL)
 
+3. Phase 4c: Agentic hybrid representation — `agentic_eventsat`, CoALA-style multi-step reasoning with 6 domain tools, 9 configs, 76 tests (Sumers et al. 2024, Sapkota et al. 2026, Li 2025)
+
 **Planned:**
 
-3. Phase 4c: Agentic hybrid representation — CoALA architecture as representation type (Sumers et al. 2024, Sapkota et al. 2026)
 4. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
 
 ***

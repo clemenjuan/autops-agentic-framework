@@ -269,6 +269,7 @@ class ExperimentRunner:
         import src.representation.conventional_schedule_eventsat  # register human schedule planner
         import src.representation.llm_eventsat  # register LLM hybrid representation
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
+        import src.representation.agentic_eventsat  # register agentic hybrid representation
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(

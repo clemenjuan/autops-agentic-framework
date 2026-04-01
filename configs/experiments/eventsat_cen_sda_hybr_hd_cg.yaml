@@ -21,7 +21,7 @@ decision_loop_config:
 representation_config:
   type: llm_eventsat
   llm_provider: auto
-  llm_model: qwen3:8b
+  llm_model: qwen3.5:122b
   openai_model: gpt-4o-mini
   llm_temperature: 0.0
   llm_mock: false

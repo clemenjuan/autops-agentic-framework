@@ -318,6 +318,51 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
   `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
 
+### Agentic EventSat — Phase 4c (agentic hybrid)
+
+- **File**: `src/representation/agentic_eventsat.py`
+- **Registered as**: `agentic_eventsat`
+- **Paradigm**: Hybrid (LLM agent + symbolic tools + grounding constraints)
+- **Supporting modules**:
+  - `src/representation/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
+  - `src/representation/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
+- **Paper basis**:
+  - Sumers et al. (2024), "Cognitive Architectures for Language Agents" [CoALA] —
+    4-memory architecture (working, episodic, semantic, procedural), action decomposition
+    into internal (reasoning, retrieval) and external (tool use, grounding) actions.
+  - Sapkota et al. (2026) — agentic satellite operations.
+  - Li (2025), "AI Agents for Satellite Operations" [UAA3GIVK] — tool-augmented AI agents.
+  - Rodriguez-Fernandez et al. (2024) [WC5WU34U] — LLM prompt design (shared with Phase 4a).
+- **Architecture**: Multi-step Plan-Tool-Reflect-Decide loop within `select_action()`:
+  1. PLAN: LLM analyzes state and selects a tool to query.
+  2. TOOL: Domain tool executes (pure Python, no LLM), returns structured result.
+  3. REFLECT: LLM incorporates tool result, optionally calls another tool or decides.
+  4. DECIDE: LLM selects final mode after sufficient information gathering.
+  5. GROUND: Same symbolic safety constraints as llm_eventsat.
+- **Max LLM calls per decision**: `max_agentic_steps` (default 3, configurable in YAML).
+- **Domain tools** (6):
+  - `check_battery`: SoC, charging rate, feasible modes.
+  - `check_ground_pass`: Pass active, time to next, remaining duration, OBC data.
+  - `check_data_pipeline`: Pipeline status, bottleneck identification.
+  - `check_constraints`: Pre-validate proposed mode against hard/soft constraints.
+  - `recall_history`: Query episodic memory (recent modes, battery trend).
+  - `evaluate_plan`: Heuristic utility and risk assessment for proposed mode.
+- **CoALA memory mapping** (FixedMemory not modified):
+  - Working: `DecisionContext.state` + tool results accumulated in-loop.
+  - Episodic: `FixedMemory.history` + `task_history` (via `recall_history` tool).
+  - Semantic: Domain rules hardcoded in `AGENTIC_SYSTEM_PROMPT`.
+  - Procedural: Tool definitions in `TOOL_SCHEMAS`.
+- **Key comparison**: vs `llm_eventsat` (single-shot LLM) — does multi-step agentic
+  reasoning with tool use improve satellite operations decisions?
+- **Symbolic grounding**: Same as llm_eventsat (anomaly→safe, SoC<0.20→charging,
+  no-pass→no-comms).
+- **Mock mode**: `llm_mock: true` short-circuits to symbolic fallback (0 LLM calls).
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms.
+  Note: ReAct (max 3) × agentic (max 3) = up to 9 LLM calls per step.
+- **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
+  `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
+- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_agnt_hd_{ah,ag,cg}.yaml`
+
 ---
 
 ## Operations Paradigms

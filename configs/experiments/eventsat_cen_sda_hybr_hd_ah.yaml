@@ -34,7 +34,7 @@ representation_config:
   type: llm_eventsat
   # LLM provider configuration (configurable per deployment)
   llm_provider: auto          # "auto" (Ollama → OpenAI), "ollama", or "openai"
-  llm_model: qwen3:8b         # Ollama model name (ignored if provider=openai)
+  llm_model: qwen3.5:122b         # Ollama model name (ignored if provider=openai)
   openai_model: gpt-4o-mini   # OpenAI model name (used as fallback or if provider=openai)
   llm_temperature: 0.0        # Deterministic for reproducibility
   llm_mock: false              # Set true for CI/testing (no live LLM calls)
