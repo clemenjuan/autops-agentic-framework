@@ -7,7 +7,7 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "pyyaml",           # Configuration
-    "pydantic>=2.0",    # Data validation
+    "pydantic>=2.12.5",    # Data validation
     "networkx",         # Graph topologies for distributed org
     "pandas",           # Results analysis
     "matplotlib",       # Visualization
@@ -32,7 +32,7 @@ orbital = [
 ]
 
 llm = [
-    "openai>=1.0",     # OpenAI API client (fallback provider)
+    "openai>=2.30.0",     # OpenAI API client (fallback provider)
     "requests",        # HTTP client for Ollama API
 ]
 
