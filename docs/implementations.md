@@ -488,53 +488,99 @@ calls "internal actions" (reasoning + retrieval). The outer decision loop determ
 - ReAct: Iterative context (reasoning trace accumulates, violations feed back) →
   agentic loop benefits from prior reasoning across ReAct iterations
 
-The scientific comparison axis is: *does the same agentic representation produce
-better decisions when given richer loop context?*
+The scientific comparison axis is: *does the same representation produce better
+decisions when given richer loop context?* And conversely: *does structured
+multi-step reasoning (agentic) benefit less from richer loop context because it
+already gathers similar information via tool use?*
+
+**What changes across the matrix is the prompt, not the reasoning architecture.**
+The decision loop controls context richness (enrichments); the representation
+controls how that context is consumed (single-shot vs multi-step tool-use).
+
+**LLM call counts per decision step:**
+
+| | SDA | OODA | ReAct (max 3 iterations) |
+|---|---|---|---|
+| `llm_eventsat` | 1 LLM call | 1 LLM call (richer prompt) | Up to 3 LLM calls |
+| `agentic_eventsat` | Up to 3 LLM calls | Up to 3 LLM calls (richer initial plan) | Up to 9 LLM calls (3 ReAct × 3 agentic) |
+
+Note: `llm_eventsat` uses a single-shot prompt (state → one LLM call → mode decision).
+`agentic_eventsat` uses a CoALA-style Plan-Tool-Reflect-Decide loop with domain tools
+(check battery, pipeline, constraints, etc.) — multiple LLM calls per decision. Both
+share the same symbolic grounding layer and LLM backend.
 
 ### Operations Paradigm × Inference Location
 
 The operations paradigm controls three aspects of the decision pipeline
-(Sellmaier et al. 2022 [SGJTLF4D]; Rossi et al. 2023 [5EG3E3BP]):
+(Sellmaier et al. 2022 [SGJTLF4D] §16.4; Rossi et al. 2023 [5EG3E3BP]):
 
 1. **Observation filtering**: What data the agent sees (real-time vs stale from last
    downlink).
-2. **Inference gating**: When representation inference runs. Controlled by
-   `should_allow_inference()` — ground paradigms only invoke inference during passes
-   when fresh telemetry is available.
+2. **Inference timing**: When representation inference runs. Ground operations prepare
+   plans **between passes** using last-received telemetry (Rossi et al. 2023: tactical
+   planning cycle between contacts; Sellmaier et al. 2022: offline preparation between
+   passes). The pass window is for telemetry downlink and plan uplink, not computation.
 3. **Action gating**: When actions are executed (every step vs schedule playback).
 
-| Paradigm | Observation | Inference | Action Execution | Literature Basis |
-|----------|-------------|-----------|-----------------|------------------|
-| **AH** | Real-time full state | Every step (onboard) | Every step (immediate) | Castano et al. 2022 [2IJJ7ILS]: "onboard autonomy technologies" |
-| **AG** | Stale between passes; fresh during pass | During passes only | Schedule playback between passes | Rossi et al. 2023 [5EG3E3BP]: ground computation triggered by "data collected in prior downlinks" |
-| **CG** | Same as AG | During passes only | One-pass delay (Sellmaier et al. 2022 [SGJTLF4D]) | ECSS-E-ST-70C [CIYT2V68]: commanding timelines |
+| Paradigm | Observation | Ground Computation | Action Execution | Literature Basis |
+|----------|-------------|--------------------|-----------------|------------------|
+| **AH** | Onboard: real-time. Ground: stale between passes, fresh during pass | Between passes (ground); onboard rules/DNN every step | Every step (onboard immediate) | Dual onboard/ground per Rossi et al. 2023 [5EG3E3BP] |
+| **AG** | Stale between passes; fresh during pass | Between passes using last-received telemetry | Schedule playback between passes | Rossi et al. 2023 [5EG3E3BP]: "tactical level planning... incorporating data collected in prior downlinks" |
+| **CG** | Same as AG | Between passes, one-pass delay (plan from pass N uploaded at pass N+1) | Delayed schedule (Sellmaier et al. 2022 [SGJTLF4D]) | ECSS-E-ST-70C [CIYT2V68]: commanding timelines |
 
 **Inference location for LLM/agentic representations**:
 
-- **AH**: LLM inference represents *ideal onboard reasoning*. The 122B-parameter Qwen
-  model used in experiments is an upper bound on reasoning quality, not a deployable
-  configuration. A real LEO satellite would use a smaller model (quantized <1B params)
-  or edge accelerator (Oliver et al. 2025 [8KDZ5Z53]: 50μs Jetson inference for RL).
+- **AH**: In the EventSat scenario, LLM inference runs exclusively on ground
+  infrastructure — no LLM is deployed onboard, only small DNNs are feasible for
+  onboard processing (Oliver et al. 2025 [8KDZ5Z53]: 50μs Jetson inference for RL).
+  In the AH paradigm, ground prepares detailed analysis and plans between passes
+  using last-received telemetry, which are uplinked during the next contact. Between
+  passes, onboard autonomy (rules, small DNNs) executes with real-time state and can
+  override ground plans for fault detection or opportunistic events. The 122B-parameter
+  Qwen model represents ground-side reasoning capability, not an onboard deployment.
 - **AG/CG**: LLM inference runs on ground infrastructure (cf. Rossi et al. 2023:
-  "Prediction Engine" on Kubernetes cloud). Inference is triggered by telemetry receipt
-  during passes. Between passes, the satellite executes the pre-uploaded schedule.
-  `should_allow_inference()` gates this in the experiment runner.
+  "Prediction Engine" on Kubernetes cloud). Ground prepares plans between passes using
+  last-received telemetry. The satellite executes the pre-uploaded schedule between
+  passes. `should_allow_inference()` gates this in the experiment runner.
+
+**Known simulation simplification**: The current AH implementation gives the LLM
+real-time state every step (`filter_observation` returns full state). This is an
+optimistic simplification — in reality, the ground LLM would only see stale telemetry
+between passes. A future improvement would add dual observation paths (onboard=real-time,
+ground=stale) to the AH paradigm.
 
 **Latency assumption**: LLM call latency (~13s for qwen3.5:122b) is NOT modeled as
-communication delay. This is valid because: (a) for AH, onboard inference latency ≪
-60s timestep; (b) for AG/CG, ground compute time ≪ pass duration (~10 min for LEO at
-10° elevation, Sellmaier et al. 2022 §6.2).
+communication delay. For AG/CG, ground compute time ≪ inter-pass interval (~90 min
+for LEO). Whether to also compute during passes using freshly downlinked telemetry
+is a separate research question on optimal uplink timing.
 
 ### Representation × Operations Paradigm Pairing
 
-| Repr Type | AH | AG | CG | Typical Inference |
-|-----------|----|----|-----|-------------------|
-| rule_based | Rules every step | Rules during pass → schedule | Rules during pass → delayed schedule | μs (onboard feasible) |
-| schedule_based | N/A | Greedy planner during pass | N/A | ms (onboard feasible) |
-| conventional_schedule | N/A | N/A | Human-modeled planner during pass | Minutes (ground + cognitive) |
-| llm_eventsat | LLM every step | LLM during pass → schedule | LLM during pass → delayed schedule | ~13s/call (ground only) |
-| agentic_eventsat | Agentic loop every step | Agentic during pass → schedule | Agentic during pass → delayed schedule | ~13–40s/decision (ground only) |
-| subsymbolic | DNN every step | DNN during pass → schedule | DNN during pass → delayed schedule | 50μs (onboard feasible) |
+> **Representation vs Operations Paradigm**: The representation dimension defines the
+> *methods* used for decision-making (rules, DNN, LLM, or any hybrid combination —
+> that is what makes it "hybrid"). The operations paradigm defines *where and when*
+> those methods execute. Ground operations (AH-ground, AG, CG) prepare plans **between
+> passes** using last-received telemetry (Rossi et al. 2023 [5EG3E3BP], Sellmaier et al.
+> 2022 [SGJTLF4D] §16.4), uplinked during the next contact window. In AH, onboard
+> autonomy (rules, small DNNs) additionally operates with real-time state every step
+> and can override ground plans on fault detection or opportunistic events.
+
+| Repr Type | AH (onboard) | AH (ground) | AG | CG |
+|-----------|--------------|-------------|----|----|
+| rule_based | Rules every step | Rules between passes → uplinked plan | Rules between passes → schedule | Rules between passes → delayed schedule |
+| schedule_based | N/A | N/A | Greedy planner between passes → schedule | N/A |
+| conventional_schedule | N/A | N/A | N/A | Human-modeled planner between passes → delayed schedule |
+| llm_eventsat | Symbolic fallback (rules) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
+| agentic_eventsat | Symbolic fallback (rules) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
+| subsymbolic | DNN every step | DNN between passes → uplinked plan | DNN between passes → schedule | DNN between passes → delayed schedule |
+
+| Repr Type | Typical Inference Time | Onboard Feasible? |
+|-----------|----------------------|-------------------|
+| rule_based | μs | Yes |
+| schedule_based / conventional_schedule | ms–minutes | Ground only (planning) |
+| llm_eventsat | ~13s/call | Ground only (LLM) |
+| agentic_eventsat | ~13–40s/decision | Ground only (LLM) |
+| subsymbolic | 50μs (Oliver et al. 2025 [8KDZ5Z53]) | Yes (small DNN) |
 
 ### Observability and Debugging
 

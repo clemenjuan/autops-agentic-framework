@@ -147,25 +147,35 @@ class LLMClient:
         providers = self._resolve_provider_order()
         last_error: Exception | None = None
 
+        max_retries = self.config.get("llm_retries", 2)
         for provider in providers:
-            try:
-                t0 = time.perf_counter()
-                if provider == "ollama":
-                    response = self._call_ollama(system_prompt, user_prompt, temperature, json_mode)
-                else:
-                    response = self._call_openai(system_prompt, user_prompt, temperature, json_mode)
-                elapsed = time.perf_counter() - t0
+            for attempt in range(max_retries + 1):
+                try:
+                    t0 = time.perf_counter()
+                    if provider == "ollama":
+                        response = self._call_ollama(system_prompt, user_prompt, temperature, json_mode)
+                    else:
+                        response = self._call_openai(system_prompt, user_prompt, temperature, json_mode)
+                    elapsed = time.perf_counter() - t0
 
-                self._last_latency_s = elapsed
-                self._total_latency_s += elapsed
-                self._last_provider = provider
-                return response
+                    self._last_latency_s = elapsed
+                    self._total_latency_s += elapsed
+                    self._last_provider = provider
+                    return response
 
-            except Exception as e:
-                last_error = e
-                logger.warning("LLM provider '%s' failed: %s", provider, e)
-                if provider == "ollama":
-                    self._ollama_backoff_until = now + 60.0
+                except Exception as e:
+                    last_error = e
+                    if attempt < max_retries:
+                        wait = 5 * (attempt + 1)
+                        logger.warning(
+                            "LLM provider '%s' attempt %d/%d failed: %s — retrying in %ds",
+                            provider, attempt + 1, max_retries + 1, e, wait,
+                        )
+                        time.sleep(wait)
+                    else:
+                        logger.warning("LLM provider '%s' failed after %d attempts: %s", provider, max_retries + 1, e)
+                        if provider == "ollama":
+                            self._ollama_backoff_until = now + 60.0
 
         raise RuntimeError(
             f"All LLM providers failed. Last error: {last_error}"
@@ -212,7 +222,10 @@ class LLMClient:
         if json_mode:
             payload["format"] = "json"
 
-        resp = requests.post(url, json=payload, timeout=120)
+        # Separate connect (fast fail if server unreachable) vs read (slow for large models)
+        connect_timeout = self.config.get("llm_connect_timeout", 15)
+        read_timeout = self.config.get("llm_timeout", 600)
+        resp = requests.post(url, json=payload, timeout=(connect_timeout, read_timeout))
         resp.raise_for_status()
         data = resp.json()
 
