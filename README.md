@@ -10,13 +10,13 @@ This framework implements a **morphological matrix** approach to systematically 
 the design space of autonomous satellite constellation agents. The five independent
 dimensions are:
 
-| Dimension              | Options                                |
-|------------------------|----------------------------------------|
-| **Organization**       | Centralized, Hierarchical, Distributed |
-| **Decision Loop**      | SDA, OODA, ReAct                       |
-| **Representation**     | Symbolic, Subsymbolic, Hybrid          |
-| **Emergence**          | Hand-designed, Learned                 |
-| **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground |
+| Dimension              | Options                                                      |
+|------------------------|--------------------------------------------------------------|
+| **Organization**       | SAS, Centralized MAS, Decentralized MAS (Kim et al. 2025)   |
+| **Decision Loop**      | SDA, OODA, ReAct                                            |
+| **Representation**     | Symbolic, Subsymbolic, Hybrid                               |
+| **Emergence**          | Hand-designed, Learned (PPO / prompt-optimized / writable-CoALA) |
+| **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground   |
 
 Each combination defines a unique architecture that can be evaluated under
 identical scenario conditions.
@@ -75,13 +75,21 @@ uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episode
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --analyze
 ```
 
+### Training Learned-Emergence Variants
+```bash
+# PPO (subsymbolic)
+uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml
+
+# Prompt-optimization (LLM / agentic)
+uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml
+uv run autops train configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml
+
+# Writable CoALA (no pre-training; memory accretes at runtime)
+uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml
+```
+
 ### Batch Experiments
 ```bash
-# Train learned-emergence variants
-uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml        # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml       # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml       # writable CoALA
-
 # Generate config combinations from template
 uv run autops generate --template configs/experiments/template.yaml
 
@@ -119,8 +127,8 @@ autops-demo/
 |   +-- agent_organization/   # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS
 |   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
-|   +-- memory/               # Memory abstraction + FixedMemory impl
-|   +-- emergence/            # Emergence controller, registry, rollout buffer, training pipeline
+|   +-- memory/               # FixedMemory (all variants) + WritableMemory (_lec_ only, CoALA §3)
+|   +-- emergence/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
@@ -139,7 +147,9 @@ autops-demo/
 |   +-- scenarios.md          # Scenario descriptions
 +-- data/
 |   +-- results/              # Experiment outputs (git-ignored)
-|   +-- trained_models/       # Learned representations (git-ignored)
+|   +-- trained_models/       # PPO policy checkpoints (git-ignored)
+|   +-- trained_prompts/      # Prompt-optimized system prompts (git-ignored)
+|   +-- writable_memory_state/# WritableMemory persistence for _lec_ runs (git-ignored)
 |   +-- llm_cache/            # LLM response cache with prompts (git-ignored)
 ```
 
