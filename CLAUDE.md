@@ -13,18 +13,26 @@ PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (493 tests)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (552 tests)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
-# org: sas | cmas | dmas    emrg: hd | le | lep | lec
+# org: sas | cmas | dmas    loop: sda | ooda | react    repr: symb | hybr | subm | agnt
+# emrg: hd | le | lep | lec    ops: ah | ag | cg
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
 uv run autops run configs/experiments/eventsat_sas_sda_hybr_hd_ah.yaml  # LLM hybrid
 uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
 uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml  # Agentic hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml # Writable CoALA
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml # Prompt-optimized
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
+
+# Training learned-emergence variants
+uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml         # PPO
+uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml        # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml        # writable CoALA
 
 # Batch run / analyze — see uv run autops --help
 ```
@@ -55,19 +63,27 @@ src/
   agent_organization/ # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025)
   decision_loop/      # SDA / OODA / ReAct  (+DecisionContext interface)
   representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
-  memory/             # FixedMemory (fixed across all variants for fair comparison)
-  emergence/          # controller.py — @register() factory for representations
+  memory/             # FixedMemory (default, all variants); WritableMemory (_lec_ only — see below)
+  emergence/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
   operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
-configs/experiments/  # 49 YAML configs (36 sas hand-designed + 12 cmas + 1 template)
-tests/                # 18 test modules, 512 tests
+configs/experiments/  # 84 YAML experiment configs + 1 template (96 total incl. learned variants)
+tests/                # 21 test modules, 552 tests
 ```
 
 **Key interfaces:**
 - `DecisionContext(state, loop_type, memory, enrichments, loop_metadata)` — passes from loop → representation
 - `@register("name")` decorator on representation class → auto-registers in `EmergenceController`
 - New representations must be imported in `experiment_runner.py` `_create_decision_loops()` to trigger registration
+
+## Memory invariant
+All hand-designed and non-CoALA learned variants use `FixedMemory` for fair comparison.
+**Exception**: `_lec_` configs (`emergence_config.mechanism = "writable_coala"`) use `WritableMemory`,
+which adds writable semantic + episodic stores (CoALA §3, Sumers et al. 2024). This deviates
+from the fairness invariant intentionally — these variants are compared against the
+hand-designed agentic baseline (`_agnt_hd_`), not against other representations.
+See `src/memory/writable_memory.py` for the implementation.
 
 ## Coding conventions
 - Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)

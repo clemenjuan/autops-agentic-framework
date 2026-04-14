@@ -23,7 +23,7 @@ identical scenario conditions.
 
 ### Current Status
 
-**Phase 4 complete** — 37 experiment configurations across the full morphological matrix:
+**Phase 5 complete** — 84 experiment configurations across the full morphological matrix:
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
 - **Operations paradigms**: Autonomous Hybrid (onboard real-time), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints)
 - **Representations** (4 types, 5 implementations):
@@ -31,12 +31,16 @@ identical scenario conditions.
   - *Hybrid — LLM single-shot*: `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
   - *Hybrid — Agentic*: `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
   - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Oliver et al. 2025) — 25D obs, MultiDiscrete actions, trainable policy
+- **Learned-emergence for LLM representations** (Phase 5):
+  - `prompt_optimized` (`_lep_`): offline bootstrap few-shot prompt optimization (DSPy-style; 24 configs)
+  - `writable_coala` (`_lec_`): online CoALA memory accretion with writable semantic + episodic stores (12 configs)
+- **`autops train` CLI**: dispatches PPO training, prompt optimization, or CoALA guidance by config
 - **Inference gating**: Ground-based paradigms (AG/CG) only run LLM/agentic inference during ground passes (Rossi et al. 2023)
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling loops from representations
-- 493 tests across 18 test modules
+- 552 tests across 21 test modules
 
 ## Quick Start
 
@@ -59,7 +63,10 @@ uv run python -m pytest tests/ -v -o "addopts="
 # org: sas | cmas | dmas    loop: sda | ooda | react    repr: symb | hybr | subm | agnt
 # emrg: hd | le | lep | lec    ops: ah | ag | cg
 # SDA loop (baseline)
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # autonomous hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml    # hand-designed agentic
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml   # writable-CoALA
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml   # prompt-optimized
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
@@ -70,6 +77,11 @@ uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --analyze
 
 ### Batch Experiments
 ```bash
+# Train learned-emergence variants
+uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml        # PPO
+uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml       # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml       # writable CoALA
+
 # Generate config combinations from template
 uv run autops generate --template configs/experiments/template.yaml
 
@@ -112,13 +124,13 @@ autops-demo/
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
-|   +-- experiments/          # 37 YAML experiment configurations + template
+|   +-- experiments/          # 84 YAML experiment configs + template (hd + le + lep + lec)
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 18 test modules, 493 tests
++-- tests/                    # 21 test modules, 552 tests
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
