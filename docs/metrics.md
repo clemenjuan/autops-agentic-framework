@@ -96,7 +96,7 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 **Rationale:** RQ3 frames scalability along two independent axes. Raw satellite count captures the size dimension; structural complexity captures the coordination overhead that grows super-linearly as topology moves from centralized towards distributed (following Sinha & de Weck, 2013). Different architecture families may degrade differently along each axis.
 
 **Measurement:**
-- Track all metrics as a function of `constellation_size` (1 → 500) and a `complexity_index` encoding topology class (0 = centralized, 1 = hierarchical, 2 = fully distributed).
+- Track all metrics as a function of `constellation_size` (1 → 500) and a `complexity_index` encoding topology class (0 = SAS, 1 = CentralizedMAS, 2 = DecentralizedMAS/fully distributed) following Kim et al. (2025).
 - Fit joint scaling surfaces (e.g., power-law or polynomial) over the 2D grid.
 - Derive architecture-selection heuristics from these surfaces for a target (size, complexity) operating point.
 
@@ -241,7 +241,7 @@ Weights configurable via experiment YAML (`utility_weights`). Targets scaled fro
 
 Every `ExperimentStatistics` result must record:
 - `constellation_size` — from experiment config
-- `complexity_index` — 0 (centralized), 1 (hierarchical), 2 (distributed), derived from `agent_organization` config field
+- `complexity_index` — 0 (SAS), 1 (CentralizedMAS), 2 (DecentralizedMAS/distributed), derived from `agent_organization` config field (Kim et al. 2025)
 - All research metrics stored indexed by `(constellation_size, complexity_index)` to enable the 2D scaling surface analysis from RQ3
 
 Status: ⚠️ Metadata recorded; 2D scaling surface requires multi-constellation experiments (Flamingo scenario).

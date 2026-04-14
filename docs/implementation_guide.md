@@ -161,17 +161,25 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ### Single Experiment
 ```bash
-python -m scripts.run_batch configs/experiments/my_experiment.yaml
+uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 100
+```
+
+### Training Learned-Emergence Variants
+```bash
+uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml    # PPO
+uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml   # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml   # writable CoALA
 ```
 
 ### Batch Experiments
 ```bash
-python scripts/generate_experiment_configs.py --template configs/experiments/template.yaml
-python scripts/run_batch.py configs/experiments/generated/
+uv run autops generate --template configs/experiments/template.yaml
+uv run autops batch configs/experiments/generated/
 ```
 
 ### Analysing Results
 ```bash
+uv run autops analyze data/results/my_experiment/
 jupyter notebook notebooks/analysis.ipynb
 ```
 
@@ -179,7 +187,7 @@ jupyter notebook notebooks/analysis.ipynb
 
 ## Validation Checklist
 
-Before merging a new component:
+Before committing a new component:
 
 - [ ] All tests pass (`pytest tests/`)
 - [ ] Type hints on all public APIs

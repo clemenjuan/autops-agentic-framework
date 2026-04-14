@@ -74,8 +74,8 @@ Two computation backends are supported:
 | `src/agent_organization/` | Agent coordination patterns |
 | `src/decision_loop/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
-| `src/memory/` | Fixed memory system (shared across all variants) |
-| `src/emergence/` | Hand-designed vs. learned factory |
+| `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
+| `src/emergence/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
 | `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |
@@ -87,7 +87,9 @@ Two computation backends are supported:
 
 ### Why Fixed Memory?
 
-All architecture variants access the **same** memory structure to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
+All architecture variants access the **same** `FixedMemory` structure by default to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
+
+**Exception**: `_lec_` configs (`emergence_config.mechanism = "writable_coala"`) use `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — these variants are compared against the hand-designed agentic baseline only, not against other representation types. See `src/memory/writable_memory.py` and CLAUDE.md for the rationale.
 
 ### Why YAML Configuration?
 
