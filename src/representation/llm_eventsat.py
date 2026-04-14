@@ -8,9 +8,17 @@ output against physical constraints and retries on invalid responses.
 Works with all 3 decision loops (SDA, OODA, ReAct) and all 3 operations
 paradigms (AH, AG, CG) — fully orthogonal in the morphological matrix.
 
+Learned-emergence variants (emergence_config.mechanism):
+- ``hand_designed`` (default): fixed SYSTEM_PROMPT + FixedMemory.
+- ``prompt_optimized``: loads an offline-optimised system prompt from
+  ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
+  with a warning if the file does not exist. Run ``autops train <config>``
+  (which calls PromptOptimizer) to generate it. FixedMemory invariant preserved.
+
 Papers:
 - Rodriguez-Fernandez et al. (2024) — LLM prompt design for sat ops
 - Li (2025) — ReAct LLM agent architecture for satellite operations
+- Khattab et al. (2023) [DSPy] — prompt optimization reference
 
 Registered as "llm_eventsat" in the emergence controller.
 """
@@ -19,6 +27,8 @@ from __future__ import annotations
 import json
 import logging
 import time
+import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.emergence.controller import register
@@ -62,14 +72,55 @@ class LLMEventSat(Representation):
 
     # Maximum LLM retries on invalid/unparseable output
     MAX_RETRIES: int = 2
+    _TRAINED_PROMPTS_DIR: str = "data/trained_prompts"
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self._client = LLMClient(config)
+        cfg = config or {}
+        self._client = LLMClient(cfg)
+
+        # Learned-emergence mechanism
+        emergence_cfg: Dict[str, Any] = cfg.get("emergence_config", {})
+        mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
+        experiment_id: str = cfg.get("experiment_id", "")
+        self._system_prompt: str = self._resolve_system_prompt(
+            mechanism, experiment_id, emergence_cfg
+        )
+
         self._last_rationale: Optional[str] = None
         self._last_raw_response: Optional[str] = None
         self._last_parse_retries: int = 0
         self._grounding_overrides: int = 0
+
+    @classmethod
+    def _resolve_system_prompt(
+        cls,
+        mechanism: str,
+        experiment_id: str,
+        emergence_cfg: Dict[str, Any],
+    ) -> str:
+        """Return the system prompt to use for this mechanism."""
+        if mechanism == "prompt_optimized":
+            prompt_path_str = emergence_cfg.get(
+                "trained_prompt_path",
+                f"{cls._TRAINED_PROMPTS_DIR}/{experiment_id}/prompt.txt"
+                if experiment_id
+                else "",
+            )
+            if prompt_path_str:
+                prompt_path = Path(prompt_path_str)
+                if prompt_path.exists():
+                    logger.info(
+                        "Loading optimised system prompt from %s", prompt_path
+                    )
+                    return prompt_path.read_text(encoding="utf-8").strip()
+                warnings.warn(
+                    f"prompt_optimized mechanism: trained prompt not found at "
+                    f"'{prompt_path_str}'. Falling back to default SYSTEM_PROMPT. "
+                    f"Run `autops train <config>` to generate it.",
+                    stacklevel=4,
+                )
+        return SYSTEM_PROMPT
 
     # ------------------------------------------------------------------
     # Core interface
@@ -137,7 +188,7 @@ class LLMEventSat(Representation):
         for attempt in range(1 + self.MAX_RETRIES):
             try:
                 raw = self._client.generate(
-                    system_prompt=SYSTEM_PROMPT,
+                    system_prompt=self._system_prompt,
                     user_prompt=user_prompt,
                     json_mode=True,
                 )
@@ -192,7 +243,7 @@ class LLMEventSat(Representation):
 
         try:
             raw = self._client.generate(
-                system_prompt=SYSTEM_PROMPT,
+                system_prompt=self._system_prompt,
                 user_prompt=prompt,
                 json_mode=True,
             )
