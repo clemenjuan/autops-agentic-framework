@@ -13,6 +13,17 @@ Memory architecture (mapped to FixedMemory without modification):
 - Semantic memory: Domain rules hardcoded in AGENTIC_SYSTEM_PROMPT
 - Procedural memory: Tool definitions in TOOL_SCHEMAS
 
+Learned-emergence variants (emergence_config.mechanism):
+- ``hand_designed`` (default): fixed AGENTIC_SYSTEM_PROMPT + FixedMemory.
+- ``prompt_optimized``: loads an offline-optimised system prompt from
+  ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
+  with a warning if the file does not exist. FixedMemory invariant preserved.
+- ``writable_coala``: swaps FixedMemory for WritableMemory, injects two
+  memory-write tools (memory_write_rule, memory_write_episode), and extends
+  the system prompt with instructions for using the writable stores.
+  **Fairness note**: this variant deliberately deviates from the FixedMemory
+  invariant. See CLAUDE.md and docs/implementations.md for the rationale.
+
 Papers:
 - Sumers et al. (2024) [CoALA] — 4-memory architecture, action decomposition
 - Sapkota et al. (2026) — agentic satellite operations
@@ -25,7 +36,8 @@ from __future__ import annotations
 
 import json
 import logging
-import time
+import warnings
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from src.emergence.controller import register
@@ -40,12 +52,39 @@ from src.representation.agentic_prompts import (
 from src.representation.agentic_tools import (
     VALID_MODES,
     execute_tool,
+    get_tool_schemas,
 )
 
 if TYPE_CHECKING:
     from src.decision_loop.context import DecisionContext
 
 logger = logging.getLogger(__name__)
+
+# Suffix appended to AGENTIC_SYSTEM_PROMPT for writable_coala variants
+_WRITABLE_COALA_SYSTEM_PROMPT_SUFFIX = """
+
+MEMORY TOOLS (writable_coala mechanism — active for this session):
+You have two additional tools to persist knowledge across episodes:
+
+- memory_write_rule(rule_text, condition, action): Write a reusable domain
+  rule to semantic memory. Use when you identify a reliable condition-action
+  pattern (e.g. "If battery < 20% and in eclipse, switch to safe mode").
+  Rules persist for the entire run and are recalled in future episodes.
+
+- memory_write_episode(summary, outcome): Write a summary of this episode's
+  key decisions and outcomes to episodic memory. Use at end of episode to
+  record what worked, what did not, and why. Recent episode summaries are
+  available via the recall_history tool.
+
+When to write rules:
+- After observing a repeated pattern that confirms a decision heuristic
+- When you identify a constraint not covered by the base rules
+
+When to write episode summaries:
+- When utility is notably high or low
+- When an anomaly occurred
+- When the orbital/eclipse pattern produced an unusual situation
+"""
 
 
 @register("agentic_eventsat")
@@ -64,12 +103,32 @@ class AgenticEventSat(Representation):
     """
 
     DEFAULT_MAX_STEPS: int = 3
+    _TRAINED_PROMPTS_DIR: str = "data/trained_prompts"
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self._client = LLMClient(config)
-        self._max_agentic_steps: int = (config or {}).get(
+        cfg = config or {}
+        self._client = LLMClient(cfg)
+        self._max_agentic_steps: int = cfg.get(
             "max_agentic_steps", self.DEFAULT_MAX_STEPS
+        )
+
+        # Learned-emergence mechanism
+        emergence_cfg: Dict[str, Any] = cfg.get("emergence_config", {})
+        self._mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
+        experiment_id: str = cfg.get("experiment_id", "")
+
+        # Resolve system prompt and memory type based on mechanism
+        self._system_prompt: str = self._resolve_system_prompt(
+            self._mechanism, experiment_id, emergence_cfg
+        )
+        self._memory: Optional[Any] = self._resolve_memory(
+            self._mechanism, cfg.get("memory_config", {})
+        )
+
+        # Expose tool schemas (include writable tools for writable_coala)
+        self._tool_schemas = get_tool_schemas(
+            include_writable=(self._mechanism == "writable_coala")
         )
 
         # State
@@ -83,6 +142,62 @@ class AgenticEventSat(Representation):
         self._total_agentic_steps: int = 0
         self._total_decisions: int = 0
         self._tool_call_histogram: Dict[str, int] = {}
+
+    # ------------------------------------------------------------------
+    # Mechanism resolution helpers
+    # ------------------------------------------------------------------
+
+    def _resolve_system_prompt(
+        self,
+        mechanism: str,
+        experiment_id: str,
+        emergence_cfg: Dict[str, Any],
+    ) -> str:
+        """Return the system prompt to use for this mechanism."""
+        if mechanism == "prompt_optimized":
+            # Try to load from trained_prompts directory
+            prompt_path_str = emergence_cfg.get(
+                "trained_prompt_path",
+                f"{self._TRAINED_PROMPTS_DIR}/{experiment_id}/prompt.txt"
+                if experiment_id
+                else "",
+            )
+            if prompt_path_str:
+                prompt_path = Path(prompt_path_str)
+                if prompt_path.exists():
+                    logger.info(
+                        "Loading optimised system prompt from %s", prompt_path
+                    )
+                    return prompt_path.read_text(encoding="utf-8").strip()
+                warnings.warn(
+                    f"prompt_optimized mechanism: trained prompt not found at "
+                    f"'{prompt_path_str}'. Falling back to default AGENTIC_SYSTEM_PROMPT. "
+                    f"Run `autops train <config>` to generate it.",
+                    stacklevel=4,
+                )
+            return AGENTIC_SYSTEM_PROMPT
+
+        if mechanism == "writable_coala":
+            return AGENTIC_SYSTEM_PROMPT + _WRITABLE_COALA_SYSTEM_PROMPT_SUFFIX
+
+        # hand_designed (default)
+        return AGENTIC_SYSTEM_PROMPT
+
+    @staticmethod
+    def _resolve_memory(
+        mechanism: str,
+        memory_config: Dict[str, Any],
+    ) -> Optional[Any]:
+        """Return a WritableMemory instance for writable_coala; None otherwise.
+
+        The experiment runner passes a memory object via DecisionContext.
+        This internal _memory is only used when the runner does not supply one
+        (e.g., in unit tests that instantiate AgenticEventSat directly).
+        """
+        if mechanism == "writable_coala":
+            from src.memory.writable_memory import WritableMemory
+            return WritableMemory(memory_config or None)
+        return None
 
     # ------------------------------------------------------------------
     # Core interface
@@ -133,6 +248,11 @@ class AgenticEventSat(Representation):
         state = context.state
         enrichments = context.enrichments
         memory = context.memory
+
+        # For writable_coala: use the instance-level WritableMemory if the
+        # runner did not supply one via DecisionContext.
+        if self._mechanism == "writable_coala" and memory is None:
+            memory = self._memory
 
         # --- Safety pre-checks (0 LLM calls) ---
         health = state.get("health_status", "nominal")
@@ -202,7 +322,7 @@ class AgenticEventSat(Representation):
             prompt = format_agentic_reasoning_prompt(state, memory, tool_result_entries)
             try:
                 raw = self._client.generate(
-                    system_prompt=AGENTIC_SYSTEM_PROMPT,
+                    system_prompt=self._system_prompt,
                     user_prompt=prompt,
                     json_mode=True,
                 )
@@ -267,7 +387,7 @@ class AgenticEventSat(Representation):
         user_prompt = format_planning_prompt(state, enrichments)
         try:
             raw = self._client.generate(
-                system_prompt=AGENTIC_SYSTEM_PROMPT,
+                system_prompt=self._system_prompt,
                 user_prompt=user_prompt,
                 json_mode=True,
             )
@@ -315,7 +435,7 @@ class AgenticEventSat(Representation):
                     )
                     try:
                         raw = self._client.generate(
-                            system_prompt=AGENTIC_SYSTEM_PROMPT,
+                            system_prompt=self._system_prompt,
                             user_prompt=reflect_prompt,
                             json_mode=True,
                         )

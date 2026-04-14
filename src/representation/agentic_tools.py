@@ -436,6 +436,90 @@ def evaluate_plan(
 
 
 # ======================================================================
+# CoALA memory-write tools (writable_coala mechanism only)
+# ======================================================================
+
+# These are NOT in TOOL_REGISTRY by default — they're injected at runtime
+# only when emergence_config.mechanism == "writable_coala".
+
+_WRITABLE_TOOL_REGISTRY: Dict[str, ToolDef] = {}
+
+
+def _register_writable_tool(
+    name: str, description: str, parameters: Dict[str, str],
+):
+    """Decorator to register a writable-memory tool."""
+    def decorator(func):
+        _WRITABLE_TOOL_REGISTRY[name] = ToolDef(
+            name=name,
+            description=description,
+            parameters=parameters,
+            func=func,
+        )
+        return func
+    return decorator
+
+
+@_register_writable_tool(
+    name="memory_write_rule",
+    description=(
+        "Write a learned domain rule to semantic memory. Use when you discover "
+        "a reliable condition-action pattern that should persist across episodes. "
+        "Example: 'If battery < 20% and in eclipse, avoid payload modes.'"
+    ),
+    parameters={
+        "rule_text": "Human-readable rule description",
+        "condition": "Trigger condition (e.g. 'battery < 20%')",
+        "action": "Recommended response action",
+    },
+)
+def memory_write_rule(
+    state: Dict[str, Any],
+    memory: Optional[Any] = None,
+    rule_text: str = "",
+    condition: str = "",
+    action: str = "",
+    **kwargs,
+) -> Dict[str, Any]:
+    """Write a domain rule to writable semantic memory."""
+    if memory is None or not hasattr(memory, "write_semantic_rule"):
+        return {"error": "Writable memory not available. Check emergence_config.mechanism."}
+    confirmation = memory.write_semantic_rule(
+        rule_text=rule_text,
+        condition=condition,
+        action=action,
+    )
+    return {"status": "written", "message": confirmation}
+
+
+@_register_writable_tool(
+    name="memory_write_episode",
+    description=(
+        "Write a summary of this episode's experience to episodic memory. "
+        "Use at the end of an episode to record key decisions and outcomes. "
+        "Example summary: 'Heavy eclipse period — stayed in charging most of episode. "
+        "Missed 2 observation windows.'"
+    ),
+    parameters={
+        "summary": "Summary of what happened and key decisions made",
+        "outcome": "Quantified outcome (e.g. utility=0.72, anomalies=1)",
+    },
+)
+def memory_write_episode(
+    state: Dict[str, Any],
+    memory: Optional[Any] = None,
+    summary: str = "",
+    outcome: str = "",
+    **kwargs,
+) -> Dict[str, Any]:
+    """Write an episode summary to writable episodic memory."""
+    if memory is None or not hasattr(memory, "write_episodic_entry"):
+        return {"error": "Writable memory not available. Check emergence_config.mechanism."}
+    confirmation = memory.write_episodic_entry(summary=summary, outcome=outcome)
+    return {"status": "written", "message": confirmation}
+
+
+# ======================================================================
 # Public API
 # ======================================================================
 
@@ -447,18 +531,28 @@ def execute_tool(
 ) -> Dict[str, Any]:
     """Execute a registered tool by name.
 
+    Searches the standard TOOL_REGISTRY first, then _WRITABLE_TOOL_REGISTRY.
     Returns tool result dict, or error dict for unknown tools.
     """
-    tool_def = TOOL_REGISTRY.get(tool_name)
+    tool_def = TOOL_REGISTRY.get(tool_name) or _WRITABLE_TOOL_REGISTRY.get(tool_name)
     if tool_def is None:
         return {"error": f"Unknown tool '{tool_name}'", "available": list(TOOL_REGISTRY.keys())}
 
     return tool_def.func(state=state, memory=memory, **args)
 
 
-def get_tool_schemas() -> List[Dict[str, Any]]:
-    """Return list of tool schemas for prompt embedding."""
-    return [t.to_schema() for t in TOOL_REGISTRY.values()]
+def get_tool_schemas(include_writable: bool = False) -> List[Dict[str, Any]]:
+    """Return list of tool schemas for prompt embedding.
+
+    Args:
+        include_writable: If True, include writable-memory tools (only valid
+            when emergence_config.mechanism == "writable_coala").
+    """
+    schemas = [t.to_schema() for t in TOOL_REGISTRY.values()]
+    if include_writable:
+        schemas.extend(t.to_schema() for t in _WRITABLE_TOOL_REGISTRY.values())
+    return schemas
 
 
 TOOL_SCHEMAS = get_tool_schemas()
+TOOL_SCHEMAS_WRITABLE = get_tool_schemas(include_writable=True)
