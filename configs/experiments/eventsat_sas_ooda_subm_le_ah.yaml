@@ -37,6 +37,7 @@ representation_config:
   jetson_capacity_mb: 249036.8
 
 emergence_config:
+  mechanism: ppo
   mode: learned
   rollout_fragment: 128
   lr: 1.0e-4

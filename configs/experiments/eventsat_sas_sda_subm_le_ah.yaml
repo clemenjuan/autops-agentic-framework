@@ -48,6 +48,7 @@ representation_config:
   jetson_capacity_mb: 249036.8
 
 emergence_config:
+  mechanism: ppo
   mode: learned
   # PPO hyperparameters — Oliver et al. EUCASS 2025 (8KDZ5Z53)
   rollout_fragment: 128        # Steps collected per update (rollout_fragment)

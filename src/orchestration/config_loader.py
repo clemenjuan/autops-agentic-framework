@@ -176,6 +176,21 @@ class ExperimentConfig(BaseModel):
         return v_upper
 
     # ------------------------------------------------------------------
+    # Learned-emergence mechanism
+    # ------------------------------------------------------------------
+
+    VALID_MECHANISMS: ClassVar[Set[str]] = {"ppo", "prompt_optimized", "writable_coala"}
+
+    # Which representations support which mechanisms
+    _MECHANISM_REPRESENTATION_RULES: ClassVar[Dict[str, Set[str]]] = {
+        "ppo": {"subsymbolic"},
+        "prompt_optimized": {"hybrid"},
+        "writable_coala": {"hybrid"},
+    }
+    # writable_coala additionally requires agentic_eventsat representation type
+    _WRITABLE_COALA_REPR_TYPE: ClassVar[str] = "agentic_eventsat"
+
+    # ------------------------------------------------------------------
     # Cross-dimension combination warnings
     # ------------------------------------------------------------------
 
@@ -221,6 +236,44 @@ class ExperimentConfig(BaseModel):
                 f"constraints (conservative margins, shift handover), but "
                 f"'{ops}' paradigm is fully autonomous with no human in "
                 f"the loop.",
+                stacklevel=2,
+            )
+
+        # Validate learned-emergence mechanism if specified
+        mechanism = self.emergence_config.get("mechanism")
+        if mechanism is not None:
+            if mechanism not in self.VALID_MECHANISMS:
+                raise ValueError(
+                    f"emergence_config.mechanism must be one of "
+                    f"{self.VALID_MECHANISMS}, got '{mechanism}'"
+                )
+            allowed_reps = self._MECHANISM_REPRESENTATION_RULES[mechanism]
+            if self.representation not in allowed_reps:
+                raise ValueError(
+                    f"emergence_config.mechanism='{mechanism}' is only valid with "
+                    f"representation in {allowed_reps}, got '{self.representation}'"
+                )
+            if (
+                mechanism == "writable_coala"
+                and rep_type != self._WRITABLE_COALA_REPR_TYPE
+            ):
+                raise ValueError(
+                    f"emergence_config.mechanism='writable_coala' requires "
+                    f"representation_config.type='{self._WRITABLE_COALA_REPR_TYPE}', "
+                    f"got '{rep_type}'"
+                )
+
+        # Warn if learned hybrid config has no mechanism
+        if (
+            self.emergence_mode == "learned"
+            and self.representation == "hybrid"
+            and mechanism is None
+        ):
+            warnings.warn(
+                f"emergence_mode='learned' with representation='hybrid' but no "
+                f"emergence_config.mechanism specified. Set mechanism to "
+                f"'prompt_optimized' or 'writable_coala'. Defaulting to "
+                f"prompt_optimized behaviour at runtime.",
                 stacklevel=2,
             )
 

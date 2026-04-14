@@ -110,6 +110,77 @@ class TestCombinationGuardrails:
         assert cfg.operations_paradigm == "conventional_ground"
 
 
+class TestEmergenceMechanism:
+    """Validation of emergence_config.mechanism cross-field constraints."""
+
+    def _make_learned(
+        self,
+        representation: str,
+        repr_type: str,
+        mechanism: str | None,
+    ) -> ExperimentConfig:
+        import warnings
+        emergence_config: dict = {"mode": "learned"}
+        if mechanism is not None:
+            emergence_config["mechanism"] = mechanism
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return ExperimentConfig(
+                representation=representation,
+                representation_config={"type": repr_type},
+                emergence_mode="learned",
+                emergence_config=emergence_config,
+            )
+
+    def test_ppo_with_subsymbolic_valid(self) -> None:
+        cfg = self._make_learned("subsymbolic", "subsymbolic_eventsat", "ppo")
+        assert cfg.emergence_config["mechanism"] == "ppo"
+
+    def test_prompt_optimized_with_hybrid_valid(self) -> None:
+        cfg = self._make_learned("hybrid", "llm_eventsat", "prompt_optimized")
+        assert cfg.emergence_config["mechanism"] == "prompt_optimized"
+
+    def test_writable_coala_with_agentic_valid(self) -> None:
+        cfg = self._make_learned("hybrid", "agentic_eventsat", "writable_coala")
+        assert cfg.emergence_config["mechanism"] == "writable_coala"
+
+    def test_invalid_mechanism_raises(self) -> None:
+        with pytest.raises(ValueError, match="mechanism"):
+            self._make_learned("subsymbolic", "subsymbolic_eventsat", "neural_evolution")
+
+    def test_ppo_with_hybrid_raises(self) -> None:
+        with pytest.raises(ValueError, match="mechanism.*ppo"):
+            self._make_learned("hybrid", "llm_eventsat", "ppo")
+
+    def test_prompt_optimized_with_subsymbolic_raises(self) -> None:
+        with pytest.raises(ValueError, match="mechanism.*prompt_optimized"):
+            self._make_learned("subsymbolic", "subsymbolic_eventsat", "prompt_optimized")
+
+    def test_writable_coala_with_non_agentic_raises(self) -> None:
+        with pytest.raises(ValueError, match="writable_coala.*agentic_eventsat"):
+            self._make_learned("hybrid", "llm_eventsat", "writable_coala")
+
+    def test_learned_hybrid_no_mechanism_warns(self) -> None:
+        with pytest.warns(UserWarning, match="mechanism"):
+            ExperimentConfig(
+                representation="hybrid",
+                representation_config={"type": "llm_eventsat"},
+                emergence_mode="learned",
+                emergence_config={"mode": "learned"},
+            )
+
+    def test_hand_designed_no_mechanism_no_warning(self) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            ExperimentConfig(
+                representation="hybrid",
+                representation_config={"type": "llm_eventsat"},
+                emergence_mode="hand_designed",
+                emergence_config={"mode": "hand_designed"},
+            )
+
+
 class TestConfigLoaderSaveLoad:
     def test_round_trip(self, tmp_path: Path) -> None:
         original = ExperimentConfig(
