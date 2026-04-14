@@ -85,7 +85,7 @@ class ExperimentConfig(BaseModel):
     seed: int = Field(default=42)
 
     # Morphological matrix dimensions
-    agent_organization: str = Field(default="centralized")
+    agent_organization: str = Field(default="sas")
     decision_loop: str = Field(default="sda")
     representation: str = Field(default="symbolic")
     emergence_mode: str = Field(default="hand_designed")
@@ -120,7 +120,9 @@ class ExperimentConfig(BaseModel):
     # Validators
     # ------------------------------------------------------------------
 
-    VALID_ORGANIZATIONS: ClassVar[Set[str]] = {"centralized", "hierarchical", "distributed"}
+    VALID_ORGANIZATIONS: ClassVar[Set[str]] = {
+        "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
+    }
     VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
     VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {

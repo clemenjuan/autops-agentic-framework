@@ -319,7 +319,7 @@ class TestExperimentRunnerIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_onboard",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -345,7 +345,7 @@ class TestExperimentRunnerIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_ground_rule",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -371,7 +371,7 @@ class TestExperimentRunnerIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_ground_schedule",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -398,7 +398,7 @@ class TestExperimentRunnerIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_ag_schedule",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",

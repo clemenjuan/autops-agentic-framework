@@ -11,25 +11,47 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
 
 **Empirical prediction for all Organization experiments** (Kim et al. 2025, 180 configs): satellite mode selection is sequential constraint satisfaction → centralized org predicted to outperform distributed. Capability saturation (β̂=−0.404) means multi-agent overhead negates gains once single-agent baseline > ~45%.
 
-### CentralizedOrganization — Phase 2
+Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent Systems".
 
-- **File**: `src/agent_organization/centralized.py`
+### SingleAgentSystem (SAS) — Phase 2
+
+- **File**: `src/agent_organization/single_agent_system.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Single-Agent System (SAS) — |A|=1, single reasoning locus, C undefined, Ω direct, complexity O(k).
 - **Structure**: One central agent receives full constellation observation and selects actions for all satellites. No inter-agent communication. Zero coordination overhead.
 - **Key property**: Maximum context integration (unified memory stream, full prior-history access). Upper bound for context-quality; lower bound for parallelism.
+- **Configs**: 36 `eventsat_sas_*` configs — 3 loops × 4 representations × 3 ops paradigms.
 
-### HierarchicalOrganization — Phase 2
+### CentralizedMAS — Phase 3 (EventSat single-satellite)
 
-- **File**: `src/agent_organization/hierarchical.py`
-- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Centralized MAS — orchestrator routes to sub-agents, C = {(a_orch, aᵢ) : ∀i}, Ω = hierarchical, complexity O(rnk).
-- **Structure**: Mission manager agent coordinates local satellite agents. Orchestrator aggregates sub-agent outputs and can override decisions. Creates validation bottleneck that contains error amplification (4.4× vs 17.2× for independent).
+- **File**: `src/agent_organization/centralized_mas.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Centralized MAS — orchestrator routes to sub-agents, C = {(a_orch, aᵢ) : ∀i}, Ω = hierarchical, complexity O(rnk). Also: ECSS-E-ST-70-11C autonomy levels (mission management layer vs onboard autonomy layer).
+- **Structure**: A = {mission_manager, sat_agent_0}; C = star (manager→local, unidirectional); Ω = hierarchical (local agent action is used; manager action stored as directive for next step).
+- **EventSat design decisions**:
+  - `distribute_observation`: Both agents receive the full environment observation (single satellite, no meaningful state partitioning). `sat_agent_0` additionally receives the manager's previous-step action as a `messages` entry (directive context).
+  - `collect_actions`: Manager action stored as `_last_manager_directive`; local agent action returned as environment action. Fallback to manager action if no local agent output.
+  - Manager directive carries over step-to-step via `_last_manager_directive`; reset to `None` in `initialize()`.
+  - Latency: `ExperimentRunner` accumulates manager + local agent latencies as the total step latency (sequential execution, both contribute to decision overhead).
+- **Configs**: 12 `eventsat_cmas_*_ah.yaml` configs — 3 loops × 4 representations × 1 ops (AH only; CG/AG degenerate at single-satellite scale as ground already acts as the strategic layer).
 
-### DistributedOrganization — Phase 2
+### DecentralizedMAS — Placeholder (deferred to N≥3)
 
-- **File**: `src/agent_organization/distributed.py`
+- **File**: `src/agent_organization/decentralized_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(aᵢ, aⱼ) : ∀i,j, i≠j}, Ω = consensus, complexity O(dnk).
 - **Structure**: Each satellite has its own agent; agents communicate peer-to-peer. Consensus formation through debate rounds. Enables parallel exploration but incurs coordination tax and information fragmentation.
 - **Risk**: Independent error amplification (17.2× per Kim et al.) if consensus fails. Suited for parallelisable tasks, predicted to underperform on sequential satellite scheduling.
+- **Status**: Stub (`NotImplementedError`). Deferred to constellation scenarios (N≥3); peer-to-peer coordination is degenerate at N=1.
+
+### IndependentMAS — Placeholder (deferred to N≥3)
+
+- **File**: `src/agent_organization/independent_mas.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, no inter-agent coordination.
+- **Status**: Stub (`NotImplementedError`). Meaningful only with subsystem-level agents (ADCS/payload/comms) or N≥3 satellites.
+
+### HybridMAS — Placeholder (deferred to N≥3)
+
+- **File**: `src/agent_organization/hybrid_mas.py`
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Hybrid MAS — heterogeneous mixed topology combining star + all-to-all + independent sub-topologies.
+- **Status**: Stub (`NotImplementedError`). Reserved for complex multi-cluster constellations.
 
 ---
 

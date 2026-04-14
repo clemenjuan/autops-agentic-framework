@@ -31,7 +31,7 @@ class TestExperimentConfig:
     def test_default_values(self) -> None:
         cfg = ExperimentConfig()
         assert cfg.seed == 42
-        assert cfg.agent_organization == "centralized"
+        assert cfg.agent_organization == "sas"
         assert cfg.decision_loop == "sda"
         assert cfg.representation == "symbolic"
         assert cfg.emergence_mode == "hand_designed"
@@ -115,7 +115,7 @@ class TestConfigLoaderSaveLoad:
         original = ExperimentConfig(
             experiment_id="test_round_trip",
             seed=123,
-            agent_organization="distributed",
+            agent_organization="decentralized_mas",
         )
         yaml_path = tmp_path / "test.yaml"
         save_config(original, yaml_path)
@@ -123,7 +123,7 @@ class TestConfigLoaderSaveLoad:
         loaded = load_config(yaml_path)
         assert loaded.experiment_id == "test_round_trip"
         assert loaded.seed == 123
-        assert loaded.agent_organization == "distributed"
+        assert loaded.agent_organization == "decentralized_mas"
 
     def test_load_nonexistent_raises(self) -> None:
         with pytest.raises(FileNotFoundError):

@@ -5,10 +5,15 @@ Defines abstract coordination patterns between agents in a constellation.
 Controls how observations are distributed to individual agents and how
 their actions are aggregated before being sent to the environment.
 
+Full Kim et al. (2025) [FVFQ73RF] taxonomy — "Towards a Science of Scaling
+Agent Systems":
+
 Implementations:
-- ``CentralizedOrganization``:  Single agent controls entire constellation.
-- ``HierarchicalOrganization``: Mission manager + local satellite agents.
-- ``DistributedOrganization``:  Peer-to-peer multi-agent with communication topology.
+- ``SingleAgentSystem``:  |A|=1, single agent controls entire constellation.
+- ``CentralizedMAS``:     Orchestrator + local satellite agents, star topology.
+- ``DecentralizedMAS``:   Peer-to-peer multi-agent with all-to-all topology.
+- ``IndependentMAS``:     Multiple agents with no inter-agent communication.
+- ``HybridMAS``:          Heterogeneous mixed-topology multi-agent organization.
 """
 
 from __future__ import annotations

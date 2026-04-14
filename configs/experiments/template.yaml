@@ -5,12 +5,12 @@
 
 # ─── Experiment Identification ───────────────────────────────────────
 # Naming convention: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>
-#   org:  cen | hier | dist
+#   org:  sas | cmas | dmas | imas | hmas
 #   loop: sda | ooda | react
-#   repr: symb | hybr | subm
-#   emrg: hd | le
+#   repr: symb | hybr | subm | agnt
+#   emrg: hd | le | lep | lec
 #   ops:  ah (autonomous_hybrid) | ag (autonomous_ground) | cg (conventional_ground)
-# Example: eventsat_cen_sda_symb_hd_ah
+# Example: eventsat_sas_sda_symb_hd_ah
 experiment_id: "eventsat_<org>_<loop>_<repr>_<emrg>_<ops>"
 description: "Brief description of experimental configuration"
 
@@ -18,8 +18,9 @@ description: "Brief description of experimental configuration"
 seed: 42
 
 # ─── Morphological Matrix Dimensions ────────────────────────────────
-# agent_organization: centralized | hierarchical | distributed
-agent_organization: "centralized"
+# agent_organization: sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
+# (Kim et al. 2025 "Towards a Science of Scaling Agent Systems")
+agent_organization: "sas"
 
 # decision_loop: sda | ooda | react | <custom>
 decision_loop: "sda"
@@ -30,15 +31,15 @@ representation: "symbolic"
 # emergence_mode: hand_designed | learned
 emergence_mode: "hand_designed"
 
-# operations_paradigm: autonomous_hybrid | conventional_ground
+# operations_paradigm: autonomous_hybrid | autonomous_ground | conventional_ground
 operations_paradigm: "autonomous_hybrid"
 
 # ─── Component-Specific Configuration ───────────────────────────────
 
 agent_organization_config:
-  # Centralized: no extra params needed
-  # Hierarchical: define manager/local split
-  # Distributed: define topology (ring | mesh | visibility)
+  # SAS: no extra params needed
+  # CentralizedMAS: manager + local agents, star topology
+  # DecentralizedMAS: topology (ring | mesh | visibility) — deferred to N≥3
   {}
 
 decision_loop_config:
@@ -54,6 +55,7 @@ representation_config:
 
 emergence_config:
   # mode is inferred from top-level emergence_mode
+  # mechanism: ppo (subsymbolic) | prompt_optimized (hybrid LLM) | writable_coala (agentic only)
   # For learned: training_checkpoint, policy_type
   {}
 
@@ -96,7 +98,7 @@ metrics:
 # ─── Scalability Configuration ──────────────────────────────────────
 # Used for RQ3 experiments — sweep over both axes independently or jointly.
 scalability:
-  complexity_index: 0      # 0=centralized | 1=hierarchical | 2=distributed
+  complexity_index: 0      # 0=sas | 1=centralized_mas | 2=decentralized_mas | 3=independent_mas | 4=hybrid_mas
   sweep_sizes: []          # e.g. [1, 5, 12, 50, 100, 500] for scaling experiments
 
 # ─── Output Configuration ───────────────────────────────────────────

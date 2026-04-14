@@ -17,20 +17,21 @@ uv run pytest tests/ -v -o "addopts="     # Full test suite (493 tests)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml
-uv run autops run configs/experiments/eventsat_cen_sda_hybr_hd_ah.yaml  # LLM hybrid
-uv run autops run configs/experiments/eventsat_cen_sda_subm_le_ah.yaml  # RL subsymbolic
-uv run autops run configs/experiments/eventsat_cen_sda_agnt_hd_ah.yaml  # Agentic hybrid
+# org: sas | cmas | dmas    emrg: hd | le | lep | lec
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
+uv run autops run configs/experiments/eventsat_sas_sda_hybr_hd_ah.yaml  # LLM hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
+uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml  # Agentic hybrid
 
 # Quick smoke test (1 episode, 100 steps)
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
 
 # Batch run / analyze — see uv run autops --help
 ```
 
 ## Rules
 - **Run tests after every code change**
-- Feature branches only (`feature/<name>`), never commit to main
+- Trunk-based: commit small focused changes directly to `main`; tests must stay green per commit
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
 - Ask before changing morphological matrix dimensions or adding dependencies
 - **Before planning:** read `docs/FOUNDATION_SPEC.md` + Zotero library. Every implementation must cite specific papers.
@@ -51,15 +52,16 @@ uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episode
 ```
 src/
   environment/        # Satellite sim (ABC + EventSat scenario + orbital/)
-  agent_organization/ # Centralized / Hierarchical / Distributed
+  agent_organization/ # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025)
   decision_loop/      # SDA / OODA / ReAct  (+DecisionContext interface)
   representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
   memory/             # FixedMemory (fixed across all variants for fair comparison)
   emergence/          # controller.py — @register() factory for representations
   operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
-configs/experiments/  # 37 YAML configs (9 symbolic + 9 LLM hybrid + 9 subsymbolic + 9 agentic + 1 template)
-tests/                # 18 test modules, 493 tests
+  tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
+configs/experiments/  # 49 YAML configs (36 sas hand-designed + 12 cmas + 1 template)
+tests/                # 18 test modules, 512 tests
 ```
 
 **Key interfaces:**
@@ -88,7 +90,7 @@ uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single
 - `uv run` not `python` — running `python` directly misses the venv
 - `representation_config.type` must match an `@register("name")` string exactly; typos give `KeyError` from `EmergenceController`
 - LLM experiments require `OLLAMA_HOST` env var (TUM: `https://ollama.sps.ed.tum.de`) or `OPENAI_API_KEY`; use `llm_mock: true` for local dev without LLM access
-- LLM response cache at `data/llm_cache/` — delete to force fresh calls
+- LLM response cache at `data/llm_cache/` — delete to force fresh calls  
 - `autonomous_ground` and `conventional_ground` ops paradigms require `operations_paradigm_config.orbital_period_steps: 93`
 - Config validator warns (not errors) on degenerate loop × representation combinations (deterministic rep + non-SDA loop)
 - `data/results/` and `data/trained_models/` are git-ignored — never commit experiment output

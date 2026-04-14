@@ -1,0 +1,89 @@
+# EventSat | Hierarchical · SDA · Subsymbolic · Learned · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: cmas | sda | subm | le | ah
+#
+# Kim et al. (2025) [FVFQ73RF] Centralized MAS topology with PPO RL policy.
+# Mission manager provides strategic directive; sat_agent_0 executes with
+# PPO policy conditioned on state + manager directive message. Compare with
+# cen variant to isolate hierarchical org effect on RL representation.
+
+experiment_id: eventsat_cmas_sda_subm_le_ah
+description: >
+  EventSat hierarchical Centralized MAS with SDA loop, RL subsymbolic
+  representation, and autonomous-hybrid ops. Mission manager sets strategic
+  directives; local PPO agent executes with directive as context. Compare with
+  eventsat_cen_sda_subm_le_ah (SAS) to isolate hierarchical organization effect.
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: centralized_mas       # hier (Kim et al. 2025 Centralized MAS)
+decision_loop: sda                     # sda
+representation: subsymbolic            # subm
+emergence_mode: learned                # le
+operations_paradigm: autonomous_hybrid # ah
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}
+
+decision_loop_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: subsymbolic_eventsat
+  rl_mock: false
+  deterministic: false
+  checkpoint_path: ""
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+
+emergence_config:
+  mode: learned
+  rollout_fragment: 128
+  lr: 1.0e-4
+  lr_schedule:
+    - [0, 1.0e-4]
+    - [3000000, 1.0e-5]
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 10
+max_steps: 10080
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

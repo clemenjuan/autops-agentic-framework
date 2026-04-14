@@ -1,5 +1,8 @@
 """
 Tests for Agent Organization base class and implementations.
+
+Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent Systems"
+taxonomy: SAS, CentralizedMAS, DecentralizedMAS, IndependentMAS, HybridMAS.
 """
 
 from __future__ import annotations
@@ -7,9 +10,11 @@ from __future__ import annotations
 import pytest
 
 from src.agent_organization.base import AgentAction, AgentObservation, AgentOrganization
-from src.agent_organization.centralized import CentralizedOrganization
-from src.agent_organization.distributed import DistributedOrganization
-from src.agent_organization.hierarchical import HierarchicalOrganization
+from src.agent_organization.single_agent_system import SingleAgentSystem
+from src.agent_organization.centralized_mas import CentralizedMAS
+from src.agent_organization.decentralized_mas import DecentralizedMAS
+from src.agent_organization.independent_mas import IndependentMAS
+from src.agent_organization.hybrid_mas import HybridMAS
 
 
 # ======================================================================
@@ -43,27 +48,27 @@ class TestAgentOrganizationABC:
 
 
 # ======================================================================
-# Centralized organization
+# SingleAgentSystem (SAS) — Kim et al. 2025 |A|=1
 # ======================================================================
 
 
-class TestCentralizedOrganization:
+class TestSingleAgentSystem:
     def test_single_agent(self) -> None:
-        org = CentralizedOrganization(config={})
+        org = SingleAgentSystem(config={})
         org.initialize(constellation_size=5)
         agents = org.get_agents()
         assert len(agents) == 1
         assert agents[0] == "central_agent"
 
     def test_distribute_observation(self) -> None:
-        org = CentralizedOrganization(config={})
+        org = SingleAgentSystem(config={})
         org.initialize(constellation_size=3)
         obs = org.distribute_observation({"some": "data"})
         assert "central_agent" in obs
         assert obs["central_agent"].agent_id == "central_agent"
 
     def test_collect_actions(self) -> None:
-        org = CentralizedOrganization(config={})
+        org = SingleAgentSystem(config={})
         org.initialize(constellation_size=2)
         actions = {
             "central_agent": AgentAction(
@@ -76,39 +81,152 @@ class TestCentralizedOrganization:
 
 
 # ======================================================================
-# Hierarchical organization (placeholder)
+# CentralizedMAS — Kim et al. 2025 Centralized MAS (star topology)
 # ======================================================================
 
 
-class TestHierarchicalOrganization:
+class TestCentralizedMAS:
     def test_agents_include_manager(self) -> None:
-        org = HierarchicalOrganization(config={})
+        org = CentralizedMAS(config={})
         org.initialize(constellation_size=3)
         agents = org.get_agents()
         assert "mission_manager" in agents
         assert len(agents) == 4  # 1 manager + 3 local
 
-    def test_distribute_not_implemented(self) -> None:
-        org = HierarchicalOrganization(config={})
-        org.initialize(constellation_size=2)
-        with pytest.raises(NotImplementedError):
-            org.distribute_observation({})
+    def test_distribute_observation_no_prior_directive(self) -> None:
+        org = CentralizedMAS(config={})
+        org.initialize(constellation_size=1)
+        result = org.distribute_observation({"sensor": 42})
+        assert "mission_manager" in result
+        assert "sat_agent_0" in result
+        # Manager gets full observation, no messages
+        assert result["mission_manager"].local_state["full_observation"] == {"sensor": 42}
+        assert result["mission_manager"].messages == []
+        # Local agent also gets full observation, no directive yet (first step)
+        assert result["sat_agent_0"].local_state["full_observation"] == {"sensor": 42}
+        assert result["sat_agent_0"].messages == []
+
+    def test_distribute_observation_with_prior_directive(self) -> None:
+        org = CentralizedMAS(config={})
+        org.initialize(constellation_size=1)
+        # Simulate a prior collect_actions that stored a directive
+        org._last_manager_directive = {"eventsat_0": {"mode": "charging"}}
+        result = org.distribute_observation({"sensor": 99})
+        # Local agent now receives directive as message
+        assert len(result["sat_agent_0"].messages) == 1
+        assert result["sat_agent_0"].messages[0]["from"] == "mission_manager"
+        assert result["sat_agent_0"].messages[0]["directive"] == {"eventsat_0": {"mode": "charging"}}
+        # Manager still has no messages
+        assert result["mission_manager"].messages == []
+
+    def test_collect_actions_stores_directive_and_uses_local(self) -> None:
+        org = CentralizedMAS(config={})
+        org.initialize(constellation_size=1)
+        actions = {
+            "mission_manager": AgentAction(
+                agent_id="mission_manager",
+                action={"eventsat_0": {"mode": "charging"}},
+            ),
+            "sat_agent_0": AgentAction(
+                agent_id="sat_agent_0",
+                action={"eventsat_0": {"mode": "payload_observe"}},
+            ),
+        }
+        env_actions = org.collect_actions(actions)
+        # Local agent's action is used as env action
+        assert env_actions == {"eventsat_0": {"mode": "payload_observe"}}
+        # Manager's action stored as directive for next step
+        assert org._last_manager_directive == {"eventsat_0": {"mode": "charging"}}
+
+    def test_collect_actions_fallback_to_manager(self) -> None:
+        org = CentralizedMAS(config={})
+        org.initialize(constellation_size=1)
+        # Only manager action, no local agent action
+        actions = {
+            "mission_manager": AgentAction(
+                agent_id="mission_manager",
+                action={"eventsat_0": {"mode": "safe"}},
+            ),
+        }
+        env_actions = org.collect_actions(actions)
+        assert env_actions == {"eventsat_0": {"mode": "safe"}}
+
+    def test_initialize_resets_directive(self) -> None:
+        org = CentralizedMAS(config={})
+        org.initialize(constellation_size=1)
+        org._last_manager_directive = {"some": "directive"}
+        org.initialize(constellation_size=1)
+        assert org._last_manager_directive is None
 
 
 # ======================================================================
-# Distributed organization (placeholder)
+# DecentralizedMAS — placeholder, deferred to constellation scenarios
 # ======================================================================
 
 
-class TestDistributedOrganization:
+class TestDecentralizedMAS:
     def test_agents(self) -> None:
-        org = DistributedOrganization(config={})
+        org = DecentralizedMAS(config={})
         org.initialize(constellation_size=4)
         agents = org.get_agents()
         assert len(agents) == 4
 
     def test_distribute_not_implemented(self) -> None:
-        org = DistributedOrganization(config={})
+        org = DecentralizedMAS(config={})
         org.initialize(constellation_size=2)
         with pytest.raises(NotImplementedError):
             org.distribute_observation({})
+
+    def test_collect_not_implemented(self) -> None:
+        org = DecentralizedMAS(config={})
+        org.initialize(constellation_size=2)
+        with pytest.raises(NotImplementedError):
+            org.collect_actions({})
+
+
+# ======================================================================
+# IndependentMAS — placeholder, deferred to constellation scenarios
+# ======================================================================
+
+
+class TestIndependentMAS:
+    def test_agents(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=3)
+        assert len(org.get_agents()) == 3
+
+    def test_distribute_not_implemented(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=1)
+        with pytest.raises(NotImplementedError):
+            org.distribute_observation({})
+
+    def test_collect_not_implemented(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=1)
+        with pytest.raises(NotImplementedError):
+            org.collect_actions({})
+
+
+# ======================================================================
+# HybridMAS — placeholder, deferred to constellation scenarios
+# ======================================================================
+
+
+class TestHybridMAS:
+    def test_agents(self) -> None:
+        org = HybridMAS(config={})
+        org.initialize(constellation_size=5)
+        assert len(org.get_agents()) == 5
+
+    def test_distribute_not_implemented(self) -> None:
+        org = HybridMAS(config={})
+        org.initialize(constellation_size=1)
+        with pytest.raises(NotImplementedError):
+            org.distribute_observation({})
+
+    def test_collect_not_implemented(self) -> None:
+        org = HybridMAS(config={})
+        org.initialize(constellation_size=1)
+        with pytest.raises(NotImplementedError):
+            org.collect_actions({})

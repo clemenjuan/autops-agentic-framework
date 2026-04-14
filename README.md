@@ -55,15 +55,17 @@ uv run python -m pytest tests/ -v -o "addopts="
 
 ### Running an Experiment
 ```bash
-# Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>_v<N>)
+# Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
+# org: sas | cmas | dmas    loop: sda | ooda | react    repr: symb | hybr | subm | agnt
+# emrg: hd | le | lep | lec    ops: ah | ag | cg
 # SDA loop (baseline)
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml    # autonomous hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # autonomous hybrid
 
 # Quick smoke test (1 episode, 100 steps)
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
 
 # Run and auto-generate analysis figures
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --analyze
+uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --analyze
 ```
 
 ### Batch Experiments
@@ -74,6 +76,10 @@ uv run autops generate --template configs/experiments/template.yaml
 # Quick sanity check
 uv run autops batch configs/experiments --episodes 1 --steps 200
 
+# Run batch of specific configurations
+uv run autops batch configs/experiments/eventsat_cmas_*.yaml --episodes 1 --steps 200  # all CentralizedMAS configs
+uv run autops batch configs/experiments/eventsat_cmas_*_symb_*.yaml --episodes 1 --steps 200  # all CentralizedMAS symbolic configs
+
 # Run all generated configs or all experiments in a folder
 uv run autops batch configs/experiments/generated/
 uv run autops batch configs/experiments/
@@ -83,7 +89,7 @@ uv run autops batch configs/experiments --episodes 5 --steps 10080
 ### Analyzing Results
 ```bash
 # Generate figures and summary from existing results
-uv run autops analyze data/results/eventsat_cen_sda_symb_hd_ah/
+uv run autops analyze data/results/eventsat_sas_sda_symb_hd_ah/
 ```
 
 For interactive exploration, use the Jupyter notebooks:
@@ -98,7 +104,7 @@ autops-demo/
 |   +-- environment/          # Satellite constellation simulation (ABC + scenarios)
 |   |   +-- orbital/          # Orbital mechanics (eclipse, ground access, Orekit wrapper)
 |   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
-|   +-- agent_organization/   # Centralized / Hierarchical / Distributed
+|   +-- agent_organization/   # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS
 |   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
 |   +-- memory/               # Memory abstraction + FixedMemory impl
@@ -130,8 +136,8 @@ autops-demo/
 Experiments are defined via YAML files validated by Pydantic:
 
 ```yaml
-experiment_id: "eventsat_cen_sda_symb_hd_ah"
-agent_organization: centralized
+experiment_id: "eventsat_sas_sda_symb_hd_ah"
+agent_organization: sas
 decision_loop: sda
 representation: symbolic
 emergence_mode: hand_designed

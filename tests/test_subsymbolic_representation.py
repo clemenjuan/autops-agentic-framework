@@ -859,7 +859,7 @@ class TestExperimentRunnerSubsymbolic(unittest.TestCase):
             num_episodes=1,
             max_steps=3,
             seed=0,
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="subsymbolic",
             emergence_mode="hand_designed",

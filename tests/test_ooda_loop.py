@@ -497,7 +497,7 @@ class TestExperimentRunnerOODAIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ooda_test_ah",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="ooda",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -531,7 +531,7 @@ class TestExperimentRunnerOODAIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ooda_test_cg",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="ooda",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -566,7 +566,7 @@ class TestExperimentRunnerOODAIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="ooda_metrics_test",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="ooda",
             representation="symbolic",
             emergence_mode="hand_designed",

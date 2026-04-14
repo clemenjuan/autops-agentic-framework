@@ -113,7 +113,8 @@ def cmd_analyze(args: argparse.Namespace) -> None:
 
 
 def _discover_configs(paths: List[str]) -> List[Path]:
-    """Discover YAML config files from paths (files or directories)."""
+    """Discover YAML config files from paths (files, directories, or glob patterns)."""
+    import glob as _glob
     configs: List[Path] = []
     for p in paths:
         path = Path(p)
@@ -123,7 +124,14 @@ def _discover_configs(paths: List[str]) -> List[Path]:
             configs.extend(sorted(path.glob("*.yaml")))
             configs.extend(sorted(path.glob("*.yml")))
         else:
-            print(f"WARNING: Skipping '{p}' (not a file or directory)")
+            # Try glob expansion (handles patterns on shells that don't auto-expand,
+            # e.g. PowerShell: eventsat_hier_*.yaml)
+            matches = sorted(_glob.glob(p))
+            yaml_matches = [Path(m) for m in matches if Path(m).suffix in (".yaml", ".yml")]
+            if yaml_matches:
+                configs.extend(yaml_matches)
+            else:
+                print(f"WARNING: Skipping '{p}' (not a file or directory)")
     return configs
 
 

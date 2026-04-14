@@ -449,7 +449,7 @@ class TestReActIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="react_test_integration",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="react",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -483,7 +483,7 @@ class TestReActIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="react_test_schedule",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="react",
             representation="symbolic",
             emergence_mode="hand_designed",
@@ -518,7 +518,7 @@ class TestReActIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="react_test_metrics",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="react",
             representation="symbolic",
             emergence_mode="hand_designed",

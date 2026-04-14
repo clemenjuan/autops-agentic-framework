@@ -328,7 +328,7 @@ class TestConventionalGroundIntegration:
 
         cfg = ExperimentConfig(
             experiment_id="cg_test_conventional_schedule",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",

@@ -241,14 +241,18 @@ class ExperimentRunner:
         Returns:
             An initialised ``AgentOrganization`` subclass.
         """
-        from src.agent_organization.centralized import CentralizedOrganization
-        from src.agent_organization.distributed import DistributedOrganization
-        from src.agent_organization.hierarchical import HierarchicalOrganization
+        from src.agent_organization.single_agent_system import SingleAgentSystem
+        from src.agent_organization.centralized_mas import CentralizedMAS
+        from src.agent_organization.decentralized_mas import DecentralizedMAS
+        from src.agent_organization.independent_mas import IndependentMAS
+        from src.agent_organization.hybrid_mas import HybridMAS
 
         org_map = {
-            "centralized": CentralizedOrganization,
-            "hierarchical": HierarchicalOrganization,
-            "distributed": DistributedOrganization,
+            "sas": SingleAgentSystem,
+            "centralized_mas": CentralizedMAS,
+            "decentralized_mas": DecentralizedMAS,
+            "independent_mas": IndependentMAS,
+            "hybrid_mas": HybridMAS,
         }
 
         org_cls = org_map.get(self.config.agent_organization)
@@ -508,7 +512,12 @@ class ExperimentRunner:
                     loop.get_metrics() if hasattr(loop, "get_metrics") else {}
                 )
                 decision_metrics.update({
-                    "decision_latency_s": decision_latency,
+                    # Accumulate latency across all agents (important for
+                    # hierarchical org where manager + local run sequentially).
+                    "decision_latency_s": (
+                        decision_metrics.get("decision_latency_s", 0.0)
+                        + decision_latency
+                    ),
                     "has_rationale": loop_metrics.get("has_rationale", False),
                     **loop_metrics,
                 })
@@ -632,11 +641,13 @@ class ExperimentRunner:
             stats = self._metrics_collector.finalise_experiment(
                 self.config.experiment_id
             )
-            # P7: Record Scale & Complexity metadata
+            # P7: Record Scale & Complexity metadata (Kim et al. 2025 taxonomy)
             complexity_map = {
-                "centralized": 0,
-                "hierarchical": 1,
-                "distributed": 2,
+                "sas": 0,
+                "centralized_mas": 1,
+                "decentralized_mas": 2,
+                "independent_mas": 3,
+                "hybrid_mas": 4,
             }
             stats.metadata = {
                 "constellation_size": self.config.environment.constellation_size,

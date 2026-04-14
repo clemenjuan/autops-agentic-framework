@@ -1,0 +1,77 @@
+# EventSat | Centralized · ReAct · Subsymbolic · Learned · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: sas | react | subm | le | ah
+
+experiment_id: eventsat_sas_react_subm_le_ah
+description: >
+  EventSat RL subsymbolic representation with ReAct loop and autonomous-hybrid ops.
+  The RL policy's reason() method returns per-head action probabilities as
+  Think steps in the ReAct trace, enabling interpretable action selection.
+  PPO ActorCritic with 25D observation space.
+
+seed: 42
+
+agent_organization: sas
+decision_loop: react
+representation: subsymbolic
+emergence_mode: learned
+operations_paradigm: autonomous_hybrid
+
+agent_organization_config: {}
+
+decision_loop_config:
+  max_iterations: 3
+  think_before_act: true
+
+representation_config:
+  type: subsymbolic_eventsat
+  rl_mock: false
+  deterministic: false
+  checkpoint_path: ""
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+
+emergence_config:
+  mode: learned
+  rollout_fragment: 128
+  lr: 1.0e-4
+  lr_schedule:
+    - [0, 1.0e-4]
+    - [3000000, 1.0e-5]
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+memory_config:
+  history_depth: 100
+
+num_episodes: 10
+max_steps: 10080
+
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+  collection_frequency: per_step
+
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

@@ -1,0 +1,70 @@
+# EventSat | Hierarchical · SDA · Symbolic · Hand-designed · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: cmas | sda | symb | hd | ah
+#
+# Kim et al. (2025) [FVFQ73RF] Centralized MAS topology:
+#   A = {mission_manager, sat_agent_0}, C = star, Ω = hierarchical.
+# Mission manager acts first (strategic directive); sat_agent_0 executes with
+# directive as context. Both share the rule-based symbolic representation.
+# Compare with eventsat_cen_sda_symb_hd_ah (SAS baseline) to isolate
+# the effect of the two-level hierarchical organization on all 7 metrics.
+
+experiment_id: eventsat_cmas_sda_symb_hd_ah
+description: >
+  EventSat hierarchical Centralized MAS with SDA loop, symbolic representation,
+  and autonomous-hybrid ops. Mission manager sets strategic directives; local
+  satellite agent executes with directive as context. Baseline for hierarchical
+  organization comparison across loops and representations (Kim et al. 2025).
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: centralized_mas       # hier (Kim et al. 2025 Centralized MAS)
+decision_loop: sda                     # sda
+representation: symbolic               # symb
+emergence_mode: hand_designed          # hd
+operations_paradigm: autonomous_hybrid # ah
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}         # No extra config needed for hierarchical
+
+decision_loop_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: rule_based_eventsat
+
+emergence_config:
+  mode: hand_designed
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 1
+  timestep_seconds: 60            # 1-minute resolution
+  max_steps: 10080                # 7 days = 7 * 24 * 60 = 10080 steps
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 5
+max_steps: 10080                  # 7 days of 1-minute steps
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

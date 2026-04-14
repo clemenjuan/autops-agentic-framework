@@ -1,0 +1,73 @@
+# EventSat | Hierarchical · ReAct · Symbolic · Hand-designed · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: cmas | react | symb | hd | ah
+#
+# Kim et al. (2025) [FVFQ73RF] Centralized MAS with ReAct loop. Both agents
+# run Thought-Action-Observation cycles; manager's converged action is passed
+# as directive to sat_agent_0's reasoning context. Compare with cen variant
+# to isolate hierarchical org effect under iterative ReAct reasoning.
+
+experiment_id: eventsat_cmas_react_symb_hd_ah
+description: >
+  EventSat hierarchical Centralized MAS with ReAct loop, symbolic representation,
+  and autonomous-hybrid ops. Manager ReAct cycle validates strategic directive;
+  local agent ReAct cycle refines with directive context. Compare with
+  eventsat_cen_react_symb_hd_ah (SAS) to isolate hierarchical organization effect.
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: centralized_mas        # hier
+decision_loop: react                    # react
+representation: symbolic                # symb
+emergence_mode: hand_designed           # hd
+operations_paradigm: autonomous_hybrid  # ah
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}
+
+decision_loop_config:
+  max_iterations: 3
+  grounding_checks:
+    - battery_feasibility
+    - pass_window_timing
+
+representation_config:
+  type: rule_based_eventsat
+
+emergence_config:
+  mode: hand_designed
+
+operations_paradigm_config:
+  default_mode: charging
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 5
+max_steps: 10080
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

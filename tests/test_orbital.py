@@ -221,7 +221,7 @@ class TestEventSatWithOrbitalContext:
 
         cfg = ExperimentConfig(
             experiment_id="orbital_test",
-            agent_organization="centralized",
+            agent_organization="sas",
             decision_loop="sda",
             representation="symbolic",
             emergence_mode="hand_designed",

@@ -83,9 +83,11 @@ autops-demo/
 │   ├── agent_organization/
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Abstract AgentOrganization
-│   │   ├── centralized.py
-│   │   ├── hierarchical.py
-│   │   └── distributed.py
+│   │   ├── single_agent_system.py   # SAS (Kim et al. 2025)
+│   │   ├── centralized_mas.py       # Centralized MAS
+│   │   ├── decentralized_mas.py     # Decentralized MAS (stub, N≥3)
+│   │   ├── independent_mas.py       # Independent MAS (stub, N≥3)
+│   │   └── hybrid_mas.py            # Hybrid MAS (stub, N≥3)
 │   ├── decision_loop/
 │   │   ├── __init__.py
 │   │   ├── base.py                  # Abstract DecisionLoop
@@ -226,9 +228,13 @@ where k = reasoning iterations, r = orchestration rounds, d = debate rounds, n =
 
 **Implementations:**
 
-- `CentralizedOrganization`: Single agent controls entire constellation (SAS in Kim et al. terms; C undefined, Ω direct)
-- `HierarchicalOrganization`: Mission manager + local satellite agents (Centralized MAS; C = orchestrator→sub-agents, Ω = hierarchical)
-- `DistributedOrganization`: Peer-to-peer multi-agent with communication topology (Decentralized MAS; C = all-to-all, Ω = consensus)
+Full Kim et al. (2025) [FVFQ73RF] taxonomy — "Towards a Science of Scaling Agent Systems":
+
+- `SingleAgentSystem` (SAS): |A|=1, C undefined, Ω direct. 36 `eventsat_sas_*` configs covering 3 loops × 4 representations × 3 ops paradigms.
+- `CentralizedMAS`: Orchestrator + local agents, C = star, Ω = hierarchical. 12 `eventsat_cmas_*_ah.yaml` configs (3 loops × 4 representations, AH only — CG/AG degenerate at N=1 since ground already acts as the strategic layer).
+- `DecentralizedMAS`: All-to-all peer exchange, C = all-to-all, Ω = consensus. Stub — degenerate at N=1; reserved for constellation scenarios (N≥3).
+- `IndependentMAS`: No inter-agent communication, C = ∅. Stub — meaningful only with subsystem-level agents (ADCS/payload/comms) or N≥3 satellites.
+- `HybridMAS`: Heterogeneous mixed topology. Stub — reserved for complex multi-cluster constellations.
 
 ***
 
@@ -614,7 +620,7 @@ class MetricsCollector(ABC):
 
 1. Choose operational scenario (researcher decision)
 2. Implement scenario-specific environment
-3. Implement CentralizedOrganization
+3. Implement SingleAgentSystem (SAS)
 4. Implement one decision loop (researcher chooses which)
 5. Implement one representation (researcher chooses which)
 6. End-to-end experiment execution

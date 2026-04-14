@@ -1,0 +1,85 @@
+# EventSat | Hierarchical · OODA · Subsymbolic · Learned · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: cmas | ooda | subm | le | ah
+
+experiment_id: eventsat_cmas_ooda_subm_le_ah
+description: >
+  EventSat hierarchical Centralized MAS with OODA loop, RL subsymbolic
+  representation, and autonomous-hybrid ops. Compare with
+  eventsat_cen_ooda_subm_le_ah (SAS) to isolate hierarchical organization effect
+  under OODA loop structure with RL policy.
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: centralized_mas       # hier
+decision_loop: ooda                    # ooda
+representation: subsymbolic            # subm
+emergence_mode: learned                # le
+operations_paradigm: autonomous_hybrid # ah
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}
+
+decision_loop_config:
+  orient_history_window: 10
+  max_orient_iterations: 1
+  urgency_bypass_threshold: 0.9
+
+representation_config:
+  type: subsymbolic_eventsat
+  rl_mock: false
+  deterministic: false
+  checkpoint_path: ""
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+
+emergence_config:
+  mode: learned
+  rollout_fragment: 128
+  lr: 1.0e-4
+  lr_schedule:
+    - [0, 1.0e-4]
+    - [3000000, 1.0e-5]
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 10
+max_steps: 10080
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO
