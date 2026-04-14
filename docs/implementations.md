@@ -305,7 +305,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
 - **Supporting modules**: `src/emergence/rollout_buffer.py` (RolloutBuffer + GAE), `src/emergence/training_pipeline.py` (PPOTrainer)
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
-- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
+- **Configs**: 9 YAML files `eventsat_sas_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
 
 ### LLM EventSat — Phase 4a (hybrid)
 
@@ -339,6 +339,11 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
   `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
+- **Learned-emergence variant** (Phase 5):
+  - `prompt_optimized` (`_hybr_lep_*`): loads offline-optimised system prompt. `FixedMemory`
+    invariant preserved. **Note**: `writable_coala` does NOT apply here — single-shot LLM
+    has no iterative reasoning loop to accrete from (by design; see FOUNDATION_SPEC §4).
+- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hybr_hd_*`; 12 `*_hybr_lep_*`
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
@@ -397,7 +402,15 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   `max_agentic_steps` config (recommend 2 for ReAct experiments).
 - **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
   `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
-- **Configs**: 9 YAML files `eventsat_cen_{sda,ooda,react}_agnt_hd_{ah,ag,cg}.yaml`
+- **Learned-emergence variants** (Phase 5):
+  - `hand_designed` (default): fixed `AGENTIC_SYSTEM_PROMPT` + `FixedMemory`.
+  - `prompt_optimized` (`_agnt_lep_*`): loads offline-optimised system prompt from
+    `data/trained_prompts/<experiment_id>/prompt.txt` (written by `PromptOptimizer`).
+    `FixedMemory` invariant preserved.
+  - `writable_coala` (`_agnt_lec_*`): swaps `FixedMemory` for `WritableMemory`;
+    injects two writable memory tools; expands system prompt with CoALA memory
+    instructions. **Fairness trade-off**: compared against `_agnt_hd_` baseline only.
+- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_agnt_hd_*`; 12 `*_agnt_lep_*`; 12 `*_agnt_lec_*`
 
 ---
 
@@ -460,6 +473,90 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   stored (humans plan once per pass, not once per step).
 - **Anomaly recovery**: Requires active ground pass to resume operations.
 - **Naming convention**: `cg` (conventional ground) in experiment config IDs.
+
+---
+
+## Memory
+
+### FixedMemory — All variants (default)
+
+- **File**: `src/memory/fixed_memory.py`
+- **Used by**: All hand-designed variants and all non-CoALA learned variants.
+- **Structure**: Sliding-window history (default depth 100), task queue, resource state,
+  constellation state. Fully read-only from the agent's perspective — no write API.
+- **Fairness invariant**: All variants that use `FixedMemory` are on equal footing;
+  memory cannot be a confound in cross-architecture comparisons.
+
+### WritableMemory — `_lec_` variants only (CoALA learning)
+
+- **File**: `src/memory/writable_memory.py`
+- **Used by**: Only `emergence_config.mechanism = "writable_coala"` configs.
+- **Paper basis**: Sumers et al. (2024) [CoALA] §3 — four-memory architecture; semantic and
+  episodic stores as the primary learning mechanism for language agents.
+- **Extends**: `FixedMemory` (inherits all working/task/resource slots).
+- **Writable stores**:
+  - **Semantic store** (`_semantic_store`): append-only list of domain rules. Written via
+    `write_semantic_rule(rule_text, condition, action, provenance)`. Persists across all
+    episodes and the entire run. Read via `recall_semantic(query)`.
+  - **Episodic store** (`_episodic_store`): ring-buffer (default 50) of episode trajectory
+    summaries. Written via `write_episodic_entry(summary, outcome, episode_id)`. Persists
+    across episodes within a run. Read via `recall_episodic(query, last_n)`.
+- **Persistence**: JSON file at `memory_config.memory_path`; `save(path)` / `load(path)`.
+  Auto-loads on init if the file exists. Enables knowledge accumulation across runs on the
+  same server.
+- **Reset semantics**: `reset()` clears working/task memory only (inherited from
+  FixedMemory). Writable stores deliberately NOT cleared — they accumulate across episodes.
+  Use `clear_learned_state()` for a full wipe.
+- **Fairness note**: `_lec_` variants intentionally deviate from the FixedMemory invariant.
+  These configs are compared against `_agnt_hd_` baselines only, not against symbolic or
+  LLM variants. The deviation is documented here and in CLAUDE.md.
+
+---
+
+## Emergence
+
+### PPO Training — `_le_` subsymbolic variants
+
+- **File**: `src/emergence/training_pipeline.py` (PPOTrainer)
+- **Mechanism**: `emergence_config.mechanism = "ppo"`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml`
+- **Output**: `data/trained_models/<experiment_id>/policy.pt`
+
+### PromptOptimizer — `_lep_` LLM/agentic variants
+
+- **File**: `src/emergence/prompt_optimizer.py`
+- **Mechanism**: `emergence_config.mechanism = "prompt_optimized"`
+- **Paper basis**: Khattab et al. (2023) [DSPy] — programmatic prompt optimization; bootstrap
+  few-shot and MIPRO as reference algorithms. Implemented as a minimal in-house bootstrap
+  optimizer (no DSPy runtime dependency).
+- **Algorithm**:
+  1. Load step records from a hand-designed baseline results dir (`steps.json` / `steps.jsonl`).
+  2. Select high-utility examples (utility ≥ 0.6, or top-N if insufficient).
+  3. Generate `num_candidates` few-shot-augmented system prompt candidates.
+  4. Score candidates on 20% held-out split (mock-mode: proxy score; live: LLM accuracy).
+  5. Write best prompt to `data/trained_prompts/<experiment_id>/prompt.txt` + `metadata.json`.
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml`
+- **Source dir**: auto-derived from experiment_id (`_lep_` → `_hd_`), or explicit via
+  `--source-dir`.
+- **Runtime**: `LLMEventSat` and `AgenticEventSat` load the prompt at `__init__`; fall back
+  to the default system prompt with a warning if the file is missing.
+- **Why no DSPy**: Keeps the dependency graph minimal. The bootstrap-fewshot approach is
+  sufficient for the experimental goals; DSPy's full optimizer suite is overkill at this
+  stage and would add a heavy dependency.
+
+### WritableCoALA — `_lec_` agentic variants (online learning)
+
+- **Mechanism**: `emergence_config.mechanism = "writable_coala"`
+- **Pre-training**: None. Memory accretion happens online at run-time.
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml`
+  (prints guidance; no artifact written)
+- **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala`, creates a
+  `WritableMemory` instance, injects `memory_write_rule` + `memory_write_episode` tools
+  into the tool schema, and extends the system prompt with CoALA memory instructions.
+  The LLM can then call these tools during the Plan-Tool-Reflect-Decide loop.
+- **Why `agentic_eventsat` only**: The multi-step iterative reasoning loop is required for
+  meaningful memory accretion within an episode. `llm_eventsat` (single-shot) lacks a
+  reasoning loop and cannot meaningfully decide when to accrete rules mid-decision.
 
 ---
 
@@ -620,63 +717,44 @@ is a separate research question on optimal uplink timing.
 
 ## Experiment Configurations
 
-### Symbolic (Phase 2–3)
+Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
+`org` ∈ {sas, cmas}, `loop` ∈ {sda, ooda, react}, `repr` ∈ {symb, hybr, subm, agnt},
+`emrg` ∈ {hd, le, lep, lec}, `ops` ∈ {ah, ag, cg}.
 
-| Config ID | Loop | Repr | Ops | Phase |
-|-----------|------|------|-----|-------|
-| `eventsat_cen_sda_symb_hd_ah` | SDA | Rule-based | Autonomous Hybrid | 2 |
-| `eventsat_cen_sda_symb_hd_ag` | SDA | Schedule-based | Autonomous Ground | 3 |
-| `eventsat_cen_sda_symb_hd_cg` | SDA | Conventional Schedule | Conventional Ground | 3 |
-| `eventsat_cen_ooda_symb_hd_ah` | OODA | Rule-based | Autonomous Hybrid | 3 |
-| `eventsat_cen_ooda_symb_hd_ag` | OODA | Schedule-based | Autonomous Ground | 3 |
-| `eventsat_cen_ooda_symb_hd_cg` | OODA | Conventional Schedule | Conventional Ground | 3 |
-| `eventsat_cen_react_symb_hd_ah` | ReAct | Rule-based | Autonomous Hybrid | 3 |
-| `eventsat_cen_react_symb_hd_ag` | ReAct | Schedule-based | Autonomous Ground | 3 |
-| `eventsat_cen_react_symb_hd_cg` | ReAct | Conventional Schedule | Conventional Ground | 3 |
+### Symbolic (Phases 2–3) — SAS only
 
-### LLM Hybrid (Phase 4a)
+9 SAS configs (`eventsat_sas_{sda,ooda,react}_symb_hd_{ah,ag,cg}`); no CMAS symbolic configs.
 
-| Config ID | Loop | Repr | Ops | Phase |
-|-----------|------|------|-----|-------|
-| `eventsat_cen_sda_hybr_hd_ah` | SDA | LLM EventSat | Autonomous Hybrid | 4a |
-| `eventsat_cen_sda_hybr_hd_ag` | SDA | LLM EventSat | Autonomous Ground | 4a |
-| `eventsat_cen_sda_hybr_hd_cg` | SDA | LLM EventSat | Conventional Ground | 4a |
-| `eventsat_cen_ooda_hybr_hd_ah` | OODA | LLM EventSat | Autonomous Hybrid | 4a |
-| `eventsat_cen_ooda_hybr_hd_ag` | OODA | LLM EventSat | Autonomous Ground | 4a |
-| `eventsat_cen_ooda_hybr_hd_cg` | OODA | LLM EventSat | Conventional Ground | 4a |
-| `eventsat_cen_react_hybr_hd_ah` | ReAct | LLM EventSat | Autonomous Hybrid | 4a |
-| `eventsat_cen_react_hybr_hd_ag` | ReAct | LLM EventSat | Autonomous Ground | 4a |
-| `eventsat_cen_react_hybr_hd_cg` | ReAct | LLM EventSat | Conventional Ground | 4a |
+### LLM Hybrid hand-designed (Phase 4a)
+
+12 SAS (`eventsat_sas_{sda,ooda,react}_hybr_hd_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hybr_hd_ah`).
+
+### LLM Hybrid prompt-optimized (Phase 5)
+
+12 SAS (`eventsat_sas_{sda,ooda,react}_hybr_lep_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hybr_lep_ah`). Mechanism: `prompt_optimized`.
 
 ### Subsymbolic RL (Phase 4b)
 
-| Config ID | Loop | Repr | Ops | Phase |
-|-----------|------|------|-----|-------|
-| `eventsat_cen_sda_subm_le_ah` | SDA | Subsymbolic EventSat | Autonomous Hybrid | 4b |
-| `eventsat_cen_sda_subm_le_ag` | SDA | Subsymbolic EventSat | Autonomous Ground | 4b |
-| `eventsat_cen_sda_subm_le_cg` | SDA | Subsymbolic EventSat | Conventional Ground | 4b |
-| `eventsat_cen_ooda_subm_le_ah` | OODA | Subsymbolic EventSat | Autonomous Hybrid | 4b |
-| `eventsat_cen_ooda_subm_le_ag` | OODA | Subsymbolic EventSat | Autonomous Ground | 4b |
-| `eventsat_cen_ooda_subm_le_cg` | OODA | Subsymbolic EventSat | Conventional Ground | 4b |
-| `eventsat_cen_react_subm_le_ah` | ReAct | Subsymbolic EventSat | Autonomous Hybrid | 4b |
-| `eventsat_cen_react_subm_le_ag` | ReAct | Subsymbolic EventSat | Autonomous Ground | 4b |
-| `eventsat_cen_react_subm_le_cg` | ReAct | Subsymbolic EventSat | Conventional Ground | 4b |
+9 SAS `*_subm_le_{ah,ag,cg}` + 3 CMAS `*_subm_le_ah`. Mechanism: `ppo`.
 
-### Agentic Hybrid (Phase 4c)
+### Agentic Hybrid hand-designed (Phase 4c)
 
-| Config ID | Loop | Repr | Ops | Phase |
-|-----------|------|------|-----|-------|
-| `eventsat_cen_sda_agnt_hd_ah` | SDA | Agentic EventSat | Autonomous Hybrid | 4c |
-| `eventsat_cen_sda_agnt_hd_ag` | SDA | Agentic EventSat | Autonomous Ground | 4c |
-| `eventsat_cen_sda_agnt_hd_cg` | SDA | Agentic EventSat | Conventional Ground | 4c |
-| `eventsat_cen_ooda_agnt_hd_ah` | OODA | Agentic EventSat | Autonomous Hybrid | 4c |
-| `eventsat_cen_ooda_agnt_hd_ag` | OODA | Agentic EventSat | Autonomous Ground | 4c |
-| `eventsat_cen_ooda_agnt_hd_cg` | OODA | Agentic EventSat | Conventional Ground | 4c |
-| `eventsat_cen_react_agnt_hd_ah` | ReAct | Agentic EventSat | Autonomous Hybrid | 4c |
-| `eventsat_cen_react_agnt_hd_ag` | ReAct | Agentic EventSat | Autonomous Ground | 4c |
-| `eventsat_cen_react_agnt_hd_cg` | ReAct | Agentic EventSat | Conventional Ground | 4c |
+12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_hd_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_agnt_hd_ah`).
 
-All configs: Centralized organization, hand-designed emergence (except subsymbolic: learned).
+### Agentic Hybrid prompt-optimized (Phase 5)
+
+12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_lep_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_agnt_lep_ah`). Mechanism: `prompt_optimized`.
+
+### Agentic Hybrid writable-CoALA (Phase 5)
+
+12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_lec_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_agnt_lec_ah`). Mechanism: `writable_coala`.
+
+**Total**: 84 experiment configs + 1 template.
 
 ### Comparison axes
 
@@ -685,4 +763,6 @@ All configs: Centralized organization, hand-designed emergence (except subsymbol
 - **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints (Endsley 1995 SA degradation)
 - **Representation comparison** (same loop + ops): symbolic vs LLM vs agentic vs RL → cognitive paradigm effectiveness
 - **Single-shot vs agentic** (same loop + ops, AH only): `hybr_hd` vs `agnt_hd` → does multi-step reasoning with tools improve decisions?
+- **Hand-designed vs learned** (same repr + loop + ops): `_hd_` vs `_lep_` → does offline prompt optimization improve LLM/agentic decisions?
+- **Fixed vs writable memory** (agentic AH only): `_agnt_hd_` vs `_agnt_lec_` → does CoALA-style memory accretion improve decisions across episodes?
 - **Ground ops baseline**: CG with conventional schedule + SDA loop → human lower bound

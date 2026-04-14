@@ -666,9 +666,43 @@ class MetricsCollector(ABC):
 3. Phase 4c: Agentic hybrid representation — `agentic_eventsat`, CoALA-style multi-step reasoning with 6 domain tools, 9 configs, 76 tests (Sumers et al. 2024, Sapkota et al. 2026, Li 2025)
 4. Phase 4d: Inference gating by operations paradigm — AG/CG skip LLM inference between passes (Rossi et al. 2023, Sellmaier et al. 2022). LLM cache stores prompts. Decision trace JSONL (DEBUG mode). Cross-cutting architecture documentation in `implementations.md`. 493 total tests.
 
-**Planned:**
+### Phase 5: Kim et al. 2025 Taxonomy + Learned-Emergence for LLM Representations
 
-5. Comparison: symbolic vs hybrid vs subsymbolic, hand-designed vs learned
+**Goal:** Align agent-organization taxonomy with literature; define and implement learned-emergence for all LLM-based representations.
+
+**Completed:**
+
+1. **Taxonomy rename** (Kim et al. 2025 [FVFQ73RF] "Towards a Science of Scaling Agent Systems"):
+   - SAS (|A|=1, former "centralized") — `SingleAgentSystem`
+   - CentralizedMAS (star topology, former "hierarchical") — `CentralizedMAS`
+   - DecentralizedMAS (all-to-all, former "distributed") — stub
+   - IndependentMAS (C=∅) — stub (future constellation scenarios)
+   - HybridMAS (heterogeneous) — stub (future constellation scenarios)
+   - 36 SAS `eventsat_sas_*` + 12 CMAS `eventsat_cmas_*` configs.
+
+2. **`emergence_config.mechanism` field** in `ExperimentConfig` with cross-field validators:
+   - `ppo` → requires `representation=subsymbolic`
+   - `prompt_optimized` → requires `representation=hybrid`
+   - `writable_coala` → requires `representation=hybrid` + `representation_config.type=agentic_eventsat`
+
+3. **WritableMemory** (`src/memory/writable_memory.py`) — CoALA §3 writable semantic + episodic stores on top of FixedMemory. Used exclusively by `_lec_` configs. Persistence via JSON. `reset()` preserves stores across episodes by design.
+
+4. **CoALA memory-write tools** in `agentic_tools.py`: `memory_write_rule`, `memory_write_episode` — injected into the agentic tool schema only for `writable_coala` configs.
+
+5. **AgenticEventSat learned-emergence branching**: reads `mechanism` at `__init__`:
+   - `hand_designed` → unchanged
+   - `writable_coala` → WritableMemory + extended system prompt + writable tools
+   - `prompt_optimized` → loads `data/trained_prompts/<id>/prompt.txt` with fallback
+
+6. **PromptOptimizer** (`src/emergence/prompt_optimizer.py`) — bootstrap few-shot prompt optimization (Khattab et al. 2023 [DSPy]): loads high-utility trajectories, generates few-shot-augmented candidates, scores on held-out split, writes `prompt.txt` + `metadata.json`. No DSPy runtime dependency.
+
+7. **LLMEventSat `prompt_optimized` wiring** — reads mechanism and loads trained prompt at `__init__`.
+
+8. **`autops train` CLI command** — dispatches: PPO → PPOTrainer; prompt_optimized → PromptOptimizer; writable_coala → prints guidance (online accretion, no pre-training).
+
+9. **36 new learned-emergence configs**: 12 `*_agnt_lep_*`, 12 `*_agnt_lec_*`, 12 `*_hybr_lep_*`. Grand total: 84 experiment configs.
+
+10. 552 tests across 21 modules. Trunk-based commits (no feature branches).
 
 ***
 
