@@ -60,32 +60,21 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 
 ### 4. Resource Efficiency
 
-**Definition:** Achieved utility per unit resource consumed.
+**Definition:** Mission utility per Watt-hour consumed.
 
 **Rationale:** Satellites have limited power, data bandwidth, and computation.
 
-**Measurement:** `utility / total_resources_consumed` (resource model is scenario-dependent).
-
-**Open Questions:**
-- Which resources to track? (power, bandwidth, memory, computation)
-- How to normalise across different constellation sizes?
+**Measurement:** `resource_efficiency = utility / total_energy_consumed_wh`, where energy is estimated from battery state-of-charge deltas per step (`max(0, soc_delta * battery_capacity_wh)`), summed across the episode. Higher is better.
 
 ---
 
 ### 5. Operator Load
 
-**Definition:** Required human intervention frequency.
+**Definition:** Fraction of decision steps requiring an environment safety override.
 
 **Rationale:** Autonomy goal is reducing operator burden.
 
-**Measurement (candidates):**
-- Count of constraint violations requiring human override.
-- Count of failed actions that need manual recovery.
-- Number of decision cycles where the agent defers to a human.
-
-**Open Questions:**
-- How to define "intervention" precisely?
-- Is operator load purely count-based or does severity matter?
+**Measurement:** `operator_load = safety_overrides / n_steps`, where `safety_override` tracks environment-enforced safety interventions (forced mode transitions). Value in [0, 1]; lower is better.
 
 ---
 
@@ -144,6 +133,57 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 
 ### Pareto Frontier
 The framework includes a Pareto frontier computation (`src/orchestration/analysis.py`) to identify architectures that represent optimal trade-offs between metrics (e.g., utility vs. latency).
+
+---
+
+## Pre-Registered Analysis Plan
+
+To prevent post-hoc selection, the following analysis choices are fixed
+*before* the Phase-5 sweep is run. Deviations must be documented as
+exploratory and reported separately from confirmatory results.
+
+### Sample size
+- **Default**: `num_episodes: 100` per config. Lower values (1, 5) are
+  permitted only for smoke tests and must not appear in reported results.
+- **Per config**: constant across the 84 configs of a single sweep.
+- **Episode length**: `max_steps: 10080` (7 EventSat days, 1-minute resolution).
+  Shorter slices (1440 = 24 h) are only used for debugging.
+
+### Sources of variance
+- **Launch lottery** (RAAN/ArgP/TA randomised per episode) is the primary
+  Monte-Carlo axis. Anomaly injection uses a deterministic per-episode seed
+  derived from `seed + episode_index`.
+- Robustness is reported as coefficient of variation (CV = σ/μ) of utility
+  across launch-lottery episodes, following the existing
+  `compute_robustness_cv()` aggregator.
+
+### Hypothesis tests
+- **Primary test**: paired Wilcoxon signed-rank across the 100 launch-lottery
+  seeds, pairing each architecture's per-episode metric with the baseline
+  (`eventsat_sas_sda_symb_hd_ah` for RQ1; `eventsat_sas_sda_<rep>_hd_ah`
+  within-representation for RQ2).
+- **Effect size**: reported alongside p-values as Cohen's d (or paired
+  rank-biserial for non-parametric). Effect size is the decision-driver;
+  p-values are the rejection gate.
+- **Multiplicity**: Benjamini–Hochberg false discovery rate at q = 0.05
+  applied across the full family of tests within each research question
+  (RQ1, RQ2 treated as separate families).
+- **Minimum effect-size threshold**: |d| ≥ 0.5 for utility, latency,
+  resource-efficiency comparisons. Effects below this threshold are
+  reported as "no meaningful difference" even if statistically significant.
+
+### Comparison scope (from FOUNDATION_SPEC §4.3)
+- Emergence is compared *within* representation family (PPO vs prompt-opt
+  vs writable-CoALA vs hand-designed), **not** across families.
+- For the ConventionalGround baseline, the planning-delay effect is isolated
+  using `eventsat_sas_sda_symb_hd_cg_algobase.yaml` (algorithmic scheduler +
+  CG ops) vs the AG counterpart, keeping representation constant.
+
+### Pre-registration record
+Any change to episode count, seeds, test family composition, FDR level, or
+effect-size thresholds after results have been inspected must be logged in
+[docs/implementations.md](implementations.md) under "Analysis-plan
+amendments" with the date and rationale.
 
 ---
 

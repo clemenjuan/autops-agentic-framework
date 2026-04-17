@@ -12,7 +12,7 @@ dimensions are:
 
 | Dimension              | Options                                                      |
 |------------------------|--------------------------------------------------------------|
-| **Organization**       | SAS, Centralized MAS, Decentralized MAS (Kim et al. 2025)   |
+| **Organization**       | SAS, Centralized MAS (instantiated); Decentralized / Independent / Hybrid MAS deferred to constellation scenarios (Kim et al. 2025) |
 | **Decision Loop**      | SDA, OODA, ReAct                                            |
 | **Representation**     | Symbolic, Subsymbolic, Hybrid                               |
 | **Emergence**          | Hand-designed, Learned (PPO / prompt-optimized / writable-CoALA) |
@@ -40,7 +40,7 @@ identical scenario conditions.
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling loops from representations
-- 552 tests across 21 test modules
+- 575 tests across 21 test modules
 
 ## Quick Start
 
@@ -60,8 +60,10 @@ uv run python -m pytest tests/ -v -o "addopts="
 ### Running an Experiment
 ```bash
 # Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
-# org: sas | cmas | dmas    loop: sda | ooda | react    repr: symb | hybr | subm | agnt
-# emrg: hd | le | lep | lec    ops: ah | ag | cg
+# org:  sas | cmas  (canonical YAML values: sas | centralized_mas; dmas/imas/hmas deferred)
+# loop: sda | ooda | react           repr: symb | hybr | subm | agnt
+# emrg: hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
+# ops:  ah | ag | cg
 # SDA loop (baseline)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
 uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml    # hand-designed agentic
@@ -132,13 +134,13 @@ autops-demo/
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
-|   +-- experiments/          # 84 YAML experiment configs + template (hd + le + lep + lec)
+|   +-- experiments/          # 84 experiment configs + 1 template (48 hd + 36 learned: le/lep/lec)
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 21 test modules, 552 tests
++-- tests/                    # 21 test modules, 575 tests
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)

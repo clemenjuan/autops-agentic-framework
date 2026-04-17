@@ -13,12 +13,18 @@ PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (552 tests)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (575 tests)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
-# org: sas | cmas | dmas    loop: sda | ooda | react    repr: symb | hybr | subm | agnt
-# emrg: hd | le | lep | lec    ops: ah | ag | cg
+# org: sas | cmas (instantiated)                 loop: sda | ooda | react
+# repr: symb | hybr | subm | agnt                ops:  ah  | ag   | cg
+# emrg: hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
+#
+# Canonical config values (as accepted by config_loader.py):
+#   agent_organization: sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
+#   emergence_config.mechanism: hand_designed | ppo | prompt_optimized | writable_coala
+# (dmas/imas/hmas are registered but deferred to Flamingo N>=3 scenarios — see Architecture.)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
 uv run autops run configs/experiments/eventsat_sas_sda_hybr_hd_ah.yaml  # LLM hybrid
 uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
@@ -60,7 +66,7 @@ uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml       
 ```
 src/
   environment/        # Satellite sim (ABC + EventSat scenario + orbital/)
-  agent_organization/ # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025)
+  agent_organization/ # SAS / CentralizedMAS (instantiated) + DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025; deferred to Flamingo N>=3)
   decision_loop/      # SDA / OODA / ReAct  (+DecisionContext interface)
   representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
   memory/             # FixedMemory (default, all variants); WritableMemory (_lec_ only — see below)
@@ -68,8 +74,8 @@ src/
   operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
-configs/experiments/  # 84 YAML experiment configs + 1 template (96 total incl. learned variants)
-tests/                # 21 test modules, 552 tests
+configs/experiments/  # 84 experiment configs + 1 template (48 hand-designed + 36 learned variants)
+tests/                # 21 test modules, 575 tests
 ```
 
 **Key interfaces:**

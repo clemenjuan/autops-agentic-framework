@@ -171,7 +171,7 @@ All components must define clear abstract base classes before implementation.
 - `get_observation()`: Return current observation
 - `get_metrics()`: Return current performance metrics
 
-**Note:** Specific task types, rewards, and constraints depend on chosen operational scenario (space-based data centers, communications, or SSA). These will be defined in scenario-specific subclasses.
+**Note:** Specific task types, rewards, and constraints depend on chosen operational scenario (large-scale constellations, communications, or SSA). These will be defined in scenario-specific subclasses.
 
 ***
 
@@ -199,13 +199,19 @@ When |A| = 1 → **Single-Agent System (SAS)**; |A| > 1 → **Multi-Agent System
 
 **Topology mapping to AUTOPS Organization dimension:**
 
-| Topology (Kim et al.) | AUTOPS value | C definition | Ω policy | Complexity |
-|---|---|---|---|---|
-| Single-Agent | `centralized` | — (one reasoning locus) | direct | O(k) |
-| Centralized MAS | `hierarchical` | orchestrator → sub-agents | hierarchical | O(rnk) |
-| Decentralized MAS | `distributed` | all-to-all peer exchange | consensus | O(dnk) |
-| Independent MAS | — (not yet in matrix) | agent-to-aggregator only | synthesis_only | O(nk) |
-| Hybrid MAS | — (future) | star + peer edges | hierarchical + lateral | O(rnk + pn) |
+| Topology (Kim et al.) | AUTOPS config value | Naming suffix | C definition | Ω policy | Complexity |
+|---|---|---|---|---|---|
+| Single-Agent            | `sas`               | `sas`  | — (one reasoning locus)    | direct                  | O(k) |
+| Centralized MAS         | `centralized_mas`   | `cmas` | orchestrator → sub-agents  | hierarchical            | O(rnk) |
+| Decentralized MAS       | `decentralized_mas` | `dmas` | all-to-all peer exchange   | consensus               | O(dnk) |
+| Independent MAS         | `independent_mas`   | `imas` | agent-to-aggregator only   | synthesis_only          | O(nk) |
+| Hybrid MAS              | `hybrid_mas`        | `hmas` | star + peer edges          | hierarchical + lateral  | O(rnk + pn) |
+
+The left column ("AUTOPS config value") is the canonical name accepted by
+`src/orchestration/config_loader.py`; the "Naming suffix" column is the abbreviation used in
+experiment filenames (`eventsat_<suffix>_...`). `dmas`, `imas`, and `hmas` are registered
+in the validator but their implementations raise `NotImplementedError` — they are deferred
+to constellation scenarios (N ≥ 3, Flamingo onwards), see §Implementations below.
 
 where k = reasoning iterations, r = orchestration rounds, d = debate rounds, n = agents.
 
@@ -384,6 +390,41 @@ that internalizes its own reasoning cycle, rather than as a separate decision lo
 
 ***
 
+### 4.3 Matrix Coverage and Comparison Scope
+
+The 5D morphological matrix admits many theoretically possible cells, but not
+every cell is scientifically meaningful. Phase 5 instantiates **84 EventSat
+configs** (48 hand-designed `_hd_` + 36 learned `_le_ / _lep_ / _lec_`). The
+remaining cells are excluded by principle, not by oversight:
+
+| Exclusion | Principle | Consequence |
+|---|---|---|
+| `symb_le` / `symb_lep` / `symb_lec` | Symbolic representations are deterministic rule chains; they have no learnable parameters or adjustable prompts. | Symbolic appears only with `_hd_`. |
+| `subm_hd` | PPO-trained policies are *learned by construction*; a hand-designed subsymbolic agent is not coherent in this framework. | Subsymbolic appears only with `_le_` (PPO). |
+| `hybr_lec` / `subm_lep` / `subm_lec` | Writable CoALA (`_lec_`) presupposes *agentic self-reflection* over semantic/episodic stores; plain LLM-only (`hybr`) does not assume agentic behavior, and PPO has no prompts/memories to accrete into. | `_lec_` appears only with `agnt`; `_lep_` only with `hybr` and `agnt`. |
+| `cmas × {ag, cg}` | Centralized MAS coordination is degenerate at N=1 when ground acts as the strategic layer — the orchestrator has no sub-agents to coordinate. | CMAS only appears with `ah`. |
+| `dmas` / `imas` / `hmas` (any) | Peer-to-peer, independent, and hybrid MAS topologies require N ≥ 3 satellites to be non-trivial. | Deferred to constellation scenarios (Flamingo and later). |
+
+**Comparison scope.** Because each representation family has a *different*
+learning mechanism (PPO for subsymbolic, prompt optimization for LLM/hybrid,
+writable-CoALA for agentic), **emergence is compared within a representation
+family, not across**. Concretely:
+
+- *Within-family comparisons* (supported): `symb_hd` vs `subm_le`; `agnt_hd`
+  vs `agnt_lep` vs `agnt_lec`; `hybr_hd` vs `hybr_lep`.
+- *Across-family comparisons* (supported): `symb_hd_ah` vs `hybr_hd_ah` vs
+  `agnt_hd_ah` vs `subm_le_ah` — holding emergence as "representation-appropriate
+  default" rather than a shared learning mechanism.
+- *Not supported by this matrix*: a single "learned-everywhere" axis (because
+  no unified emergence mechanism exists across representation families).
+
+The **memory invariant** reinforces this scoping: `FixedMemory` for all `_hd_`
+and non-CoALA `_le_/_lep_` variants; `WritableMemory` only for `_lec_`, which
+is compared against its `_agnt_hd_` counterpart (same representation, same
+loop, same ops paradigm — emergence is the only varied axis).
+
+***
+
 ## 5. Configuration System
 
 ### Configuration Template
@@ -399,10 +440,10 @@ description: "Brief description of experimental configuration"
 seed: 42
 
 # Morphological Matrix Dimensions
-agent_organization: "centralized"  # centralized | hierarchical | distributed
-decision_loop: "sda"               # sda | ooda | react | [custom]
-representation: "symbolic"          # symbolic | subsymbolic | hybrid
-emergence_mode: "hand_designed"    # hand_designed | learned
+agent_organization: "sas"          # sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
+decision_loop: "sda"               # sda | ooda | react
+representation: "symbolic"         # symbolic | subsymbolic | hybrid   (paradigm; nested `representation_config.type` picks the implementation)
+emergence_mode: "hand_designed"    # hand_designed | learned            (if `learned`, set `emergence_config.mechanism`)
 operations_paradigm: "autonomous_hybrid"  # autonomous_hybrid | autonomous_ground | conventional_ground
 
 # Configuration for each component
@@ -475,11 +516,13 @@ The following metrics must be collected, but **specific implementations require 
 
 #### 1. Utility
 
-**Definition:** Total value achieved from completed tasks/objectives
+**Definition:** Weighted composite of observation and downlink achievement, penalised by anomaly rate.
+
+**Formula (EventSat):** `u = w_obs × (obs_hours / scaled_obs_target) + w_dl × (dl_mb / scaled_dl_target) - w_anomaly × anomaly_rate`
+
+Targets are scaled from the 90-day mission duration to the episode length. Weights are configurable via experiment YAML (`utility_weights` section).
 
 **Rationale:** Primary performance metric—does the system accomplish its mission?
-
-**Note:** Exact formula depends on operational scenario (reward function definition TBD)
 
 ***
 
@@ -511,21 +554,21 @@ A lower CV means the architecture delivers reliably similar results regardless o
 
 #### 4. Resource Efficiency
 
-**Definition:** Achieved utility per unit resource consumed
+**Definition:** Mission utility per Watt-hour consumed: `utility / total_energy_consumed_wh`.
+
+Energy is estimated from battery state-of-charge deltas (`energy_consumed_wh = max(0, soc_delta × battery_capacity_wh)` per step, summed across the episode).
 
 **Rationale:** Satellites have limited power, data bandwidth, computation
-
-**Note:** Resource model depends on operational scenario
 
 ***
 
 #### 5. Operator Load
 
-**Definition:** Required human intervention frequency
+**Definition:** Fraction of decision steps requiring an environment safety override: `safety_overrides / n_steps`.
+
+A `safety_override` tracks environment-enforced safety interventions (forced mode transitions). Value in [0, 1]; lower is better.
 
 **Rationale:** Autonomy goal is reducing operator burden
-
-**Note:** Operationalization requires defining what constitutes "intervention" (constraint violations, failed actions, manual overrides)
 
 ***
 
@@ -553,16 +596,13 @@ A lower CV means the architecture delivers reliably similar results regardless o
 
 #### 8. Explainability
 
-**Definition:** The degree to which an architecture's decisions can be interpreted and justified to human operators.
+**Definition:** Fraction of decision steps accompanied by a rationale string: `decisions_with_rationale / n_steps`.
 
 **Rationale:** Mission safety requirements and human-machine trust demand that operators understand why the system acted as it did, not just what it did. RQ2 specifically asks how architecture choice determines the type and degree of explainability available.
 
-**Measurement (candidates — require theoretical development):**
-- Presence and completeness of decision traces or reasoning logs.
-- Human-evaluable justification rate (fraction of decisions with accessible rationale).
-- Compliance with operator-interpretable decision rules (for symbolic architectures).
+**Measurement:** The `has_rationale` flag is set per decision step when the representation produces a rationale string. Symbolic representations (`rule_based_eventsat`) yield 1.0; subsymbolic and hybrid representations yield lower values depending on their reasoning trace coverage.
 
-**Note:** Operationalization will depend on architecture type — symbolic representations yield inherent explainability; subsymbolic/hybrid representations may require post-hoc methods (e.g., attention visualization, SHAP values). The metric must be defined so it is architecture-agnostic in collection but architecture-sensitive in interpretation.
+**Note:** The qualitative distinction between intrinsic explainability (symbolic rule traces), post-hoc interpretability (learned policy inspection), and emergent explainability (LLM reasoning chains) remains relevant for interpretation, but the quantitative metric is the simple ratio above.
 
 ***
 
@@ -973,19 +1013,19 @@ Three initial concrete scenarios have been selected, ordered by scale and comple
 
 ---
 
-### Scenario 3: Space-Based Data Centers (Large Scale)
+### Scenario 3: Large-Scale Constellation
 
 **Scale:** 100+ satellites | **Complexity:** high (fully distributed, heterogeneous)
 
-**Description:** Emerging large-constellation concept for orbital computation. Represents the high-scale, high-complexity endpoint of the scalability study. Less mission-specific data available at this stage; scenario will be modeled using published literature and synthetic parameters.
+**Description:** A large-scale constellation scenario at the high end of the scalability spectrum. Represents the high-scale, high-complexity endpoint of the scalability study. The specific mission type will be determined during Phase 2; less mission-specific data is available at this stage, so the scenario will be modeled using published literature and synthetic parameters.
 
-**Tasks:** Computational job scheduling across satellites, thermal management (duty cycle constraints), resource allocation (CPU, memory, power), inter-satellite job migration.
-**Constraints:** Power budget, thermal limits, ISL bandwidth, orbital position affecting latency to ground.
-**Metrics:** Job completion rate, energy efficiency, queue latency, composability (integration of heterogeneous agents), explainability.
+**Tasks:** To be defined based on selected mission type (candidates include resource scheduling, coordination, coverage optimisation).
+**Constraints:** Power budget, ISL bandwidth, orbital position affecting latency to ground.
+**Metrics:** Mission utility, resource efficiency, coordination overhead, explainability.
 
 **Data Sources:** Literature-based modeling (lower fidelity than Scenarios 1–2); to be refined as the field matures.
 
-**Implementation Path:** `src/environment/scenarios/space_data_centers.py`
+**Implementation Path:** TBD (Phase 2)
 
 ---
 
