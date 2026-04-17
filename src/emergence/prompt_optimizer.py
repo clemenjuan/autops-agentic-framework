@@ -63,8 +63,8 @@ def _load_step_records(results_dir: str | Path) -> List[Dict[str, Any]]:
                     if line:
                         try:
                             records.append(json.loads(line))
-                        except json.JSONDecodeError:
-                            pass
+                        except json.JSONDecodeError as exc:
+                            logger.debug("prompt_optimizer: skipping malformed JSONL line: %s", exc)
                 return records
     # Try results.json — it has episode-level summary but not step-level detail
     results_path = base / "results.json"
@@ -163,8 +163,8 @@ def _score_prompt_on_holdout(
             chosen = parsed.get("mode")
             if chosen == expected_mode:
                 correct += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("prompt_optimizer: holdout eval call failed (counted as miss): %s", exc)
 
     return correct / len(holdout) if holdout else 0.0
 

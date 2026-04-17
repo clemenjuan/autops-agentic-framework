@@ -3,6 +3,16 @@ SDA (Sense-Decide-Act) Decision Loop.
 
 Simplest possible decision loop: one pass through sense -> decide -> act
 with no iteration, reflection, or memory update.
+
+Grounded in the classical situated-action / reactive-agent tradition:
+  - Agre, P. E. & Chapman, D. (1990), "What are plans for?", Robotics and
+    Autonomous Systems 6(1-2):17-34 [Zotero: BERWVN2V]. Plan-as-communication
+    view motivates treating each cycle as a fresh sensing-then-action step
+    rather than execution of a pre-computed program.
+
+The SDA variant in this framework is the baseline against which all other
+loops (OODA, ReAct) are compared — it has no memory read, no orient step,
+and no iteration.
 """
 from __future__ import annotations
 import time

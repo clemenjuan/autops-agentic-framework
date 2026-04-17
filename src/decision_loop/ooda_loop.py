@@ -2,11 +2,14 @@
 OODA (Observe-Orient-Decide-Act) Decision Loop.
 
 Boyd's OODA loop (1987) with feedback, grounded in:
+  - Richards, C. (2018), "Boyd's OODA Loop (It's Not What You Think)"
+    [Zotero: H6GKNERB]. Primary modern exposition; clarifies that Observe
+    and Orient dominate the cycle (not Decide/Act) and that the loop must
+    include cross-phase feedback, not just linear progression.
   - Miller, Hasbrouck & Udrea (2021), "Development of Human-Machine
     Collaborative Systems Using OODA Loops", ASCEND 2021.
   - Hartmann et al. (2024), "METIS: An AI Assistant Enabling Autonomous
     Spacecraft Operations", IEEE Aerospace Conference.
-  - Richards (2020), "Boyd's OODA Loop", Necesse 5(1):142-165.
 
 Key differences from SDA:
   1. Observe phase classifies operational situation into regimes

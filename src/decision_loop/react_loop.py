@@ -3,8 +3,8 @@ ReAct (Reason-Act-Observe) Decision Loop.
 
 Yao et al. (2023), "ReAct: Synergizing Reasoning and Acting in Language
 Models", ICLR 2023. Adapted here for symbolic/rule-based agents following
-the application in:
-  Li (2025) "AI Agents for Satellite Operations", arXiv 2503.XXXXX.
+the application in Li (2025) "AI Agents for Satellite Operations" (see
+Zotero library for the canonical reference).
 
 The ReAct loop implements an iterative Thought-Action-Observation cycle:
 
