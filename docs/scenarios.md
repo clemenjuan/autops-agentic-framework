@@ -175,47 +175,39 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 
 ---
 
-## Scenario 3: Space-Based Data Centers
+## Scenario 3: Large-Scale Constellation
 
 **Phase:** 3–4 | **Scale:** 100+ satellites | **Complexity:** high (fully distributed, heterogeneous)
 
 ### Description
 
-An emerging large-constellation concept for orbital computation — satellites hosting onboard data centers that process jobs offloaded from ground. Represents the high-scale, high-complexity endpoint of the scalability study. Less mission-specific data is available at this stage; the scenario will be modeled using published literature and synthetic parameters, with fidelity to be refined as the field matures.
+A large-scale constellation scenario at the high end of the scalability spectrum. Represents the high-scale, high-complexity endpoint of the scalability study. The specific mission type will be determined during Phase 2. Less mission-specific data is available at this stage; the scenario will be modeled using published literature and synthetic parameters, with fidelity to be refined as the field matures.
 
 This scenario is the primary arena for RQ3 scaling law derivation and composability limit analysis.
 
 ### Tasks
 
-- Computational job scheduling across a large heterogeneous fleet.
-- Thermal management: enforcing duty cycle constraints to avoid overheating.
-- Inter-satellite job migration: relocating running jobs to better-positioned satellites.
-- Resource allocation: CPU, memory, power across hundreds of nodes.
-- Ground-facing load balancing: routing requests to satellites with favourable geometry.
+To be defined based on selected mission type (candidates include resource scheduling, coordination, coverage optimisation).
 
 ### Constraints
 
-- Power budget and thermal limits per satellite.
-- ISL bandwidth for job data transfer.
-- Orbital position determines latency to ground clients.
-- Job deadline and QoS requirements.
+- Power budget per satellite.
+- ISL bandwidth.
+- Orbital position determines latency to ground.
 - Fleet heterogeneity (different hardware generations).
 
 ### Metrics Emphasis
 
-- Utility: job completion rate and QoS compliance.
-- Resource efficiency: energy-per-job, utilization rate.
-- Scale & complexity: this scenario is the stress test — scaling laws derived here.
-- Composability: integrating heterogeneous cognitive components without emergent negative side effects.
-- Explainability: at large scale, post-hoc interpretability methods become critical.
+- Mission utility, resource efficiency, coordination overhead, explainability.
+- Scale & complexity: this scenario is the stress test for scaling law derivation.
 
 ### Data Sources
 
-Literature-based modeling (lower fidelity than Scenarios 1–2). Key references: published space data center architecture proposals, cloud scheduling literature adapted to orbital constraints.
+Literature-based modeling (lower fidelity than Scenarios 1–2); to be refined as the field matures.
 
 ### Implementation
 
-**File:** `src/environment/scenarios/space_data_centers.py`
+**File:** TBD (Phase 2)
 **Config:** `configs/scenarios/space_data_centers.yaml`
 
 ---

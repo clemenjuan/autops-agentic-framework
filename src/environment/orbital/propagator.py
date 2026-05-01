@@ -40,13 +40,6 @@ try:
     from org.orekit.orbits import KeplerianOrbit, PositionAngleType
     from org.orekit.propagation.analytical import KeplerianPropagator, EcksteinHechlerPropagator
     from org.orekit.propagation.analytical.tle import TLE, TLEPropagator
-    from org.orekit.propagation.events import (
-        EclipseDetector,
-        ElevationDetector,
-    )
-    from org.orekit.propagation.events.handlers import (
-        ContinueOnEvent,
-    )
     from org.orekit.utils import Constants, IERSConventions
 
     OREKIT_AVAILABLE = True

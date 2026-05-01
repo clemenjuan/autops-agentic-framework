@@ -21,14 +21,9 @@ Based on the information constraints described in:
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
-from src.environment.satellite_env import (
-    ConstellationState,
-    EnvironmentObservation,
-    SatelliteState,
-)
-from src.operations.base import GroundKnowledge, OperationsParadigm
+from src.operations.base import OperationsParadigm
 
 
 class AutonomousGround(OperationsParadigm):
@@ -52,81 +47,12 @@ class AutonomousGround(OperationsParadigm):
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self._default_mode = self.config.get("default_mode", "charging")
-        self._orbital_period_steps = self.config.get("orbital_period_steps", 93)
         # Schedule: list of [mode, remaining_steps] pairs (mutable for countdown)
         self._schedule: List[List] = []
         self._schedule_index: int = 0
 
     def filter_observation(self, full_observation: Any, step: int) -> Any:
-        """Return observation based on ground knowledge.
-
-        During a ground pass, ground_pass_active is set to True (the ground
-        operator knows they have a link). estimated_gap_steps is added to
-        metadata so the schedule planner knows how long to plan for.
-
-        Between passes, the agent sees only stale downlinked telemetry.
-        """
-        if full_observation is None:
-            return None
-
-        # Determine real-time ground pass status from the full observation
-        real_ground_pass_active = False
-        real_in_sunlight = False
-        for sat in full_observation.constellation_state.satellites.values():
-            if sat.metadata.get("ground_pass_active", False):
-                real_ground_pass_active = True
-            if sat.metadata.get("in_sunlight", False):
-                real_in_sunlight = True
-
-        self._ground_knowledge.staleness_steps = (
-            step - self._ground_knowledge.last_update_step
-        )
-
-        gk = self._ground_knowledge
-        metadata: Dict[str, Any] = {
-            "in_sunlight": real_in_sunlight,
-            "ground_pass_active": real_ground_pass_active,
-            "uncompressed_observations": gk.uncompressed_observations,
-            "total_observation_s": gk.observation_hours * 3600.0,
-            "storage_capacity_mb": 1 * 1024 * 1024,  # 1 TB in MB
-            "health_status": gk.health_status,
-            "staleness_steps": gk.staleness_steps,
-            "last_update_step": gk.last_update_step,
-            "jetson_raw_mb": gk.jetson_raw_mb,
-            "jetson_compressed_mb": gk.jetson_compressed_mb,
-            "obc_data_mb": gk.obc_data_mb,
-            "undetected_observations": gk.undetected_observations,
-        }
-
-        if real_ground_pass_active:
-            # Provide the schedule planner with the estimated gap length
-            metadata["estimated_gap_steps"] = self._orbital_period_steps
-
-        stale_sat = SatelliteState(
-            satellite_id="eventsat_0",
-            position=[0.0, 0.0, 500.0],
-            velocity=[0.0, 0.0, 0.0],
-            resources={
-                "battery_soc": gk.battery_soc,
-                "data_stored_mb": gk.data_stored_mb,
-                "obc_data_mb": gk.obc_data_mb,
-                "data_downlinked_mb": 0.0,
-            },
-            status=gk.current_mode,
-            metadata=metadata,
-        )
-        stale_constellation = ConstellationState(
-            timestep=gk.last_update_step,
-            epoch_seconds=gk.last_update_step * 60.0,
-            satellites={"eventsat_0": stale_sat},
-            global_info=full_observation.constellation_state.global_info,
-        )
-        return EnvironmentObservation(
-            constellation_state=stale_constellation,
-            tasks=full_observation.tasks,
-            events=[],
-        )
+        return self._stale_ground_observation(full_observation, step)
 
     def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
         """Ground inference only during passes when fresh telemetry is available.
@@ -169,19 +95,10 @@ class AutonomousGround(OperationsParadigm):
         return self._consume_schedule()
 
     def _consume_schedule(self) -> Dict[str, Any]:
-        """Pop the next mode from the schedule, advancing past exhausted entries."""
-        while self._schedule_index < len(self._schedule):
-            entry = self._schedule[self._schedule_index]
-            mode, remaining = entry[0], entry[1]
-            if remaining > 0:
-                entry[1] -= 1
-                if entry[1] == 0:
-                    self._schedule_index += 1
-                return {"eventsat_0": {"mode": mode}}
-            self._schedule_index += 1
-
-        # Schedule exhausted — fallback
-        return {"eventsat_0": {"mode": self._default_mode}}
+        action, self._schedule_index = self._consume_schedule_list(
+            self._schedule, self._schedule_index
+        )
+        return action
 
     def reset(self) -> None:
         super().reset()

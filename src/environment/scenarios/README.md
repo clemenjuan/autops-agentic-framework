@@ -11,9 +11,9 @@ Each scenario subclasses `SatelliteEnvironment` and defines:
 
 ## Candidate Scenarios (select one for Phase 2)
 
-### Option 1: Space-Based Data Centers
-- Tasks: Computational job scheduling, thermal management, resource allocation
-- Constraints: Power, cooling, inter-satellite links
+### Option 1: Large-Scale Constellation
+- Tasks: Resource scheduling, coordination, coverage optimisation
+- Constraints: Power, ISL bandwidth, orbital geometry
 
 ### Option 2: Communications Constellation
 - Tasks: Ground contact scheduling, data routing, handoff coordination

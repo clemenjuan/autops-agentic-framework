@@ -127,12 +127,14 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 - Confidence intervals (95% CI).
 
 ### Cross-Experiment Comparison
-- Paired statistical tests (Wilcoxon signed-rank for non-normal distributions).
-- Effect size measures (Cohen's d or equivalent).
-- Pareto frontier analysis for multi-metric trade-offs.
 
-### Pareto Frontier
-The framework includes a Pareto frontier computation (`src/orchestration/analysis.py`) to identify architectures that represent optimal trade-offs between metrics (e.g., utility vs. latency).
+- Paired statistical tests (Wilcoxon signed-rank; same launch-lottery seeds across architectures make comparisons naturally paired).
+- Effect size measures (Cohen's d on paired differences, or paired rank-biserial correlation).
+- Architecture trade-offs visualised with per-architecture scatter plots in the objective space (e.g., utility vs. resource efficiency, utility vs. operator load), summarised by effect sizes from the paired tests.
+
+### Multi-metric trade-off visualisation
+
+Per-architecture scatter plots are the primary trade-off view. A formal Pareto-frontier / hypervolume analysis is deferred until pilot data indicate whether such machinery is warranted; a simple non-dominated-set computation is available in `src/orchestration/analysis.py` for exploratory use.
 
 ---
 
@@ -158,19 +160,32 @@ exploratory and reported separately from confirmatory results.
   `compute_robustness_cv()` aggregator.
 
 ### Hypothesis tests
+
+- **Primary outcome**: mission utility. Secondary metrics (downlink
+  efficiency, robustness CV, operator load, explainability coverage) are
+  reported descriptively but do not gate conclusions.
 - **Primary test**: paired Wilcoxon signed-rank across the 100 launch-lottery
   seeds, pairing each architecture's per-episode metric with the baseline
   (`eventsat_sas_sda_symb_hd_ah` for RQ1; `eventsat_sas_sda_<rep>_hd_ah`
   within-representation for RQ2).
-- **Effect size**: reported alongside p-values as Cohen's d (or paired
-  rank-biserial for non-parametric). Effect size is the decision-driver;
-  p-values are the rejection gate.
-- **Multiplicity**: Benjamini–Hochberg false discovery rate at q = 0.05
-  applied across the full family of tests within each research question
-  (RQ1, RQ2 treated as separate families).
-- **Minimum effect-size threshold**: |d| ≥ 0.5 for utility, latency,
-  resource-efficiency comparisons. Effects below this threshold are
-  reported as "no meaningful difference" even if statistically significant.
+- **Effect size**: reported alongside every p-value as Cohen's d on paired
+  differences (or paired rank-biserial correlation). Effect size is the
+  substantive decision-driver; p-values are the rejection gate.
+- **Multiplicity**: Bonferroni correction at α = 0.05 across the primary-
+  outcome test family per research question (RQ1, RQ2 treated as separate
+  families). Bonferroni is chosen over less conservative alternatives
+  (e.g., Benjamini–Hochberg) for its simplicity and transparent
+  defensibility.
+- **Descriptive statistics first**: before any hypothesis test, report
+  median, IQR, and mean ± std of each metric per configuration, grouped
+  by morphological dimension and visualised as boxplots. For many
+  configurations this is sufficient on its own; hypothesis tests refine,
+  not replace, the descriptive picture.
+- **Minimum effect-size threshold**: effects are interpreted substantively
+  only at conventionally moderate magnitudes (|d| ≥ 0.5, per Cohen). This
+  threshold is provisional and will be revisited once pilot results inform
+  a principled minimum-detectable-effect; the revised threshold will be
+  logged under "Analysis-plan amendments" (below) with the rationale.
 
 ### Comparison scope (from FOUNDATION_SPEC §4.3)
 - Emergence is compared *within* representation family (PPO vs prompt-opt

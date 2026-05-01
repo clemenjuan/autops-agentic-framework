@@ -81,3 +81,4 @@ orekit-data.zip
 # Docs
 docs/*
 !docs/*.md
+expose/*

@@ -8,7 +8,6 @@ dependencies = [
     "numpy",
     "pyyaml",           # Configuration
     "pydantic>=2.12.5",    # Data validation
-    "networkx",         # Graph topologies for distributed org
     "pandas",           # Results analysis
     "matplotlib",       # Visualization
     "seaborn",          # Statistical plots

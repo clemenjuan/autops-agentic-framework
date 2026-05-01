@@ -93,7 +93,7 @@ power:
 communications:
   sband:
     downlink_rate_kbps: 128       # Conservative estimate
-    uplink_rate_kbps: 64
+    uplink_rate_kbps: 128
   uhf:
     downlink_rate_kbps: 9.6
     uplink_rate_kbps: 9.6

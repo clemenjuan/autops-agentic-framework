@@ -24,14 +24,9 @@ planning overhead and temporal knowledge staleness.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
-from src.environment.satellite_env import (
-    ConstellationState,
-    EnvironmentObservation,
-    SatelliteState,
-)
-from src.operations.base import GroundKnowledge, OperationsParadigm
+from src.operations.base import OperationsParadigm
 
 
 class ConventionalGround(OperationsParadigm):
@@ -61,8 +56,6 @@ class ConventionalGround(OperationsParadigm):
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
-        self._default_mode = self.config.get("default_mode", "charging")
-        self._orbital_period_steps = self.config.get("orbital_period_steps", 93)
 
         # Active schedule: currently executing on the satellite
         self._active_schedule: List[List] = []
@@ -76,69 +69,7 @@ class ConventionalGround(OperationsParadigm):
         self._pass_upload_done: bool = False
 
     def filter_observation(self, full_observation: Any, step: int) -> Any:
-        """Return stale ground knowledge, identical to AutonomousGround.
-
-        Both ground paradigms share the same information constraints:
-        the ground segment only sees downlinked telemetry.
-        """
-        if full_observation is None:
-            return None
-
-        real_ground_pass_active = False
-        real_in_sunlight = False
-        for sat in full_observation.constellation_state.satellites.values():
-            if sat.metadata.get("ground_pass_active", False):
-                real_ground_pass_active = True
-            if sat.metadata.get("in_sunlight", False):
-                real_in_sunlight = True
-
-        self._ground_knowledge.staleness_steps = (
-            step - self._ground_knowledge.last_update_step
-        )
-
-        gk = self._ground_knowledge
-        metadata: Dict[str, Any] = {
-            "in_sunlight": real_in_sunlight,
-            "ground_pass_active": real_ground_pass_active,
-            "uncompressed_observations": gk.uncompressed_observations,
-            "total_observation_s": gk.observation_hours * 3600.0,
-            "storage_capacity_mb": 1 * 1024 * 1024,  # 1 TB in MB
-            "health_status": gk.health_status,
-            "staleness_steps": gk.staleness_steps,
-            "last_update_step": gk.last_update_step,
-            "jetson_raw_mb": gk.jetson_raw_mb,
-            "jetson_compressed_mb": gk.jetson_compressed_mb,
-            "obc_data_mb": gk.obc_data_mb,
-            "undetected_observations": gk.undetected_observations,
-        }
-
-        if real_ground_pass_active:
-            metadata["estimated_gap_steps"] = self._orbital_period_steps
-
-        stale_sat = SatelliteState(
-            satellite_id="eventsat_0",
-            position=[0.0, 0.0, 500.0],
-            velocity=[0.0, 0.0, 0.0],
-            resources={
-                "battery_soc": gk.battery_soc,
-                "data_stored_mb": gk.data_stored_mb,
-                "obc_data_mb": gk.obc_data_mb,
-                "data_downlinked_mb": 0.0,
-            },
-            status=gk.current_mode,
-            metadata=metadata,
-        )
-        stale_constellation = ConstellationState(
-            timestep=gk.last_update_step,
-            epoch_seconds=gk.last_update_step * 60.0,
-            satellites={"eventsat_0": stale_sat},
-            global_info=full_observation.constellation_state.global_info,
-        )
-        return EnvironmentObservation(
-            constellation_state=stale_constellation,
-            tasks=full_observation.tasks,
-            events=[],
-        )
+        return self._stale_ground_observation(full_observation, step)
 
     def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
         """Ground inference only during passes when fresh telemetry is available.
@@ -206,19 +137,10 @@ class ConventionalGround(OperationsParadigm):
         return self._consume_active_schedule()
 
     def _consume_active_schedule(self) -> Dict[str, Any]:
-        """Consume the active schedule one step at a time."""
-        while self._active_index < len(self._active_schedule):
-            entry = self._active_schedule[self._active_index]
-            mode, remaining = entry[0], entry[1]
-            if remaining > 0:
-                entry[1] -= 1
-                if entry[1] == 0:
-                    self._active_index += 1
-                return {"eventsat_0": {"mode": mode}}
-            self._active_index += 1
-
-        # Schedule exhausted — fallback
-        return {"eventsat_0": {"mode": self._default_mode}}
+        action, self._active_index = self._consume_schedule_list(
+            self._active_schedule, self._active_index
+        )
+        return action
 
     def reset(self) -> None:
         super().reset()

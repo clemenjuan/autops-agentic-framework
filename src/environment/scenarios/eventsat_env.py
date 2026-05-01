@@ -389,15 +389,14 @@ class EventSatEnvironment(SatelliteEnvironment):
         return self.current_step >= self.max_steps
 
     def _is_in_sunlight(self):
-        if self._orbital_ctx is not None:
-            return self._orbital_ctx.is_in_sunlight(self.current_step)
-        phase = (self.current_step % self.orbital_period_steps) / self.orbital_period_steps
-        return phase >= self.eclipse_fraction
+        if self._orbital_ctx is None:
+            return True
+        return self._orbital_ctx.is_in_sunlight(self.current_step)
 
     def _is_ground_pass_active(self):
-        if self._orbital_ctx is not None:
-            return self._orbital_ctx.is_ground_pass_active(self.current_step)
-        return False
+        if self._orbital_ctx is None:
+            return False
+        return self._orbital_ctx.is_ground_pass_active(self.current_step)
 
     def _requires_attitude_maneuver(self, from_mode: str, to_mode: str) -> bool:
         """Return True if switching from_mode→to_mode requires attitude settling (P2)."""
@@ -680,15 +679,8 @@ class EventSatEnvironment(SatelliteEnvironment):
                 remaining_pass_duration = 0
                 time_to_next_pass = self._compute_time_to_next_event(step, self._orbital_ctx.ground_passes)
         else:
-            # Fallback: estimate from orbital period and eclipse fraction
-            phase_in_period = step % orbital_period_steps
-            eclipse_end_step = int(self.eclipse_fraction * orbital_period_steps)
-            if phase_in_period < eclipse_end_step:
-                time_to_next_eclipse = orbital_period_steps - phase_in_period
-            else:
-                time_to_next_eclipse = orbital_period_steps - phase_in_period + int(
-                    self.eclipse_fraction * orbital_period_steps
-                )
+            # _orbital_ctx is None only before the first reset(); return safe defaults
+            time_to_next_eclipse = orbital_period_steps
             time_to_next_pass = orbital_period_steps
             remaining_pass_duration = 0
 
