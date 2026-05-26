@@ -321,6 +321,7 @@ def apply_overrides(
     steps: int | None = None,
     seed: int | None = None,
     output_dir: str | None = None,
+    log_level: str | None = None,
 ) -> ExperimentConfig:
     """Apply CLI overrides to an experiment configuration.
 
@@ -330,6 +331,7 @@ def apply_overrides(
         steps: Override max_steps (both top-level and environment).
         seed: Override seed.
         output_dir: Override output_dir.
+        log_level: Override log_level (e.g. "DEBUG" to enable per-step trace).
 
     Returns:
         A new ExperimentConfig with overrides applied.
@@ -344,6 +346,8 @@ def apply_overrides(
         updates["seed"] = seed
     if output_dir is not None:
         updates["output_dir"] = output_dir
+    if log_level is not None:
+        updates["log_level"] = log_level
 
     if not updates:
         return config

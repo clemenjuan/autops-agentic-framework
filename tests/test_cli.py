@@ -83,6 +83,7 @@ class TestCmdRun:
         args.steps = 2
         args.seed = None
         args.output_dir = str(tmp_path / "results")
+        args.log_level = None
         args.analyze = False
         cmd_run(args)  # should not raise
         assert (tmp_path / "results" / "results.json").exists()

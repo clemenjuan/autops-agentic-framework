@@ -37,6 +37,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         steps=args.steps,
         seed=args.seed,
         output_dir=args.output_dir,
+        log_level=getattr(args, "log_level", None),
     )
     runner = ExperimentRunner(config=cfg)
     results = runner.run()
@@ -76,6 +77,7 @@ def cmd_batch(args: argparse.Namespace) -> None:
                 episodes=args.episodes,
                 steps=args.steps,
                 seed=args.seed,
+                log_level=getattr(args, "log_level", None),
             )
             runner = ExperimentRunner(config=cfg)
             results = runner.run()
@@ -271,6 +273,8 @@ def main() -> None:
     p_run.add_argument("--steps", type=int, help="Override max_steps")
     p_run.add_argument("--seed", type=int, help="Override random seed")
     p_run.add_argument("--output-dir", help="Override output directory")
+    p_run.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                       help="Override log_level (DEBUG enables per-step trace)")
     p_run.add_argument("--analyze", action="store_true",
                        help="Run analysis after experiment completes")
     p_run.set_defaults(func=cmd_run)
@@ -282,6 +286,8 @@ def main() -> None:
     p_batch.add_argument("--episodes", type=int, help="Override num_episodes")
     p_batch.add_argument("--steps", type=int, help="Override max_steps")
     p_batch.add_argument("--seed", type=int, help="Override random seed")
+    p_batch.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                        help="Override log_level (DEBUG enables per-step trace)")
     p_batch.set_defaults(func=cmd_batch)
 
     # --- generate ---

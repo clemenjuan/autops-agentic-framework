@@ -603,15 +603,45 @@ class ExperimentRunner:
                 decision_metrics=decision_metrics,
             )
 
-        # 10. Write decision trace (DEBUG only)
+        # 10. Write decision trace (DEBUG only).
+        # Includes raw env telemetry so research metrics can be recomputed
+        # offline from this file alone (see scripts/recompute_metrics.py).
         if self._decisions_file is not None:
-            resolved_mode = info.get("resolved_mode", "unknown")
             trace_entry = {
                 "step": step,
-                "mode": resolved_mode,
+                "mode": info.get("resolved_mode", "unknown"),
+                "requested_mode": info.get("requested_mode"),
+                "forced": bool(info.get("forced", False)),
+                "anomaly": info.get("anomaly") or "",
+                "anomaly_forced_safe": float(info.get("anomaly_forced_safe", 0.0)),
                 "rationale": decision_metrics.get("rationale", ""),
+                "has_rationale": bool(decision_metrics.get("has_rationale", False)),
                 "inference": inference_allowed,
-                "latency_s": round(decision_metrics.get("decision_latency_s", 0.0), 4),
+                "latency_s": decision_metrics.get("decision_latency_s", 0.0),
+                "battery_soc": info.get("battery_soc"),
+                "in_sunlight": info.get("in_sunlight"),
+                "ground_pass_active": info.get("ground_pass_active"),
+                "jetson_raw_mb": info.get("jetson_raw_mb"),
+                "jetson_compressed_mb": info.get("jetson_compressed_mb"),
+                "obc_data_mb": info.get("obc_data_mb"),
+                "data_downlinked_mb": info.get("data_downlinked_mb"),
+                "step_downlinked_mb": info.get("step_downlinked_mb", 0.0),
+                "observation_hours": info.get("observation_hours"),
+                "total_detections": info.get("total_detections"),
+                "undetected_observations": info.get("undetected_observations"),
+                "max_achievable_downlink_mb": info.get("max_achievable_downlink_mb"),
+                "reward": info.get("reward"),
+                "prev_battery_soc": info.get("prev_battery_soc"),
+                "data_stored_mb": info.get("data_stored_mb"),
+                "in_transition": info.get("in_transition"),
+                # Loop-specific diagnostics (zero on loops that don't emit them)
+                "orient_latency_s": decision_metrics.get("orient_latency_s", 0.0),
+                "orient_iterations": decision_metrics.get("orient_iterations", 0.0),
+                "orient_urgency": decision_metrics.get("orient_urgency", 0.0),
+                "reasoning_depth": decision_metrics.get("reasoning_depth", 0.0),
+                "react_iterations": decision_metrics.get("iterations", 0.0),
+                "grounding_violations": decision_metrics.get("grounding_violations", 0.0),
+                "converged": decision_metrics.get("converged", 0.0),
             }
             self._decisions_file.write(json.dumps(trace_entry) + "\n")
 
