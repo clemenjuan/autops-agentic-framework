@@ -13,6 +13,9 @@ Implementations:
 - DecentralizedMAS:          Peer-to-peer, all-to-all topology (placeholder)
 - IndependentMAS:            No inter-agent communication (placeholder)
 - HybridMAS:                 Heterogeneous mixed topology (placeholder)
+
+Reference-architecture layer: L4 (Orchestration) in the Bhati 2026 mapping.
+See ``docs/implementations.md`` "Layer Mapping (Bhati 2026)" for details.
 """
 
 from src.agent_organization.single_agent_system import SingleAgentSystem

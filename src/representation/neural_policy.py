@@ -49,7 +49,7 @@ class ActorCritic(_BaseModule):  # type: ignore[misc]
     """Multi-head Actor-Critic for MultiDiscrete([7, 2, 2]) action space.
 
     Shared trunk → 3 actor heads + 1 critic head.
-    Architecture: 25→256→256 (Tanh) per Oliver et al. EUCASS 2025.
+    Architecture: 25→256→256 (Tanh) per Juan Oliver et al. EUCASS 2025.
 
     Args:
         obs_dim: Observation dimension (default 25).

@@ -574,6 +574,51 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ---
 
+## Layer Mapping (Bhati 2026)
+
+Bhati (2026) [Z5TF79HY] proposes a six-layer reference architecture for **agentic
+software engineering** systems. The autops framework is positioned as a parallel
+reference architecture in a **sibling domain** (autonomous satellite operations).
+The mapping below tags each component already documented above with its layer in
+Bhati's stack — it is illustrative, not a structural adoption. See
+[`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architectures)
+for the framing.
+
+| Component | File / module | Bhati layer | Existing paper basis | Cross-domain note |
+| --- | --- | --- | --- | --- |
+| SingleAgentSystem (SAS) | `src/agent_organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
+| CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
+| Decentralized/Independent/Hybrid MAS | `src/agent_organization/{decentralized,independent,hybrid}_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to Flamingo N≥3 |
+| SDA loop | `src/decision_loop/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
+| OODA loop | `src/decision_loop/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
+| ReAct loop | `src/decision_loop/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |
+| Rule-Based / Schedule-Based EventSat | `src/representation/...rule_based_eventsat`, `schedule_based_eventsat` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
+| Conventional Schedule EventSat | `src/representation/...conventional_schedule_eventsat` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
+| Subsymbolic EventSat | `src/representation/...subsymbolic_eventsat` | **L0** (policy net) + **L1** | Wang et al. 2022 (DRL) | L0 is the RL policy network rather than an LLM |
+| LLM EventSat | `src/representation/...llm_eventsat`, `llm_client.py` | **L0** (LLM) + **L1** | Rodriguez-Fernandez et al. 2024 | L0 substrate: Ollama / OpenAI backend |
+| Agentic EventSat | `src/representation/...agentic_eventsat` | **L0** (LLM) + **L1** (CoALA) | Sumers et al. 2024 (CoALA) | Direct sibling of Bhati's L1 cognitive scaffolding |
+| FixedMemory | `src/memory/fixed_memory.py` | **L1** Memory | fairness invariant | Read-only short/long-term state |
+| WritableMemory | `src/memory/writable_memory.py` | **L1** Memory | Sumers et al. 2024 (CoALA §3) | Writable semantic + episodic stores — closest analogue of Bhati L1 "memory files" |
+| EmergenceController | `src/emergence/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
+| PPOTrainer | `src/emergence/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
+| PromptOptimizer | `src/emergence/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
+| WritableCoALA | `_lec_` configs | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
+| Tools (BaseTool + scenario actions) | `src/tools/` | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
+| Satellite environment | `src/environment/`, `src/environment/orbital/`, `src/environment/scenarios/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
+| Autonomous Hybrid | `src/operations/autonomous_hybrid.py` | **L5** Governance & Safety | Rossi et al. 2023 | Onboard FDIR; no ground gate; closest to "auto" autonomy level |
+| Autonomous Ground | `src/operations/autonomous_ground.py` | **L5** Governance & Safety | Sellmaier et al. 2022 | Ground-pass gating — analogue of human approval at high-impact actions |
+| Conventional Ground | `src/operations/conventional_ground.py` | **L5** Governance & Safety | ECSS standards | Human-realistic ground operator; analogue of traditional SDLC supervision |
+| Env-enforced safe mode | `src/environment/scenarios/eventsat_env.py` | **L5** (cross-cutting) | mission-safety invariant | Feedback flows downward (Bhati Fig. 3): safety overrides cross all representations |
+
+**The L0 gap.** Pure-symbolic variants (`symb`) have no L0 substrate in Bhati's sense
+— there is no foundation model. They sit at L1 directly. This asymmetry is
+load-bearing for the fair-comparison invariant: holding L2–L5 fixed across the
+matrix, the variation in L0 (none / RL policy / LLM) isolates the cognitive-paradigm
+effect (Brooks 1991; Colelough & Regli 2025) that RQ1 targets. The asymmetry is
+explicit in §2.1 of FOUNDATION_SPEC.
+
+---
+
 ## Cross-Cutting Design Decisions
 
 ### Decision Loop × Representation Interaction Model

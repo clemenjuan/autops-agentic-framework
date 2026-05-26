@@ -31,6 +31,7 @@ Scalability is framed as a **2D space**: *constellation size* (1 → 500+ satell
 - How do **decision-making loops** (SDA, OODA, ReAct), **knowledge representations** (symbolic, subsymbolic, hybrid), and **degree of emergence** affect key performance metrics (utility, latency, robustness, resource efficiency, operator load, and explainability)?
 - Can Pareto frontiers between competing objectives (e.g., utility vs. resource efficiency vs. operator interventions) be characterised for different cognitive architecture configurations?
 - Which cognitive architecture patterns offer the most favourable trade-offs for which operational scenarios?
+- The *emergence × explainability* trade-off connects to Bhati's (2026) open problem on technical debt under sustained agent contribution: higher emergence buys capability at the cost of legibility, which in the satellite-ops setting maps to operator-load and explainability metrics.
 
 **RQ2 — Agent Organization**
 - How do different agent organizations (single centralized agent, one agent per satellite, hierarchical, fully distributed) affect the performance/robustness trade-off under identical cognitive components?
@@ -59,6 +60,49 @@ Scalability is framed as a **2D space**: *constellation size* (1 → 500+ satell
 
 ![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
+### 2.1 Parallel Reference Architectures
+
+Bhati (2026) [Z5TF79HY] proposes a **six-layer reference architecture** for agentic
+software engineering systems: **L0** Foundation Model, **L1** Reasoning/Memory/Self-Reflection,
+**L2** Agent–Computer Interface, **L3** Tools & Environment, **L4** Orchestration,
+**L5** Governance & Safety (dependency runs upward; feedback flows downward). The same
+preprint contrasts a traditional SDLC with an **A-SDLC** in which an orchestrator
+coordinates specialized sub-agents under human supervision at intent, review, and
+approval gates.
+
+The autops 5D morphological matrix is positioned here as a **parallel reference
+architecture in a sibling domain** (autonomous satellite operations, not software
+engineering). It is not a structural adoption of Bhati's stack — the 5D matrix
+remains the canonical organizing axis — but the cross-domain mapping below makes
+the autops architectural choices legible to the broader agentic-AI literature and
+identifies one substantive asymmetry (the L0 gap for symbolic variants).
+
+| Bhati layer | Autops 5D-matrix correspondence | Code anchor |
+| --- | --- | --- |
+| **L0** Foundation Model | Substrate of `representation` for LLM-bearing (`hybr`, `agnt`) or RL-bearing (`subm`) variants. **Not applicable** to pure-symbolic variants (`symb`). | `src/representation/llm_client.py`; subsymbolic policy network |
+| **L1** Reasoning, Memory, Self-Reflection | `decision_loop` × `memory` × `emergence` mechanism | `src/decision_loop/`, `src/memory/`, `src/emergence/` |
+| **L2** Agent–Computer Interface | Stateless, YAML-serializable action definitions | `src/tools/` |
+| **L3** Tools & Environment | Satellite environment, orbital mechanics, scenario physics | `src/environment/` |
+| **L4** Orchestration | `agent_organization` × `ExperimentRunner` | `src/agent_organization/`, `src/orchestration/experiment_runner.py` |
+| **L5** Governance & Safety | `operations` paradigm (AH / AG / CG) defining authority levels and human-supervision gates; environment-enforced safe-mode invariants applied uniformly across representations | `src/operations/`, safe-mode logic in `src/environment/scenarios/eventsat_env.py` |
+
+**Explicit L0 gap.** No foundation model exists beneath `symb` variants. The mapping
+is most natural on the LLM/agentic side of the matrix; the asymmetry is itself a
+thesis-relevant observation about the cognitive-paradigm axis (Brooks 1991;
+Colelough & Regli 2025) and reinforces the fair-comparison invariant — all variants
+share environment, memory, and orchestration, while L0 substrate varies by design.
+
+**On A-SDLC.** Bhati contrasts traditional SDLC with an Agentic SDLC characterized by
+delegated execution under human supervision. The autops ops-paradigm axis
+(CG → AG → AH) operationalizes an analogous autonomy spectrum for satellite operations
+but is **not** restructured around A-SDLC; the ops-paradigm grounding remains
+Rossi et al. (2023), Sellmaier et al. (2022), and ECSS standards. The convergence is
+noted as evidence that the autonomy-spectrum framing generalizes across domains.
+
+A per-component layer mapping is maintained in
+[`implementations.md` → Layer Mapping (Bhati 2026)](implementations.md#layer-mapping-bhati-2026);
+a layered system view complementary to the 5D matrix is in
+[`architecture.md` → Layered View](architecture.md#layered-view-parallel-to-5d-matrix).
 
 ***
 
@@ -1133,6 +1177,10 @@ Every experiment must be fully reproducible from configuration file and random s
 - Sapkota et al. (2026) "AI Agents vs. Agentic AI: A Conceptual Taxonomy"
 - Masterman et al. (2024) "The Landscape of Emerging AI Agent Architectures"
 - V et al. (2026) "Agentic AI: Architectures, Taxonomies, and Evaluation of LLM Agents"
+
+**Agentic-SE reference architecture (parallel domain):**
+
+- Bhati, Happy (2026) "Agentic AI in the Software Development Lifecycle: Architecture, Empirical Evidence, and the Reshaping of Software Engineering", arXiv:2604.26275 [Z5TF79HY] — six-layer reference architecture (L0–L5) and A-SDLC framing; positioned as a parallel reference architecture in §2.1.
 
 **Note:** See Zotero library for full references. Each implementation must cite its source paper.
 

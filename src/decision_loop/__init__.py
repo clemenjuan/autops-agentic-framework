@@ -11,4 +11,7 @@ Examples:
 
 Note: CoALA (Sumers et al., 2024) is an architecture blueprint, not a decision loop.
 It is implemented as a hybrid representation type (agentic_eventsat).
+
+Reference-architecture layer: L1 (Reasoning / Self-Reflection) in the Bhati 2026
+mapping. See ``docs/implementations.md`` "Layer Mapping (Bhati 2026)" for details.
 """

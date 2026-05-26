@@ -81,4 +81,6 @@ orekit-data.zip
 # Docs
 docs/*
 !docs/*.md
-expose/*
+
+# Draft papers
+papers/

@@ -13,6 +13,55 @@ This framework enables systematic comparison of cognitive architectures for auto
 
 ![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
+## Layered View (Parallel to 5D Matrix)
+
+Bhati (2026) [Z5TF79HY] proposes a six-layer reference architecture for **agentic
+software engineering** systems. The autops framework is positioned as a **parallel
+reference architecture** in a sibling domain (autonomous satellite operations), not
+a structural adoption. The layered view below is complementary to the 5D
+morphological matrix (which remains canonical) and to the diagram above; it makes
+the autops architectural choices legible to the broader agentic-AI literature. For
+the framing see [`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architectures);
+for the per-component mapping see
+[`implementations.md` → Layer Mapping](implementations.md#layer-mapping-bhati-2026).
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│  L5  Governance & Safety                                                │
+│      src/operations/  (AH / AG / CG)                                    │
+│      env-enforced safe mode (eventsat_env.py)                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│  L4  Orchestration                                                      │
+│      src/agent_organization/  (SAS / CentralizedMAS / DMAS / IMAS / HMAS)│
+│      src/orchestration/experiment_runner.py                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│  L3  Tools & Environment                                                │
+│      src/environment/  (satellite_env, scenarios, orbital)              │
+├─────────────────────────────────────────────────────────────────────────┤
+│  L2  Agent–Computer Interface                                           │
+│      src/tools/  (BaseTool + scenario action defs)                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│  L1  Reasoning · Memory · Self-Reflection                               │
+│      src/decision_loop/  (SDA / OODA / ReAct)                           │
+│      src/memory/  (FixedMemory / WritableMemory)                        │
+│      src/emergence/  (EmergenceController, PPO, PromptOptimizer)        │
+├─────────────────────────────────────────────────────────────────────────┤
+│  L0  Foundation Model    [gap for symbolic variants]                    │
+│      src/representation/llm_client.py  (LLM backend)                    │
+│      subsymbolic policy network  (RL substrate)                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Dependency runs upward; feedback flows downward.** Each layer depends on those
+below it (orchestration uses environment + tools; reasoning operates over memory and
+foundation substrate). Governance/safety constraints — env-enforced safe mode,
+ground-pass gating in CG/AG — reach into all layers from L5 downward, matching the
+semantics of Bhati's Figure 3.
+
+**L0 asymmetry.** Pure-symbolic variants (`symb`) have no L0 substrate; they sit at
+L1 directly. This is by design: it isolates the cognitive-paradigm effect that RQ1
+targets while keeping L2–L5 fixed across the 5D matrix.
+
 ## Design Principles
 
 1. **Orthogonality**: Each dimension (organization, loop, representation, emergence, operations paradigm) is independent.
