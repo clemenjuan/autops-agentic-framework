@@ -72,6 +72,10 @@ configs/experiments/generated/
 PROGRESS.md
 Phase*.md
 
+# Personal / per-machine Claude Code instructions (not shared)
+CLAUDE.local.md
+CLAUDE.*.local.md
+
 # Orekit data
 orekit-data.zip
 

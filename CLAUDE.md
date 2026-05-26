@@ -3,10 +3,17 @@
 ## What this is
 PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **5D morphological matrix**: Organization × Decision Loop × Representation × Emergence × Operations Paradigm. Each combination is a unique architecture evaluated under identical conditions.
 
+## Execution environment
+- **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.
+- Workstations are fine for: editing code, `pytest`, mocked smoke tests (`llm_mock: true`), config inspection, plan and doc work.
+- `data/results/`, `data/llm_cache/`, `data/trained_models/`, `data/trained_prompts/`, `data/writable_memory_state/` are runtime artifacts (all gitignored). Treat the canonical-run machine's copy as ground truth; workstation copies are stale.
+- Orekit needs a JVM. On Linux: `apt install openjdk-17-jre-headless` and place `orekit-data.zip` at repo root before `uv sync --extra orbital`. WSL has known issues — use a native Linux VM or Windows.
+- See `CLAUDE.local.md` (gitignored) for the canonical machine, hostnames, and personal paths if present.
+
 ## Path & venv
-- Project: `C:\Users\Clemente\autops-demo` (local, not OneDrive)
-- Always use **`uv run`** — it picks the correct `.venv` at repo root
+- Always use **`uv run`** — it picks the correct `.venv` at repo root.
 - If `uv sync` fails with hardlink errors: `UV_LINK_MODE=copy uv sync ...`
+- A `.venv/` built on a different OS will not work — if `pyvenv.cfg` points to a foreign Python (e.g. `linux-x86_64` on a Windows host), delete and rebuild with `UV_LINK_MODE=copy uv sync --extra dev --extra orbital --extra llm`.
 
 ## Commands
 ```bash
