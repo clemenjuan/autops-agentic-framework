@@ -111,8 +111,11 @@ class ExperimentConfig(BaseModel):
     # Metrics
     metrics: MetricsConfig = Field(default_factory=MetricsConfig)
 
-    # Output
-    output_dir: str = Field(default="data/results")
+    # Output. Default includes a template that the model validator
+    # substitutes with the actual experiment_id, so direct-constructed
+    # configs (tests, ad-hoc scripts) get their own subdir instead of
+    # all writing to the same data/results/ root.
+    output_dir: str = Field(default="data/results/${experiment_id}")
     save_checkpoints: bool = Field(default=False)
     log_level: str = Field(default="INFO")
 
@@ -277,6 +280,15 @@ class ExperimentConfig(BaseModel):
                 stacklevel=2,
             )
 
+        # Resolve ${experiment_id} in output_dir for any construction path
+        # (YAML load, direct ExperimentConfig(...) in tests, apply_overrides).
+        # Keeps each experiment's artifacts in its own subdir instead of
+        # all writing to the bare data/results/ root.
+        if "${experiment_id}" in self.output_dir:
+            self.output_dir = self.output_dir.replace(
+                "${experiment_id}", self.experiment_id
+            )
+
         return self
 
 
@@ -306,11 +318,8 @@ def load_config(path: str | Path) -> ExperimentConfig:
     with open(path, "r", encoding="utf-8") as f:
         raw: Dict[str, Any] = yaml.safe_load(f) or {}
 
-    # Resolve output_dir template variables
-    if "output_dir" in raw and "${experiment_id}" in raw["output_dir"]:
-        exp_id = raw.get("experiment_id", "exp_unnamed")
-        raw["output_dir"] = raw["output_dir"].replace("${experiment_id}", exp_id)
-
+    # ${experiment_id} substitution is performed by ExperimentConfig's
+    # model validator — no per-loader work needed here.
     return ExperimentConfig(**raw)
 
 
