@@ -28,7 +28,10 @@ try:
     from orekit_jpype.pyhelpers import setup_orekit_data
     # Use absolute path so it works regardless of CWD (e.g. when called from notebooks/)
     _orekit_data = str(_Path(__file__).parent.parent.parent.parent / "orekit-data.zip")
-    setup_orekit_data(filenames=_orekit_data, from_pip_library=True)
+    # from_pip_library=False: skip the optional orekitdata pip package
+    # (we ship the zip in-repo) and avoid the "Failed to load orekitdata
+    # library" WARNING that would otherwise fire on every JVM init.
+    setup_orekit_data(filenames=_orekit_data, from_pip_library=False)
 
     from org.orekit.frames import FramesFactory, TopocentricFrame
     from org.orekit.time import TimeScalesFactory, AbsoluteDate
