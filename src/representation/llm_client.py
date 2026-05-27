@@ -208,17 +208,26 @@ class LLMClient:
     def _call_ollama(
         self, system_prompt: str, user_prompt: str, temperature: float, json_mode: bool
     ) -> str:
-        """Call Ollama API (synchronous HTTP)."""
+        """Call Ollama API.
+
+        Uses HTTP streaming (``stream: true``) by default so the gateway in
+        front of the TUM Ollama VM sees continuous activity and does not
+        return 504. The final assembled content is returned to callers
+        exactly as if the call had been non-streaming. Set
+        ``llm_stream: false`` in the representation config to fall back to
+        the legacy non-streaming path.
+        """
         import requests
 
         url = f"{self.ollama_host}/api/chat"
+        stream = bool(self.config.get("llm_stream", True))
         payload: Dict[str, Any] = {
             "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "stream": False,
+            "stream": stream,
             "options": {"temperature": temperature},
         }
         if json_mode:
@@ -227,17 +236,44 @@ class LLMClient:
         # Separate connect (fast fail if server unreachable) vs read (slow for large models)
         connect_timeout = self.config.get("llm_connect_timeout", 15)
         read_timeout = self.config.get("llm_timeout", 600)
-        resp = requests.post(url, json=payload, timeout=(connect_timeout, read_timeout))
-        resp.raise_for_status()
-        data = resp.json()
 
-        # Track tokens if available
-        if "eval_count" in data:
-            self._total_completion_tokens += data["eval_count"]
-        if "prompt_eval_count" in data:
-            self._total_prompt_tokens += data["prompt_eval_count"]
+        if not stream:
+            resp = requests.post(url, json=payload, timeout=(connect_timeout, read_timeout))
+            resp.raise_for_status()
+            data = resp.json()
+            if "eval_count" in data:
+                self._total_completion_tokens += data["eval_count"]
+            if "prompt_eval_count" in data:
+                self._total_prompt_tokens += data["prompt_eval_count"]
+            return data["message"]["content"]
 
-        return data["message"]["content"]
+        # Streaming path: accumulate message.content chunks until done.
+        content_parts: List[str] = []
+        eval_count = 0
+        prompt_eval_count = 0
+        with requests.post(
+            url, json=payload, timeout=(connect_timeout, read_timeout), stream=True
+        ) as resp:
+            resp.raise_for_status()
+            for raw in resp.iter_lines(decode_unicode=True):
+                if not raw:
+                    continue
+                try:
+                    chunk = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                message = chunk.get("message") or {}
+                content_parts.append(message.get("content", ""))
+                if chunk.get("done"):
+                    eval_count = chunk.get("eval_count", 0)
+                    prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                    break
+
+        if eval_count:
+            self._total_completion_tokens += eval_count
+        if prompt_eval_count:
+            self._total_prompt_tokens += prompt_eval_count
+        return "".join(content_parts)
 
     def _call_openai(
         self, system_prompt: str, user_prompt: str, temperature: float, json_mode: bool
