@@ -724,7 +724,8 @@ class MetricsCollector(ABC):
   AutonomousGround (renamed, algorithmic scheduler), ConventionalGround (new,
   human-realistic with one-pass delay per Sellmaier et al. 2022, ECSS-E-ST-70C)
 - **Representations**: ScheduleBasedEventSat (Phase 2 → upgraded OODA + ReAct-capable),
-  ConventionalScheduleEventSat (new, human cognitive constraints via Endsley 1995)
+  ConventionalScheduleEventSat (new, human cognitive constraints via Endsley 1995).
+  See Phase 4.e (planned) for the learned sibling of this family.
 - **Reasoning interface**: `Representation.reason()` optional method added to base;
   overridden by RuleBasedEventSat and ScheduleBasedEventSat for ReAct Thought step
 - **Experiment configs**: 9 configs covering all SDA/OODA/ReAct × AH/AG/CG combinations
@@ -787,6 +788,45 @@ class MetricsCollector(ABC):
 9. **36 new learned-emergence configs**: 12 `*_agnt_lep_*`, 12 `*_agnt_lec_*`, 12 `*_hybr_lep_*`. Grand total: 84 experiment configs.
 
 10. 552 tests across 21 modules. Trunk-based commits (no feature branches).
+
+***
+
+### Phase 4.e: Learned scheduler (planned, not yet implemented)
+
+**Goal:** Add an RL-trained learned scheduler as the third member of the schedule-producing
+representation family — sibling of `schedule_based_eventsat` (rule-based optimal, Phase 3)
+and `conventional_schedule_eventsat` (human-degraded, Phase 3). Produces a sequence
+`[(mode, num_steps), ...]` covering time until the next ground pass; the existing
+`AutonomousGround.process_action()` already consumes this format unchanged.
+
+**Primary target:** `ops=ag` with `repr=subm` (native learned schedule output) and
+`repr=agnt` (consumes scheduler as a tool).
+
+**Secondary target:** `ops=ah` — same scheduler artifact reusable for onboard rolling-horizon
+planning. Scope this after AG-side lands.
+
+**Integration surface (settled):**
+
+- No env or operations-paradigm changes (`AutonomousGround` already consumes
+  `{"schedule": [(mode, steps), ...]}`; `state["time_to_next_pass"]` already exposed).
+- New representation file under `src/representation/` (working name `rl_scheduler_eventsat.py`,
+  final name decided at implementation time).
+- New `agentic_tools.py` tool exposing a **general** scheduler interface, parametrized by
+  `scheduler_type` ∈ {rule-based, conventional, learned} so the LLM can compare schedulers
+  in-the-loop.
+- Existing `subsymbolic_eventsat` (AH placeholder, refined by Giulio on a separate branch
+  using `~/autops-rl` as source material) is **not** modified — the learned scheduler is a
+  distinct artifact with no shared weights.
+
+**Open research (deferred — needs literature review and Zotero-grounded citations):**
+
+- Policy architecture (MLP / RNN / transformer / options-framework — TBD).
+- Duration / step-count representation (categorical buckets, continuous, log-scale).
+- Training algorithm and reward shaping (PPO default, but sequence-output variants need research).
+- Training harness (in-tree `PPOTrainer` extension vs. Giulio's RLlib branch).
+- Naming convention (config flag on `subm` vs. new representation variant).
+
+**Working design doc:** `~/.claude/plans/so-every-call-to-squishy-piglet.md` (gitignored).
 
 ***
 
