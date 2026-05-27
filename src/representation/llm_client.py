@@ -248,6 +248,17 @@ class LLMClient:
             return data["message"]["content"]
 
         # Streaming path: accumulate message.content chunks until done.
+        # A watchdog thread shuts down the underlying socket if no chunk
+        # arrives within ``llm_chunk_silence_s`` seconds. requests' own
+        # timeout argument only covers connect + initial response under
+        # stream=True (per requests docs), so without this, a silent
+        # gateway connection blocks iter_lines indefinitely.
+        # resp.close() from another thread does NOT reliably interrupt a
+        # blocked recv() — we have to shutdown the socket directly.
+        import socket as _socket
+        import threading
+
+        chunk_silence_s = self.config.get("llm_chunk_silence_s", 75)
         content_parts: List[str] = []
         eval_count = 0
         prompt_eval_count = 0
@@ -255,19 +266,78 @@ class LLMClient:
             url, json=payload, timeout=(connect_timeout, read_timeout), stream=True
         ) as resp:
             resp.raise_for_status()
-            for raw in resp.iter_lines(decode_unicode=True):
-                if not raw:
-                    continue
+
+            def _underlying_sock() -> Optional[Any]:
+                # requests.Response.raw is a urllib3.HTTPResponse;
+                # ._fp is the http.client.HTTPResponse; .fp is the
+                # socket file; ._sock is the actual socket.
                 try:
-                    chunk = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                message = chunk.get("message") or {}
-                content_parts.append(message.get("content", ""))
-                if chunk.get("done"):
-                    eval_count = chunk.get("eval_count", 0)
-                    prompt_eval_count = chunk.get("prompt_eval_count", 0)
-                    break
+                    return resp.raw._fp.fp.raw._sock  # type: ignore[attr-defined]
+                except AttributeError:
+                    try:
+                        return resp.raw._fp.fp._sock  # type: ignore[attr-defined]
+                    except AttributeError:
+                        return None
+
+            last_chunk_at = [time.time()]
+            watchdog_stop = threading.Event()
+            aborted_by_watchdog = [False]
+
+            def _watchdog() -> None:
+                while not watchdog_stop.wait(5):
+                    if time.time() - last_chunk_at[0] > chunk_silence_s:
+                        aborted_by_watchdog[0] = True
+                        sock = _underlying_sock()
+                        if sock is not None:
+                            try:
+                                sock.shutdown(_socket.SHUT_RDWR)
+                            except OSError:
+                                pass
+                        try:
+                            resp.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        return
+
+            wd = threading.Thread(target=_watchdog, daemon=True)
+            wd.start()
+            try:
+                for raw in resp.iter_lines(decode_unicode=True):
+                    last_chunk_at[0] = time.time()
+                    if not raw:
+                        continue
+                    try:
+                        chunk = json.loads(raw)
+                    except json.JSONDecodeError:
+                        continue
+                    message = chunk.get("message") or {}
+                    content_parts.append(message.get("content", ""))
+                    if chunk.get("done"):
+                        eval_count = chunk.get("eval_count", 0)
+                        prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                        break
+            except Exception as e:
+                if aborted_by_watchdog[0]:
+                    raise RuntimeError(
+                        f"Ollama streaming aborted after {chunk_silence_s}s "
+                        f"of silence (no chunks from gateway)"
+                    ) from e
+                raise
+            finally:
+                watchdog_stop.set()
+                wd.join(timeout=1)
+
+        if aborted_by_watchdog[0]:
+            raise RuntimeError(
+                f"Ollama streaming aborted after {chunk_silence_s}s of "
+                f"silence (no chunks from gateway)"
+            )
+
+        if not content_parts or (eval_count == 0 and prompt_eval_count == 0 and not any(content_parts)):
+            raise RuntimeError(
+                f"Ollama streaming response empty or aborted after "
+                f"{chunk_silence_s}s of silence"
+            )
 
         if eval_count:
             self._total_completion_tokens += eval_count
