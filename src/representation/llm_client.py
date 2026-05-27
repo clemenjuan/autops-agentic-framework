@@ -147,7 +147,9 @@ class LLMClient:
         providers = self._resolve_provider_order()
         last_error: Exception | None = None
 
-        max_retries = self.config.get("llm_retries", 2)
+        max_retries = self.config.get("llm_retries", 8)
+        backoff_cap_s = self.config.get("llm_backoff_cap_s", 60)
+        ollama_cooldown_s = self.config.get("llm_ollama_cooldown_s", 300)
         for provider in providers:
             for attempt in range(max_retries + 1):
                 try:
@@ -166,7 +168,7 @@ class LLMClient:
                 except Exception as e:
                     last_error = e
                     if attempt < max_retries:
-                        wait = 5 * (attempt + 1)
+                        wait = min(15 * (2 ** attempt), backoff_cap_s)
                         logger.warning(
                             "LLM provider '%s' attempt %d/%d failed: %s — retrying in %ds",
                             provider, attempt + 1, max_retries + 1, e, wait,
@@ -175,7 +177,7 @@ class LLMClient:
                     else:
                         logger.warning("LLM provider '%s' failed after %d attempts: %s", provider, max_retries + 1, e)
                         if provider == "ollama":
-                            self._ollama_backoff_until = now + 60.0
+                            self._ollama_backoff_until = now + ollama_cooldown_s
 
         raise RuntimeError(
             f"All LLM providers failed. Last error: {last_error}"
