@@ -490,7 +490,7 @@ class TestProcess:
 
 
 class TestExperimentRunnerOODAIntegration:
-    def test_ooda_autonomous_hybrid(self) -> None:
+    def test_ooda_autonomous_hybrid(self, tmp_path) -> None:
         """OODA + rule_based + autonomous_hybrid runs end-to-end."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -518,13 +518,14 @@ class TestExperimentRunnerOODAIntegration:
             max_steps=50,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 50
 
-    def test_ooda_conventional_ground(self) -> None:
+    def test_ooda_conventional_ground(self, tmp_path) -> None:
         """OODA + schedule_based + conventional_ground runs end-to-end."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -553,13 +554,14 @@ class TestExperimentRunnerOODAIntegration:
             max_steps=100,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 100
 
-    def test_orient_metrics_in_results(self) -> None:
+    def test_orient_metrics_in_results(self, tmp_path) -> None:
         """OODA-specific metrics appear in collected step and episode metrics."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -584,6 +586,7 @@ class TestExperimentRunnerOODAIntegration:
             max_steps=20,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()

@@ -851,48 +851,51 @@ class TestExperimentRunnerSubsymbolic(unittest.TestCase):
 
     def test_runner_registers_subsymbolic(self):
         """The runner imports subsymbolic_eventsat, triggering @register."""
+        import tempfile
+
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
 
-        config = ExperimentConfig(
-            experiment_id="test_subsymbolic_smoke",
-            num_episodes=1,
-            max_steps=3,
-            seed=0,
-            agent_organization="sas",
-            decision_loop="sda",
-            representation="subsymbolic",
-            emergence_mode="hand_designed",
-            operations_paradigm="autonomous_hybrid",
-            representation_config={"type": "subsymbolic_eventsat", "rl_mock": True},
-            emergence_config={"mode": "hand_designed"},
-            environment={
-                "scenario": "eventsat",
-                "timestep_seconds": 60.0,
-                "constellation_size": 1,
-                "scenario_config": {
-                    "scenario_params": {
-                        "orbit": {"orbital_period_s": 5676, "eclipse_fraction": 0.36},
-                        "power": {
-                            "solar_panels": {"generation_peak_w": 24.0},
-                            "battery": {"capacity_wh": 84.0, "initial_soc": 0.8, "min_soc": 0.2},
-                            "consumption": {},
-                        },
-                        "storage": {},
-                        "communications": {"sband": {"downlink_rate_kbps": 128}},
-                        "modes": {},
-                        "payload": {},
-                    }
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            config = ExperimentConfig(
+                experiment_id="test_subsymbolic_smoke",
+                num_episodes=1,
+                max_steps=3,
+                seed=0,
+                agent_organization="sas",
+                decision_loop="sda",
+                representation="subsymbolic",
+                emergence_mode="hand_designed",
+                operations_paradigm="autonomous_hybrid",
+                representation_config={"type": "subsymbolic_eventsat", "rl_mock": True},
+                emergence_config={"mode": "hand_designed"},
+                environment={
+                    "scenario": "eventsat",
+                    "timestep_seconds": 60.0,
+                    "constellation_size": 1,
+                    "scenario_config": {
+                        "scenario_params": {
+                            "orbit": {"orbital_period_s": 5676, "eclipse_fraction": 0.36},
+                            "power": {
+                                "solar_panels": {"generation_peak_w": 24.0},
+                                "battery": {"capacity_wh": 84.0, "initial_soc": 0.8, "min_soc": 0.2},
+                                "consumption": {},
+                            },
+                            "storage": {},
+                            "communications": {"sband": {"downlink_rate_kbps": 128}},
+                            "modes": {},
+                            "payload": {},
+                        }
+                    },
                 },
-            },
-            output_dir="data/results/test_subsymbolic_smoke",
-        )
+                output_dir=tmp_dir,
+            )
 
-        runner = ExperimentRunner(config=config)
-        runner._create_decision_loops()
+            runner = ExperimentRunner(config=config)
+            runner._create_decision_loops()
 
-        from src.emergence.controller import _REPRESENTATION_REGISTRY
-        self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
+            from src.emergence.controller import _REPRESENTATION_REGISTRY
+            self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
 
 
 if __name__ == "__main__":

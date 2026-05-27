@@ -321,7 +321,7 @@ class TestConventionalGroundObservation:
 
 
 class TestConventionalGroundIntegration:
-    def test_conventional_ground_with_conventional_schedule(self):
+    def test_conventional_ground_with_conventional_schedule(self, tmp_path):
         """Human-realistic paradigm + human schedule representation: end-to-end."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -346,6 +346,7 @@ class TestConventionalGroundIntegration:
             max_steps=300,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()

@@ -214,7 +214,7 @@ class TestEventSatWithOrbitalContext:
         assert env._orbital_ctx is not None
         assert env._orbital_ctx.mode in ("simplified", "orekit")
 
-    def test_end_to_end_still_works(self):
+    def test_end_to_end_still_works(self, tmp_path):
         """Full experiment should produce same quality results."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -234,6 +234,7 @@ class TestEventSatWithOrbitalContext:
             max_steps=100,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()

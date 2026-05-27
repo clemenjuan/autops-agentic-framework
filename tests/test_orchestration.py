@@ -289,11 +289,12 @@ class TestCompareExperiments:
 
 
 class TestExperimentRunner:
-    def test_init_from_config_object(self) -> None:
+    def test_init_from_config_object(self, tmp_path: Path) -> None:
         cfg = ExperimentConfig(
             experiment_id="smoke_test",
             num_episodes=1,
             max_steps=2,
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         assert runner.config.experiment_id == "smoke_test"

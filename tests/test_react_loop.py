@@ -442,7 +442,7 @@ class TestReActIntegration:
         assert mode == "charging"
         assert loop.get_metrics()["converged"] == 1.0
 
-    def test_react_with_experiment_runner(self):
+    def test_react_with_experiment_runner(self, tmp_path):
         """Full ExperimentRunner integration with ReAct loop."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -470,13 +470,14 @@ class TestReActIntegration:
             max_steps=100,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 100
 
-    def test_react_with_schedule_based_representation(self):
+    def test_react_with_schedule_based_representation(self, tmp_path):
         """ReAct + ScheduleBasedEventSat: schedule planning reasoning + grounding."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -505,13 +506,14 @@ class TestReActIntegration:
             max_steps=200,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 200
 
-    def test_react_metrics_present_in_results(self):
+    def test_react_metrics_present_in_results(self, tmp_path):
         """ReAct-specific metrics should appear in the results."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -536,6 +538,7 @@ class TestReActIntegration:
             max_steps=10,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()

@@ -312,7 +312,7 @@ class TestConfigValidation:
 
 
 class TestExperimentRunnerIntegration:
-    def test_baseline_with_autonomous_hybrid(self):
+    def test_baseline_with_autonomous_hybrid(self, tmp_path):
         """The existing baseline should work identically with autonomous_hybrid."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -332,13 +332,14 @@ class TestExperimentRunnerIntegration:
             max_steps=100,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 100
 
-    def test_conventional_ground_with_rule_based(self):
+    def test_conventional_ground_with_rule_based(self, tmp_path):
         """Conventional ground + rule_based_eventsat should run without errors."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -358,13 +359,14 @@ class TestExperimentRunnerIntegration:
             max_steps=100,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 100
 
-    def test_conventional_ground_with_schedule_based(self):
+    def test_conventional_ground_with_schedule_based(self, tmp_path):
         """Conventional ground + schedule_based_eventsat: the intended pairing."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -385,13 +387,14 @@ class TestExperimentRunnerIntegration:
             max_steps=200,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 200
 
-    def test_autonomous_ground_with_schedule_based(self):
+    def test_autonomous_ground_with_schedule_based(self, tmp_path):
         """Autonomous ground + schedule_based_eventsat: algorithmic no-delay pairing."""
         from src.orchestration.config_loader import ExperimentConfig
         from src.orchestration.experiment_runner import ExperimentRunner
@@ -412,6 +415,7 @@ class TestExperimentRunnerIntegration:
             max_steps=200,
             save_checkpoints=False,
             log_level="WARNING",
+            output_dir=str(tmp_path),
         )
         runner = ExperimentRunner(config=cfg)
         results = runner.run()
