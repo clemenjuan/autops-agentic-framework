@@ -491,6 +491,14 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 - **File**: `src/memory/writable_memory.py`
 - **Used by**: Only `emergence_config.mechanism = "writable_coala"` configs.
+- **Wiring (source of truth)**: `ExperimentRunner._create_memory()` constructs the
+  `WritableMemory` (for `writable_coala`) or `FixedMemory` (everything else) and the
+  decision loops inject it into `DecisionContext.memory`. The representation always uses
+  `context.memory`; its own internal `_resolve_memory()` instance is only a fallback for
+  unit tests that call `select_action()` directly with no runner. (Earlier the runner
+  always injected `FixedMemory`, which silently downgraded `_lec_` to the fixed-memory
+  baseline — every write hit the `not hasattr(memory, "write_semantic_rule")` guard in
+  `agentic_tools.py` and no-oped. Fixed; regression-tested in `test_orchestration.py`.)
 - **Paper basis**: Sumers et al. (2024) [CoALA] §3 — four-memory architecture; semantic and
   episodic stores as the primary learning mechanism for language agents.
 - **Extends**: `FixedMemory` (inherits all working/task/resource slots).
@@ -550,10 +558,12 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Pre-training**: None. Memory accretion happens online at run-time.
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml`
   (prints guidance; no artifact written)
-- **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala`, creates a
-  `WritableMemory` instance, injects `memory_write_rule` + `memory_write_episode` tools
-  into the tool schema, and extends the system prompt with CoALA memory instructions.
-  The LLM can then call these tools during the Plan-Tool-Reflect-Decide loop.
+- **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala` and injects the
+  `memory_write_rule` + `memory_write_episode` tools into the tool schema and CoALA memory
+  instructions into the system prompt. The `WritableMemory` itself is built by
+  `ExperimentRunner._create_memory()` and supplied via `DecisionContext.memory` (see the
+  WritableMemory "Wiring" note above), so the LLM's write-tool calls reach a real writable
+  store during the Plan-Tool-Reflect-Decide loop.
 - **Why `agentic_eventsat` only**: The multi-step iterative reasoning loop is required for
   meaningful memory accretion within an episode. `llm_eventsat` (single-shot) lacks a
   reasoning loop and cannot meaningfully decide when to accrete rules mid-decision.

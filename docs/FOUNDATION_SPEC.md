@@ -787,7 +787,7 @@ class MetricsCollector(ABC):
 
 9. **36 new learned-emergence configs**: 12 `*_agnt_lep_*`, 12 `*_agnt_lec_*`, 12 `*_hybr_lep_*`. Grand total: 84 experiment configs.
 
-10. 552 tests across 21 modules. Trunk-based commits (no feature branches).
+10. 584 tests across 21 modules (23 skipped on LLM-only machines without the `rl` extra). Trunk-based commits (no feature branches).
 
 ***
 
@@ -1124,32 +1124,25 @@ Scenarios are implemented sequentially:
 
 ***
 
-## 12. Next Steps for AI Code Agents
+## 12. Next Steps
 
-### Immediate Actions:
+> **Resolved (Phases 1–5 complete).** The original "Immediate Actions / Awaiting
+> Researcher Input / Do NOT Implement Yet" checklist in this section was pre-Phase-1
+> planning boilerplate. All of its open questions are now decided and implemented:
+> EventSat scenario, all three decision loops (SDA / OODA / ReAct), all three
+> representations (symbolic / hybrid / subsymbolic), hand-designed + learned emergence
+> (PPO / prompt-optimized / writable-CoALA), and all three operations paradigms.
 
-1. **Review existing autops-demo structure** to understand current implementation
-2. **Create directory structure** as specified above
-3. **Define abstract base classes** for all components (no implementations yet)
-4. **Set up testing framework** with pytest
-5. **Implement configuration system** with YAML loading and validation
-6. **Create documentation templates** in `docs/`
+The active roadmap now lives outside this spec:
 
-### Awaiting Researcher Input:
+- **`docs/implementations.md`** — component registry, paper basis, per-phase test counts.
+- **The first-round LLM experiment plan** (`_hd_` baselines → `_lep_` → `_lec_`) governs
+  the current experimental sweep.
 
-1. ~~**Operational scenario selection**~~ → **decided**: EventSat, Flamingo, Space Data Centers
-2. **First decision loop choice** (which to implement first for EventSat?)
-3. **First representation choice** (symbolic | hybrid | subsymbolic?)
-4. **Hand-designed logic specifications** (rules, prompts, etc.)
-5. **EventSat-specific constraints** (visibility windows, power model, downlink budget)
-
-### Do NOT Implement Yet:
-
-- Specific decision loop implementations (wait for paper-following instructions)
-- Representation implementations (wait for specifications)
-- Metrics formulas (require theoretical development)
-- Environment scenarios (wait for scenario selection)
-- Reward functions (scenario-dependent)
+Remaining instantiation work (future phases): the Flamingo N≥3 constellation, which
+activates DecentralizedMAS / IndependentMAS / HybridMAS (currently registered but
+deferred — the experiment runner raises a clear `NotImplementedError` if one is
+selected), and the large-scale (100+) scalability study for RQ3.
 
 ***
 
