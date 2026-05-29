@@ -88,11 +88,21 @@ class TestCombinationGuardrails:
             warnings.simplefilter("error")
             self._make_cfg("sda", "autonomous_hybrid", "rule_based_eventsat")
 
-    def test_non_deterministic_rep_ground_no_warning(self) -> None:
-        """react + conventional_ground + future LLM rep → no warning."""
+    def test_non_deterministic_scheduler_ground_no_warning(self) -> None:
+        """react + conventional_ground + LLM scheduler placeholder → no warning.
+
+        The scheduler placeholders emit a schedule, so they are valid under
+        ground paradigms and (being non-deterministic family stand-ins) do not
+        trip the deterministic-rep warning.
+        """
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("error")
+            self._make_cfg("react", "conventional_ground", "llm_scheduler_eventsat")
+
+    def test_raw_llm_rep_under_ground_raises(self) -> None:
+        """A non-schedule representation under a ground paradigm is now rejected."""
+        with pytest.raises(ValueError, match="schedule-producing"):
             self._make_cfg("react", "conventional_ground", "llm_eventsat")
 
     def test_human_rep_on_autonomous_hybrid_warns(self) -> None:

@@ -190,8 +190,23 @@ class ExperimentConfig(BaseModel):
         "prompt_optimized": {"hybrid"},
         "writable_coala": {"hybrid"},
     }
-    # writable_coala additionally requires agentic_eventsat representation type
-    _WRITABLE_COALA_REPR_TYPE: ClassVar[str] = "agentic_eventsat"
+    # writable_coala additionally requires an agentic representation type — either
+    # the per-step agentic controller (AH) or its ground-paradigm scheduler stand-in.
+    _WRITABLE_COALA_REPR_TYPES: ClassVar[Set[str]] = {
+        "agentic_eventsat", "agentic_scheduler_eventsat",
+    }
+
+    # Ground paradigms (AG/CG) execute a `schedule` emitted by the representation
+    # between passes. Only these representation types emit one; pairing any other
+    # with a ground paradigm yields a degenerate "charge between passes" run.
+    _GROUND_PARADIGMS: ClassVar[Set[str]] = {"autonomous_ground", "conventional_ground"}
+    _SCHEDULE_PRODUCING_TYPES: ClassVar[Set[str]] = {
+        "schedule_based_eventsat",
+        "conventional_schedule_eventsat",
+        "subsymbolic_scheduler_eventsat",
+        "llm_scheduler_eventsat",
+        "agentic_scheduler_eventsat",
+    }
 
     # ------------------------------------------------------------------
     # Cross-dimension combination warnings
@@ -212,6 +227,25 @@ class ExperimentConfig(BaseModel):
         ops = self.operations_paradigm
         loop = self.decision_loop
         rep_type = self.representation_config.get("type", "")
+
+        # Ground paradigms execute a `schedule` emitted by the representation
+        # between passes. A representation that does not emit one degrades to
+        # "charge between every pass" — the representation barely influences the
+        # run. Fail loudly so this degenerate cell can't be created silently.
+        # Use the *_scheduler_eventsat placeholder types for non-symbolic ground
+        # cells (see src/representation/placeholder_schedulers.py).
+        if (
+            ops in self._GROUND_PARADIGMS
+            and rep_type
+            and rep_type not in self._SCHEDULE_PRODUCING_TYPES
+        ):
+            raise ValueError(
+                f"operations_paradigm='{ops}' requires a schedule-producing "
+                f"representation_config.type (one of {self._SCHEDULE_PRODUCING_TYPES}), "
+                f"got '{rep_type}'. Non-schedule representations only act during "
+                f"passes and charge between them. For non-symbolic ground cells use "
+                f"the placeholder schedulers (e.g. 'llm_scheduler_eventsat')."
+            )
 
         # Deterministic rep + ground paradigm + non-SDA loop:
         # The loop cannot improve a deterministic planner's output, and
@@ -263,11 +297,11 @@ class ExperimentConfig(BaseModel):
                 )
             if (
                 mechanism == "writable_coala"
-                and rep_type != self._WRITABLE_COALA_REPR_TYPE
+                and rep_type not in self._WRITABLE_COALA_REPR_TYPES
             ):
                 raise ValueError(
                     f"emergence_config.mechanism='writable_coala' requires "
-                    f"representation_config.type='{self._WRITABLE_COALA_REPR_TYPE}', "
+                    f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
                     f"got '{rep_type}'"
                 )
 

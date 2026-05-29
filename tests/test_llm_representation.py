@@ -535,12 +535,22 @@ class TestConfigValidation(unittest.TestCase):
             self.assertEqual(config.decision_loop, loop)
 
     def test_hybrid_with_all_ops_paradigms(self):
+        """The hybrid (LLM) family works under all paradigms via the right type.
+
+        Ground paradigms need a schedule producer, so they use the LLM scheduler
+        placeholder; AH uses the per-step llm_eventsat controller.
+        """
         from src.orchestration.config_loader import ExperimentConfig
-        for ops in ["autonomous_hybrid", "autonomous_ground", "conventional_ground"]:
+        type_for_ops = {
+            "autonomous_hybrid": "llm_eventsat",
+            "autonomous_ground": "llm_scheduler_eventsat",
+            "conventional_ground": "llm_scheduler_eventsat",
+        }
+        for ops, rep_type in type_for_ops.items():
             config = ExperimentConfig(
                 representation="hybrid",
                 operations_paradigm=ops,
-                representation_config={"type": "llm_eventsat", "llm_mock": True},
+                representation_config={"type": rep_type, "llm_mock": True},
             )
             self.assertEqual(config.operations_paradigm, ops)
 

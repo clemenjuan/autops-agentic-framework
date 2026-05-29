@@ -339,32 +339,33 @@ class TestExperimentRunnerIntegration:
         assert results["num_episodes"] == 1
         assert len(results["episodes"][0]["steps"]) == 100
 
-    def test_conventional_ground_with_rule_based(self, tmp_path):
-        """Conventional ground + rule_based_eventsat should run without errors."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+    def test_conventional_ground_with_rule_based_rejected(self, tmp_path):
+        """A non-schedule rep (rule_based) under a ground paradigm is now rejected.
 
-        cfg = ExperimentConfig(
-            experiment_id="ops_test_ground_rule",
-            agent_organization="sas",
-            decision_loop="sda",
-            representation="symbolic",
-            emergence_mode="hand_designed",
-            operations_paradigm="conventional_ground",
-            representation_config={"type": "rule_based_eventsat"},
-            environment={"constellation_size": 1, "timestep_seconds": 60,
-                         "max_steps": 100, "scenario": "eventsat",
-                         "scenario_config": {}},
-            num_episodes=1,
-            max_steps=100,
-            save_checkpoints=False,
-            log_level="WARNING",
-            output_dir=str(tmp_path),
-        )
-        runner = ExperimentRunner(config=cfg)
-        results = runner.run()
-        assert results["num_episodes"] == 1
-        assert len(results["episodes"][0]["steps"]) == 100
+        rule_based_eventsat is a per-step controller; it emits no schedule, so it
+        would degrade to 'charge between passes'. The validator blocks it — use a
+        schedule producer (see test_conventional_ground_with_schedule_based).
+        """
+        from src.orchestration.config_loader import ExperimentConfig
+
+        with pytest.raises(ValueError, match="schedule-producing"):
+            ExperimentConfig(
+                experiment_id="ops_test_ground_rule",
+                agent_organization="sas",
+                decision_loop="sda",
+                representation="symbolic",
+                emergence_mode="hand_designed",
+                operations_paradigm="conventional_ground",
+                representation_config={"type": "rule_based_eventsat"},
+                environment={"constellation_size": 1, "timestep_seconds": 60,
+                             "max_steps": 100, "scenario": "eventsat",
+                             "scenario_config": {}},
+                num_episodes=1,
+                max_steps=100,
+                save_checkpoints=False,
+                log_level="WARNING",
+                output_dir=str(tmp_path),
+            )
 
     def test_conventional_ground_with_schedule_based(self, tmp_path):
         """Conventional ground + schedule_based_eventsat: the intended pairing."""
