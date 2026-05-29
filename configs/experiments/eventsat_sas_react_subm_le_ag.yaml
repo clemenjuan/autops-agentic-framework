@@ -21,7 +21,7 @@ decision_loop_config:
   think_before_act: true
 
 representation_config:
-  type: subsymbolic_eventsat
+  type: subsymbolic_scheduler_eventsat
   rl_mock: false
   deterministic: false
   checkpoint_path: ""

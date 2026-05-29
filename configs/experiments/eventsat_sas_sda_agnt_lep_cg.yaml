@@ -32,7 +32,7 @@ decision_loop_config:
   decide_act: true
 
 representation_config:
-  type: agentic_eventsat
+  type: agentic_scheduler_eventsat
   llm_provider: auto
   llm_model: qwen3.5:122b
   openai_model: gpt-4o-mini
