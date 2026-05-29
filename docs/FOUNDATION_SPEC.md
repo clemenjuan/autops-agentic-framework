@@ -787,7 +787,7 @@ class MetricsCollector(ABC):
 
 9. **36 new learned-emergence configs**: 12 `*_agnt_lep_*`, 12 `*_agnt_lec_*`, 12 `*_hybr_lep_*`. Grand total: 84 experiment configs.
 
-10. 584 tests across 21 modules (23 skipped on LLM-only machines without the `rl` extra). Trunk-based commits (no feature branches).
+10. 609 tests across 22 modules (23 skipped on LLM-only machines without the `rl` extra). Trunk-based commits (no feature branches).
 
 ***
 

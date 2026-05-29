@@ -265,6 +265,37 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   the uncertainty of planning ahead based on stale telemetry.
 - **Operations paradigm**: Paired with `conventional_ground`.
 
+### Placeholder Schedulers — ground-paradigm stand-ins (non-symbolic AG/CG cells)
+
+- **File**: `src/representation/placeholder_schedulers.py`
+- **Registered as**: `subsymbolic_scheduler_eventsat`, `llm_scheduler_eventsat`,
+  `agentic_scheduler_eventsat`
+- **Why they exist**: The ground paradigms (`autonomous_ground`,
+  `conventional_ground`) drive between-pass behavior from a `schedule` the
+  representation emits during a pass. Only the symbolic planners
+  (`schedule_based_eventsat`, `conventional_schedule_eventsat`) emit one; the
+  per-step controllers `subsymbolic_eventsat` / `llm_eventsat` / `agentic_eventsat`
+  do not. Pairing those with a ground paradigm produced a **degenerate** run — the
+  satellite charged every inter-pass step and the representation barely influenced
+  behavior (confirmed: the entire inter-pass gap fell back to `default_mode`). For
+  CG it was worse: `process_action` forces `communication` during passes, so all
+  non-symbolic CG cells collapsed to an identical trivial trajectory.
+- **What they do (PLACEHOLDER)**: Each subclasses `ScheduleBasedEventSat` and emits
+  a real schedule via the **symbolic greedy planner** — NOT the family's actual
+  policy. `is_placeholder = True` is surfaced in
+  `results["experiment_statistics"]["metadata"]["representation_is_placeholder"]`
+  so analysis can exclude these cells from headline comparisons.
+- **Extension point (future research, "P3 — learned scheduling")**: replace each
+  placeholder with a real schedule producer — a PPO-trained scheduler
+  (`subsymbolic_scheduler_eventsat`, the deferred Phase 4.e), an LLM-generated
+  schedule (`llm_scheduler_eventsat`), and a tool-using agentic planner
+  (`agentic_scheduler_eventsat`) — to make the RL-vs-LLM scheduling comparison.
+- **Guard**: `config_loader` now **errors** if a ground paradigm is paired with a
+  non-schedule-producing representation type, so the degenerate cell cannot be
+  recreated silently. The 36 non-symbolic ground configs were rewired to these
+  placeholder types. Note: the subsymbolic ground cells no longer require `torch`
+  (they delegate to the symbolic planner).
+
 ### Subsymbolic EventSat — Phase 4b (RL learned)
 
 - **File**: `src/representation/subsymbolic_eventsat.py`
