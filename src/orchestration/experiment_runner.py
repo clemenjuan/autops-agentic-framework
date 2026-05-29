@@ -409,6 +409,16 @@ class ExperimentRunner:
         else:
             observation = None
 
+        # Capture the actual per-episode orbit + pass schedule (if the scenario
+        # exposes them) so results.json reproduces the exact simulated orbit for
+        # analysis and ground-track figures.
+        episode_orbit = None
+        episode_ground_passes = None
+        if self._environment is not None and hasattr(self._environment, "get_episode_orbit"):
+            episode_orbit = self._environment.get_episode_orbit()
+            if hasattr(self._environment, "get_ground_passes"):
+                episode_ground_passes = self._environment.get_ground_passes()
+
         if self._memory is not None:
             self._memory.reset()
 
@@ -470,6 +480,8 @@ class ExperimentRunner:
             "num_steps": len(step_data),
             "wall_clock_seconds": episode_duration,
             "episode_metrics": episode_metrics,
+            "orbital_elements": episode_orbit,
+            "ground_passes": episode_ground_passes,
             "steps": step_data,
         }
 

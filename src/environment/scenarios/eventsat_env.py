@@ -152,6 +152,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.previous_mode = "charging"
         # Misc
         self._orbital_ctx: Optional[OrbitalContext] = None
+        self._episode_orbit: Dict[str, Any] = {}
         self.active_anomaly = None
         # RL sub-actions (set in step(), initialised here for get_observation() safety)
         self._data_priority: int = 0
@@ -236,6 +237,10 @@ class EventSatEnvironment(SatelliteEnvironment):
             total_steps=self.max_steps,
             require_orekit=_orekit_available(),
         )
+        # Persist the *actual* per-episode orbit (incl. lottery draws) and the
+        # resulting pass schedule so analysis/figures reproduce the exact run
+        # without having to replay the RNG draw order. See get_episode_orbit().
+        self._episode_orbit = dict(orbit_config)
         return self.get_observation()
 
     def step(self, actions):
@@ -384,6 +389,25 @@ class EventSatEnvironment(SatelliteEnvironment):
             "total_observation_hours": self.total_observation_s / 3600.0,
             "total_downlinked_mb": self.data_downlinked_mb,
         }
+
+    def get_episode_orbit(self) -> Dict[str, Any]:
+        """Return the actual orbital elements used this episode.
+
+        Includes the launch-lottery draws (RAAN/ArgP/TA) plus the fixed
+        inclination/altitude/epoch from the scenario. Persisting these lets
+        analysis and ground-track figures reproduce the exact orbit that was
+        simulated, instead of re-deriving the RNG draw order (fragile — any
+        change to ``reset()`` draw ordering silently desyncs figures).
+        """
+        return dict(self._episode_orbit)
+
+    def get_ground_passes(self) -> List[Dict[str, Any]]:
+        """Return this episode's ground-pass schedule as serializable dicts."""
+        from dataclasses import asdict
+
+        if self._orbital_ctx is None:
+            return []
+        return [asdict(gp) for gp in self._orbital_ctx.ground_passes]
 
     def is_done(self):
         return self.current_step >= self.max_steps

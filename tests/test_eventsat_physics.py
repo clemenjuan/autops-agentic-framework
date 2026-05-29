@@ -86,6 +86,61 @@ def _make_env_with_scenario(**scenario_params):
     return env
 
 
+def _make_env_with_lottery():
+    """EventSat env with the launch lottery enabled (RAAN/ArgP/TA randomized)."""
+    config = {
+        "step_duration_s": 60,
+        "max_steps": 100,
+        "anomaly_prob": 0.0,
+        "scenario_params": {
+            "orbit": {
+                "orbital_period_s": 5676,
+                "eclipse_fraction": 0.36,
+                "altitude_km": 400.0,
+                "inclination_deg": 97.4,
+                "launch_lottery": True,
+            },
+            "communications": {
+                "sband": {"downlink_rate_kbps": 128},
+                "passes": {"daily_downlink_budget_mb": 27.0},
+            },
+        },
+    }
+    return EventSatEnvironment(config=config)
+
+
+class TestEpisodeOrbitPersistence:
+    """The env exposes the actual per-episode orbit + pass schedule."""
+
+    def test_records_lottery_draws(self):
+        env = _make_env_with_lottery()
+        env.reset(seed=7)
+        orbit = env.get_episode_orbit()
+        for k in ("raan_deg", "arg_perigee_deg", "true_anomaly_deg"):
+            assert k in orbit
+            assert 0.0 <= orbit[k] <= 360.0
+
+    def test_deterministic_per_seed(self):
+        env = _make_env_with_lottery()
+        env.reset(seed=7)
+        a = env.get_episode_orbit()["raan_deg"]
+        env.reset(seed=7)
+        b = env.get_episode_orbit()["raan_deg"]
+        env.reset(seed=8)
+        c = env.get_episode_orbit()["raan_deg"]
+        assert a == b  # same seed → same orbit
+        assert a != c  # different seed → different orbit
+
+    def test_ground_passes_serializable(self):
+        env = _make_env_with_lottery()
+        env.reset(seed=7)
+        passes = env.get_ground_passes()
+        assert isinstance(passes, list)
+        for gp in passes:
+            assert isinstance(gp, dict)
+            assert "start_step" in gp and "end_step" in gp
+
+
 # -----------------------------------------------------------------
 # P1: Multi-step compression pipeline
 # -----------------------------------------------------------------
