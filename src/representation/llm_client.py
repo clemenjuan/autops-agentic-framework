@@ -115,8 +115,12 @@ class LLMClient:
             "LLM [%s] response: %.500s", self._last_provider, response[:500]
         )
 
-        # Cache the response (with prompts for debugging)
-        self._cache_put(cache_key, response, system_prompt, user_prompt)
+        # Cache the response (with prompts for debugging). Never cache an
+        # empty/whitespace-only response: a poisoned cache is the worst
+        # failure mode (silent and permanent) since every identical prompt
+        # would thereafter return "" without re-hitting the provider.
+        if response and response.strip():
+            self._cache_put(cache_key, response, system_prompt, user_prompt)
         return response
 
     def get_metrics(self) -> Dict[str, float]:
@@ -208,14 +212,63 @@ class LLMClient:
     def _call_ollama(
         self, system_prompt: str, user_prompt: str, temperature: float, json_mode: bool
     ) -> str:
-        """Call Ollama API.
+        """Call Ollama API with a hard wall-clock timeout enforced from the
+        outside.
 
-        Uses HTTP streaming (``stream: true``) by default so the gateway in
-        front of the TUM Ollama VM sees continuous activity and does not
-        return 504. The final assembled content is returned to callers
-        exactly as if the call had been non-streaming. Set
-        ``llm_stream: false`` in the representation config to fall back to
-        the legacy non-streaming path.
+        The TUM Ollama gateway can keep an HTTPS streaming connection
+        open indefinitely while emitting no chunks. requests/urllib3's
+        ``timeout=`` does not enforce per-recv reads under
+        ``stream=True``, and shutting down the underlying socket from
+        another thread does not unblock a blocked SSL read. The only
+        reliable escape is to run the HTTP call in a daemon worker
+        thread and give up from the calling thread via a bounded
+        ``queue.Queue.get(timeout=...)``.
+
+        On timeout a RuntimeError is raised so the retry loop in
+        ``_call_with_failover`` fires. The worker thread cannot be
+        interrupted mid-read, so it is abandoned: it is a daemon (dies
+        at process exit) and writes only to a local queue, so it touches
+        no shared state after we move on. The number of simultaneously
+        abandoned workers per call site is bounded by ``llm_retries``
+        (default 8); they unwind as the dead gateway connections finally
+        error out or the process exits.
+        """
+        import queue
+        import threading
+
+        hard_timeout_s = self.config.get("llm_hard_timeout_s", 120)
+
+        result_q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+
+        def _worker() -> None:
+            try:
+                out = self._call_ollama_inner(
+                    system_prompt, user_prompt, temperature, json_mode
+                )
+                result_q.put(("ok", out))
+            except Exception as e:  # noqa: BLE001
+                result_q.put(("err", e))
+
+        t = threading.Thread(target=_worker, daemon=True, name="ollama-call")
+        t.start()
+        try:
+            status, payload = result_q.get(timeout=hard_timeout_s)
+        except queue.Empty:
+            raise RuntimeError(
+                f"Ollama call exceeded hard timeout of {hard_timeout_s}s "
+                f"(worker thread abandoned)"
+            )
+        if status == "ok":
+            return payload
+        raise payload
+
+    def _call_ollama_inner(
+        self, system_prompt: str, user_prompt: str, temperature: float, json_mode: bool
+    ) -> str:
+        """Actual HTTP call (streaming by default). Runs in a worker thread.
+
+        Set ``llm_stream: false`` to fall back to the legacy
+        non-streaming path.
         """
         import requests
 
@@ -233,32 +286,28 @@ class LLMClient:
         if json_mode:
             payload["format"] = "json"
 
-        # Separate connect (fast fail if server unreachable) vs read (slow for large models)
         connect_timeout = self.config.get("llm_connect_timeout", 15)
-        read_timeout = self.config.get("llm_timeout", 600)
+        # Best-effort socket-level read timeout. Not relied on for hang
+        # detection — the outer worker-thread wrapper in _call_ollama is
+        # the real escape hatch.
+        read_timeout = self.config.get("llm_timeout", 90)
 
         if not stream:
-            resp = requests.post(url, json=payload, timeout=(connect_timeout, read_timeout))
+            resp = requests.post(
+                url, json=payload, timeout=(connect_timeout, read_timeout)
+            )
             resp.raise_for_status()
             data = resp.json()
             if "eval_count" in data:
                 self._total_completion_tokens += data["eval_count"]
             if "prompt_eval_count" in data:
                 self._total_prompt_tokens += data["prompt_eval_count"]
-            return data["message"]["content"]
+            content = data["message"]["content"]
+            if not content:
+                raise RuntimeError("Ollama non-streaming response empty")
+            return content
 
-        # Streaming path: accumulate message.content chunks until done.
-        # A watchdog thread shuts down the underlying socket if no chunk
-        # arrives within ``llm_chunk_silence_s`` seconds. requests' own
-        # timeout argument only covers connect + initial response under
-        # stream=True (per requests docs), so without this, a silent
-        # gateway connection blocks iter_lines indefinitely.
-        # resp.close() from another thread does NOT reliably interrupt a
-        # blocked recv() — we have to shutdown the socket directly.
-        import socket as _socket
-        import threading
-
-        chunk_silence_s = self.config.get("llm_chunk_silence_s", 75)
+        # Streaming path
         content_parts: List[str] = []
         eval_count = 0
         prompt_eval_count = 0
@@ -266,84 +315,35 @@ class LLMClient:
             url, json=payload, timeout=(connect_timeout, read_timeout), stream=True
         ) as resp:
             resp.raise_for_status()
-
-            def _underlying_sock() -> Optional[Any]:
-                # requests.Response.raw is a urllib3.HTTPResponse;
-                # ._fp is the http.client.HTTPResponse; .fp is the
-                # socket file; ._sock is the actual socket.
+            for raw in resp.iter_lines(decode_unicode=True):
+                if not raw:
+                    continue
                 try:
-                    return resp.raw._fp.fp.raw._sock  # type: ignore[attr-defined]
-                except AttributeError:
-                    try:
-                        return resp.raw._fp.fp._sock  # type: ignore[attr-defined]
-                    except AttributeError:
-                        return None
-
-            last_chunk_at = [time.time()]
-            watchdog_stop = threading.Event()
-            aborted_by_watchdog = [False]
-
-            def _watchdog() -> None:
-                while not watchdog_stop.wait(5):
-                    if time.time() - last_chunk_at[0] > chunk_silence_s:
-                        aborted_by_watchdog[0] = True
-                        sock = _underlying_sock()
-                        if sock is not None:
-                            try:
-                                sock.shutdown(_socket.SHUT_RDWR)
-                            except OSError:
-                                pass
-                        try:
-                            resp.close()
-                        except Exception:  # noqa: BLE001
-                            pass
-                        return
-
-            wd = threading.Thread(target=_watchdog, daemon=True)
-            wd.start()
-            try:
-                for raw in resp.iter_lines(decode_unicode=True):
-                    last_chunk_at[0] = time.time()
-                    if not raw:
-                        continue
-                    try:
-                        chunk = json.loads(raw)
-                    except json.JSONDecodeError:
-                        continue
-                    message = chunk.get("message") or {}
-                    content_parts.append(message.get("content", ""))
-                    if chunk.get("done"):
-                        eval_count = chunk.get("eval_count", 0)
-                        prompt_eval_count = chunk.get("prompt_eval_count", 0)
-                        break
-            except Exception as e:
-                if aborted_by_watchdog[0]:
-                    raise RuntimeError(
-                        f"Ollama streaming aborted after {chunk_silence_s}s "
-                        f"of silence (no chunks from gateway)"
-                    ) from e
-                raise
-            finally:
-                watchdog_stop.set()
-                wd.join(timeout=1)
-
-        if aborted_by_watchdog[0]:
-            raise RuntimeError(
-                f"Ollama streaming aborted after {chunk_silence_s}s of "
-                f"silence (no chunks from gateway)"
-            )
-
-        if not content_parts or (eval_count == 0 and prompt_eval_count == 0 and not any(content_parts)):
-            raise RuntimeError(
-                f"Ollama streaming response empty or aborted after "
-                f"{chunk_silence_s}s of silence"
-            )
+                    chunk = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                message = chunk.get("message") or {}
+                content_parts.append(message.get("content", ""))
+                if chunk.get("done"):
+                    eval_count = chunk.get("eval_count", 0)
+                    prompt_eval_count = chunk.get("prompt_eval_count", 0)
+                    break
 
         if eval_count:
             self._total_completion_tokens += eval_count
         if prompt_eval_count:
             self._total_prompt_tokens += prompt_eval_count
-        return "".join(content_parts)
+
+        content = "".join(content_parts)
+        # Guard against a silently-aborted stream (zero chunks / no tokens).
+        # Returning "" here would let _call_with_failover treat it as a
+        # success and poison the response cache permanently. Raise so the
+        # retry/backoff loop fires instead.
+        if not content and eval_count == 0 and prompt_eval_count == 0:
+            raise RuntimeError(
+                "Ollama streaming response empty (no chunks from gateway)"
+            )
+        return content
 
     def _call_openai(
         self, system_prompt: str, user_prompt: str, temperature: float, json_mode: bool

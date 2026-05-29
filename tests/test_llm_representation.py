@@ -6,6 +6,8 @@ All tests use mock mode (no live LLM calls) to ensure CI compatibility.
 from __future__ import annotations
 
 import json
+import tempfile
+import time
 import unittest
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -106,6 +108,62 @@ class TestLLMClient(unittest.TestCase):
         k1 = c1._cache_key("sys", "prompt", 0.0)
         k2 = c2._cache_key("sys", "prompt", 0.0)
         self.assertNotEqual(k1, k2)
+
+    def test_empty_response_not_cached(self):
+        """An empty provider response must never poison the cache.
+
+        Regression guard: a silently-aborted Ollama stream used to return ""
+        which was then cached, so every identical prompt thereafter returned
+        "" without re-hitting the provider.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            client = LLMClient({"llm_mock": False, "llm_cache_dir": tmp})
+            with patch.object(client, "_call_with_failover", return_value=""):
+                result = client.generate("system", "user prompt")
+            self.assertEqual(result, "")
+            # Nothing should have been written to the (model-namespaced) cache.
+            cached_files = list(client.cache_dir.glob("*.json"))
+            self.assertEqual(cached_files, [])
+
+    def test_streaming_empty_stream_raises(self):
+        """_call_ollama_inner raises (not returns "") when the stream is silent."""
+        try:
+            import requests  # noqa: F401
+        except ImportError:
+            self.skipTest("requests not installed (--extra llm)")
+
+        class _FakeStreamResp:
+            def __enter__(self_inner):
+                return self_inner
+
+            def __exit__(self_inner, *exc):
+                return False
+
+            def raise_for_status(self_inner):
+                pass
+
+            def iter_lines(self_inner, decode_unicode=False):
+                return iter([])  # gateway emitted zero chunks
+
+        client = LLMClient({"llm_mock": False, "llm_cache_dir": tempfile.mkdtemp()})
+        with patch("requests.post", return_value=_FakeStreamResp()):
+            with self.assertRaises(RuntimeError):
+                client._call_ollama_inner("system", "user", 0.0, False)
+
+    def test_hard_timeout_raises(self):
+        """_call_ollama abandons a hung worker and raises after the wall-clock."""
+        client = LLMClient(
+            {"llm_mock": False, "llm_cache_dir": tempfile.mkdtemp(), "llm_hard_timeout_s": 0.2}
+        )
+
+        def _hang(*args, **kwargs):
+            time.sleep(1.0)
+            return "late"
+
+        with patch.object(client, "_call_ollama_inner", side_effect=_hang):
+            with self.assertRaises(RuntimeError) as ctx:
+                client._call_ollama("system", "user", 0.0, False)
+        self.assertIn("hard timeout", str(ctx.exception))
 
 
 # ======================================================================
