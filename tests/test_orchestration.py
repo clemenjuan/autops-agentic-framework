@@ -148,6 +148,19 @@ class TestEmergenceMechanism:
         with pytest.raises(ValueError, match="mechanism"):
             self._make_learned("subsymbolic", "subsymbolic_eventsat", "neural_evolution")
 
+    def test_explicit_hand_designed_mechanism_accepted(self) -> None:
+        """`mechanism: hand_designed` is accepted as 'no learned mechanism'."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(
+                representation="symbolic",
+                representation_config={"type": "rule_based_eventsat"},
+                emergence_mode="hand_designed",
+                emergence_config={"mode": "hand_designed", "mechanism": "hand_designed"},
+            )
+        assert cfg.emergence_config["mechanism"] == "hand_designed"
+
     def test_ppo_with_hybrid_raises(self) -> None:
         with pytest.raises(ValueError, match="mechanism.*ppo"):
             self._make_learned("hybrid", "llm_eventsat", "ppo")
@@ -318,3 +331,60 @@ class TestExperimentRunner:
         assert results["num_episodes"] == 1
         assert (tmp_path / "results" / "results.json").exists()
         assert (tmp_path / "results" / "config.json").exists()
+
+
+class TestRunnerMemoryWiring:
+    """Regression: the runner is the source of truth for the memory object.
+
+    writable_coala (``_lec_``) configs must receive a WritableMemory, otherwise
+    every CoALA memory write silently no-ops against a FixedMemory and the arm
+    becomes indistinguishable from the fixed-memory baseline.
+    """
+
+    def test_writable_coala_gets_writable_memory(self, tmp_path: Path) -> None:
+        from src.memory.writable_memory import WritableMemory
+
+        cfg = ExperimentConfig(
+            experiment_id="lec_mem",
+            num_episodes=1,
+            max_steps=2,
+            output_dir=str(tmp_path),
+            representation="hybrid",
+            representation_config={"type": "agentic_eventsat"},
+            emergence_mode="learned",
+            emergence_config={"mode": "learned", "mechanism": "writable_coala"},
+        )
+        runner = ExperimentRunner(config=cfg)
+        mem = runner._create_memory()
+        assert isinstance(mem, WritableMemory)
+        assert hasattr(mem, "write_semantic_rule")
+
+    def test_default_gets_fixed_memory(self, tmp_path: Path) -> None:
+        cfg = ExperimentConfig(
+            experiment_id="hd_mem",
+            num_episodes=1,
+            max_steps=2,
+            output_dir=str(tmp_path),
+        )
+        runner = ExperimentRunner(config=cfg)
+        mem = runner._create_memory()
+        assert isinstance(mem, FixedMemory)
+
+
+class TestDeferredOrganizationGuard:
+    """Deferred MAS variants must fail early with an actionable message."""
+
+    @pytest.mark.parametrize(
+        "org", ["decentralized_mas", "independent_mas", "hybrid_mas"]
+    )
+    def test_deferred_org_raises_not_implemented(self, org: str, tmp_path: Path) -> None:
+        cfg = ExperimentConfig(
+            experiment_id=f"deferred_{org}",
+            num_episodes=1,
+            max_steps=2,
+            output_dir=str(tmp_path),
+            agent_organization=org,
+        )
+        runner = ExperimentRunner(config=cfg)
+        with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
+            runner._create_organization()
