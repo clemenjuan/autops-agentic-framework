@@ -14,6 +14,7 @@ import pytest
 
 from src.orchestration.animation import (
     _ground_station_footprint_deg,
+    _orbit_from_results,
     _propagate_keplerian,
     _reconstruct_orbital_elements,
 )
@@ -44,6 +45,29 @@ _SCENARIO = {
 
 _SEED = 42
 _EP = 0
+
+
+class TestOrbitFromResults:
+    """Persisted orbital elements are preferred over RNG reconstruction."""
+
+    def test_prefers_persisted_elements(self):
+        results = {
+            "episodes": [
+                {"episode_id": 0, "orbital_elements": {"raan_deg": 123.4}},
+                {"episode_id": 1, "orbital_elements": {"raan_deg": 250.0}},
+            ]
+        }
+        assert _orbit_from_results(results, 1) == {"raan_deg": 250.0}
+
+    def test_returns_none_for_old_results(self):
+        # Episode present but no persisted elements (pre-persistence run).
+        assert _orbit_from_results({"episodes": [{"episode_id": 0}]}, 0) is None
+        # No episodes at all.
+        assert _orbit_from_results({}, 0) is None
+        # Empty / null orbital_elements.
+        assert _orbit_from_results(
+            {"episodes": [{"episode_id": 0, "orbital_elements": None}]}, 0
+        ) is None
 
 
 class TestReconstructOrbitalElements:

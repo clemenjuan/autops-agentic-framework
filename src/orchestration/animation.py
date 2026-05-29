@@ -71,6 +71,23 @@ _DEFAULT_EPOCH = datetime(2026, 6, 1, tzinfo=timezone.utc)
 # Orbit reconstruction
 # ---------------------------------------------------------------------------
 
+def _orbit_from_results(
+    results_raw: Dict[str, Any],
+    episode_id: int,
+) -> Optional[Dict[str, Any]]:
+    """Return the orbital elements persisted for ``episode_id``, if present.
+
+    Reads ``results["episodes"][i]["orbital_elements"]`` (written by the
+    experiment runner). Returns ``None`` for older results that predate
+    orbital-element persistence, so the caller can fall back to RNG replay.
+    """
+    for ep in results_raw.get("episodes", []) or []:
+        if ep.get("episode_id") == episode_id:
+            orbit = ep.get("orbital_elements")
+            return dict(orbit) if orbit else None
+    return None
+
+
 def _reconstruct_orbital_elements(
     scenario_config: Dict[str, Any],
     experiment_seed: int,
@@ -335,7 +352,18 @@ def animate_ground_track(
             with open(p) as f:
                 scenario_config = yaml.safe_load(f) or {}
 
-    orbit = _reconstruct_orbital_elements(scenario_config, experiment_seed, episode_id)
+    # Prefer the orbital elements persisted with the run (faithful to the exact
+    # simulated orbit). Fall back to replaying the RNG draw order only for older
+    # results that predate orbital-element persistence.
+    orbit = _orbit_from_results(results_raw, episode_id)
+    if orbit is None:
+        orbit = _reconstruct_orbital_elements(scenario_config, experiment_seed, episode_id)
+    elif scenario_config:
+        # Backfill fixed fields (altitude/inclination/epoch) the persisted dict
+        # may omit, without overwriting the persisted lottery draws.
+        merged = dict(scenario_config.get("orbit", {}))
+        merged.update(orbit)
+        orbit = merged
     gs = scenario_config.get("communications", {}).get("ground_station", {})
     gs_lat: float = gs.get("latitude_deg", 48.0483)
     gs_lon: float = gs.get("longitude_deg", 11.6567)
