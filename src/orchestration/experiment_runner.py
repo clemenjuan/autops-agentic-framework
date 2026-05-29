@@ -226,11 +226,26 @@ class ExperimentRunner:
         return None
 
     def _create_memory(self) -> Any:
-        """Factory for the fixed memory system.
+        """Factory for the agent memory system.
+
+        Returns a ``WritableMemory`` for ``writable_coala`` (``_lec_``)
+        configs and a ``FixedMemory`` for everything else. This runner is
+        the single source of truth for the memory object — it is injected
+        into every ``DecisionContext`` by the decision loops, so the
+        representations' own internal memory is only a fallback. See the
+        "Memory invariant" exception in CLAUDE.md: the writable semantic +
+        episodic stores persist across episodes within a run (``reset()``
+        deliberately keeps them) to enable CoALA learning.
 
         Returns:
-            An initialised ``FixedMemory`` instance.
+            An initialised ``WritableMemory`` or ``FixedMemory`` instance.
         """
+        mechanism = self.config.emergence_config.get("mechanism")
+        if mechanism == "writable_coala":
+            from src.memory.writable_memory import WritableMemory
+
+            return WritableMemory(config=self.config.memory_config)
+
         from src.memory.fixed_memory import FixedMemory
 
         return FixedMemory(config=self.config.memory_config)

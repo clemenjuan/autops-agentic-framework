@@ -249,8 +249,10 @@ class AgenticEventSat(Representation):
         enrichments = context.enrichments
         memory = context.memory
 
-        # For writable_coala: use the instance-level WritableMemory if the
-        # runner did not supply one via DecisionContext.
+        # For writable_coala the ExperimentRunner is the source of truth: it
+        # builds a WritableMemory and injects it via DecisionContext.memory.
+        # This instance-level fallback only fires when there is no runner
+        # (e.g. unit tests that call select_action directly with no memory).
         if self._mechanism == "writable_coala" and memory is None:
             memory = self._memory
 
