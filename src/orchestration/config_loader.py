@@ -242,8 +242,13 @@ class ExperimentConfig(BaseModel):
                 stacklevel=2,
             )
 
-        # Validate learned-emergence mechanism if specified
+        # Validate learned-emergence mechanism if specified.
+        # "hand_designed" is accepted as an explicit "no learned mechanism"
+        # marker (CLAUDE.md lists it as a valid mechanism value); it carries
+        # no representation constraints, so treat it like an unset mechanism.
         mechanism = self.emergence_config.get("mechanism")
+        if mechanism == "hand_designed":
+            mechanism = None
         if mechanism is not None:
             if mechanism not in self.VALID_MECHANISMS:
                 raise ValueError(
