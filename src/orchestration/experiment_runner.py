@@ -304,6 +304,7 @@ class ExperimentRunner:
         import src.representation.llm_eventsat  # register LLM hybrid representation
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
+        import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
         emergence = EmergenceController(config=self.config.emergence_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
@@ -729,6 +730,12 @@ class ExperimentRunner:
                 "representation": self.config.representation,
                 "emergence_mode": self.config.emergence_mode,
                 "operations_paradigm": self.config.operations_paradigm,
+                # Flag placeholder schedule-producers (ground-paradigm stand-ins)
+                # so analysis can exclude them from headline comparisons until the
+                # real RL/LLM schedulers land (see placeholder_schedulers.py).
+                "representation_is_placeholder": bool(
+                    getattr(self._representation, "is_placeholder", False)
+                ),
             }
             experiment_statistics = stats
 
