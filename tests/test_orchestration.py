@@ -398,3 +398,68 @@ class TestDeferredOrganizationGuard:
         runner = ExperimentRunner(config=cfg)
         with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
             runner._create_organization()
+
+
+class TestMatrixRestructureNaming:
+    """New axis names + action_space semantics; legacy aliases during migration."""
+
+    def test_new_field_names(self) -> None:
+        cfg = ExperimentConfig(decision_procedure="ooda", behaviour="emergent",
+                               representation="subsymbolic",
+                               representation_config={"type": "subsymbolic_eventsat"},
+                               behaviour_config={"mechanism": "ppo"})
+        assert cfg.decision_procedure == "ooda"
+        assert cfg.behaviour == "emergent"
+
+    def test_legacy_aliases_still_load(self) -> None:
+        cfg = ExperimentConfig(decision_loop="react", emergence_mode="hand_designed",
+                               decision_loop_config={"x": 1}, emergence_config={"y": 2})
+        # legacy input keys map onto canonical fields...
+        assert cfg.decision_procedure == "react"
+        assert cfg.behaviour == "hand_designed"
+        assert cfg.decision_procedure_config == {"x": 1}
+        # ...and legacy read-properties still resolve
+        assert cfg.decision_loop == "react"
+        assert cfg.emergence_mode == "hand_designed"
+        assert cfg.emergence_config == {"y": 2}
+
+    def test_action_space_valid(self) -> None:
+        cfg = ExperimentConfig(representation="hybrid",
+                               representation_config={"type": "agentic_eventsat",
+                                                      "action_space": "agentic"})
+        assert cfg.action_space == "agentic"
+
+    def test_action_space_invalid_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="action_space"):
+            ExperimentConfig(representation="hybrid",
+                             representation_config={"action_space": "reflexive"})
+
+    def test_agentic_requires_hybrid(self) -> None:
+        with pytest.raises(ValueError, match="agentic.*hybrid"):
+            ExperimentConfig(representation="subsymbolic",
+                             representation_config={"action_space": "agentic"})
+
+    def test_action_space_must_agree_with_type(self) -> None:
+        with pytest.raises(ValueError, match="reactive.*action_space"):
+            ExperimentConfig(representation="hybrid",
+                             representation_config={"type": "llm_eventsat",
+                                                    "action_space": "agentic"})
+
+    def test_action_space_derived_from_type_when_absent(self) -> None:
+        assert ExperimentConfig(representation="hybrid",
+                                representation_config={"type": "llm_eventsat"}).action_space == "reactive"
+        assert ExperimentConfig(representation="hybrid",
+                                representation_config={"type": "agentic_eventsat"}).action_space == "agentic"
+        assert ExperimentConfig(representation="symbolic",
+                                representation_config={"type": "rule_based_eventsat"}).action_space is None
+
+    def test_writable_coala_requires_agentic_action_space(self) -> None:
+        import warnings
+        # agentic type + agentic action_space + writable_coala is valid
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation="hybrid", behaviour="emergent",
+                                   representation_config={"type": "agentic_eventsat",
+                                                          "action_space": "agentic"},
+                                   behaviour_config={"mechanism": "writable_coala"})
+        assert cfg.behaviour_config["mechanism"] == "writable_coala"

@@ -16,7 +16,14 @@ from typing import Any, ClassVar, Dict, List, Optional, Set
 import yaml
 import warnings
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 # ======================================================================
@@ -77,6 +84,10 @@ class ExperimentConfig(BaseModel):
     captured here.
     """
 
+    # Accept both the canonical field name and the legacy alias on input
+    # (see validation_alias below); legacy aliases removed after migration.
+    model_config = ConfigDict(populate_by_name=True)
+
     # Identification
     experiment_id: str = Field(default="exp_unnamed")
     description: str = Field(default="")
@@ -86,16 +97,28 @@ class ExperimentConfig(BaseModel):
 
     # Morphological matrix dimensions
     agent_organization: str = Field(default="sas")
-    decision_loop: str = Field(default="sda")
+    decision_procedure: str = Field(
+        default="sda",
+        validation_alias=AliasChoices("decision_procedure", "decision_loop"),
+    )
     representation: str = Field(default="symbolic")
-    emergence_mode: str = Field(default="hand_designed")
+    behaviour: str = Field(
+        default="hand_designed",
+        validation_alias=AliasChoices("behaviour", "emergence_mode"),
+    )
     operations_paradigm: str = Field(default="autonomous_hybrid")
 
     # Component-specific sub-configs
     agent_organization_config: Dict[str, Any] = Field(default_factory=dict)
-    decision_loop_config: Dict[str, Any] = Field(default_factory=dict)
+    decision_procedure_config: Dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("decision_procedure_config", "decision_loop_config"),
+    )
     representation_config: Dict[str, Any] = Field(default_factory=dict)
-    emergence_config: Dict[str, Any] = Field(default_factory=dict)
+    behaviour_config: Dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias=AliasChoices("behaviour_config", "emergence_config"),
+    )
     operations_paradigm_config: Dict[str, Any] = Field(default_factory=dict)
 
     # Environment
@@ -127,7 +150,9 @@ class ExperimentConfig(BaseModel):
         "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
     }
     VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
-    VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
+    # "learned" is the deprecated spelling of "emergent" (accepted during migration).
+    VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent", "learned"}
+    VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
         "autonomous_hybrid", "autonomous_ground", "conventional_ground",
     }
@@ -151,12 +176,12 @@ class ExperimentConfig(BaseModel):
             )
         return v
 
-    @field_validator("emergence_mode")
+    @field_validator("behaviour")
     @classmethod
-    def _validate_emergence_mode(cls, v: str) -> str:
-        if v not in cls.VALID_EMERGENCE_MODES:
+    def _validate_behaviour(cls, v: str) -> str:
+        if v not in cls.VALID_BEHAVIOURS:
             raise ValueError(
-                f"emergence_mode must be one of {cls.VALID_EMERGENCE_MODES}, got '{v}'"
+                f"behaviour must be one of {cls.VALID_BEHAVIOURS}, got '{v}'"
             )
         return v
 
@@ -196,6 +221,12 @@ class ExperimentConfig(BaseModel):
         "agentic_eventsat", "agentic_scheduler_eventsat",
     }
 
+    # Action-space flavor of hybrid representation types (reactive vs agentic).
+    _REACTIVE_REPR_TYPES: ClassVar[Set[str]] = {"llm_eventsat", "llm_scheduler_eventsat"}
+    _AGENTIC_REPR_TYPES: ClassVar[Set[str]] = {
+        "agentic_eventsat", "agentic_scheduler_eventsat",
+    }
+
     # Ground paradigms (AG/CG) execute a `schedule` emitted by the representation
     # between passes. Only these representation types emit one; pairing any other
     # with a ground paradigm yields a degenerate "charge between passes" run.
@@ -225,8 +256,33 @@ class ExperimentConfig(BaseModel):
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
         """Warn about dimension triples that are degenerate given current representations."""
         ops = self.operations_paradigm
-        loop = self.decision_loop
+        loop = self.decision_procedure
         rep_type = self.representation_config.get("type", "")
+
+        # Action space (hybrid-only flavor: reactive vs agentic). Optional during
+        # migration; validated when present and must agree with substrate + type.
+        action_space = self.representation_config.get("action_space")
+        if action_space is not None:
+            if action_space not in self.VALID_ACTION_SPACES:
+                raise ValueError(
+                    f"representation_config.action_space must be one of "
+                    f"{self.VALID_ACTION_SPACES}, got '{action_space}'"
+                )
+            if action_space == "agentic" and self.representation != "hybrid":
+                raise ValueError(
+                    f"action_space='agentic' requires representation='hybrid', "
+                    f"got '{self.representation}'"
+                )
+            if rep_type in self._REACTIVE_REPR_TYPES and action_space != "reactive":
+                raise ValueError(
+                    f"representation_config.type='{rep_type}' is reactive but "
+                    f"action_space='{action_space}'"
+                )
+            if rep_type in self._AGENTIC_REPR_TYPES and action_space != "agentic":
+                raise ValueError(
+                    f"representation_config.type='{rep_type}' is agentic but "
+                    f"action_space='{action_space}'"
+                )
 
         # Ground paradigms execute a `schedule` emitted by the representation
         # between passes. A representation that does not emit one degrades to
@@ -280,7 +336,7 @@ class ExperimentConfig(BaseModel):
         # "hand_designed" is accepted as an explicit "no learned mechanism"
         # marker (CLAUDE.md lists it as a valid mechanism value); it carries
         # no representation constraints, so treat it like an unset mechanism.
-        mechanism = self.emergence_config.get("mechanism")
+        mechanism = self.behaviour_config.get("mechanism")
         if mechanism == "hand_designed":
             mechanism = None
         if mechanism is not None:
@@ -295,25 +351,30 @@ class ExperimentConfig(BaseModel):
                     f"emergence_config.mechanism='{mechanism}' is only valid with "
                     f"representation in {allowed_reps}, got '{self.representation}'"
                 )
-            if (
-                mechanism == "writable_coala"
-                and rep_type not in self._WRITABLE_COALA_REPR_TYPES
-            ):
-                raise ValueError(
-                    f"emergence_config.mechanism='writable_coala' requires "
-                    f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
-                    f"got '{rep_type}'"
-                )
+            if mechanism == "writable_coala":
+                if rep_type not in self._WRITABLE_COALA_REPR_TYPES:
+                    raise ValueError(
+                        f"behaviour_config.mechanism='writable_coala' requires "
+                        f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
+                        f"got '{rep_type}'"
+                    )
+                # emergent·memory is gated by the agentic action space (writing is
+                # an action). If action_space is declared it must be agentic.
+                if action_space is not None and action_space != "agentic":
+                    raise ValueError(
+                        "behaviour_config.mechanism='writable_coala' requires "
+                        f"action_space='agentic', got '{action_space}'"
+                    )
 
-        # Warn if learned hybrid config has no mechanism
+        # Warn if emergent hybrid config has no mechanism
         if (
-            self.emergence_mode == "learned"
+            self.behaviour in ("learned", "emergent")
             and self.representation == "hybrid"
             and mechanism is None
         ):
             warnings.warn(
-                f"emergence_mode='learned' with representation='hybrid' but no "
-                f"emergence_config.mechanism specified. Set mechanism to "
+                f"behaviour='{self.behaviour}' with representation='hybrid' but no "
+                f"behaviour_config.mechanism specified. Set mechanism to "
                 f"'prompt_optimized' or 'writable_coala'. Defaulting to "
                 f"prompt_optimized behaviour at runtime.",
                 stacklevel=2,
@@ -329,6 +390,42 @@ class ExperimentConfig(BaseModel):
             )
 
         return self
+
+    # ------------------------------------------------------------------
+    # Backward-compat read aliases for legacy attribute names.
+    # YAML/keyword input aliases are handled by validation_alias above;
+    # these cover Python attribute access (config.decision_loop, ...).
+    # Removed in Stage 4 of the matrix-restructure migration.
+    # ------------------------------------------------------------------
+
+    @property
+    def decision_loop(self) -> str:
+        return self.decision_procedure
+
+    @property
+    def decision_loop_config(self) -> Dict[str, Any]:
+        return self.decision_procedure_config
+
+    @property
+    def emergence_mode(self) -> str:
+        return self.behaviour
+
+    @property
+    def emergence_config(self) -> Dict[str, Any]:
+        return self.behaviour_config
+
+    @property
+    def action_space(self) -> Optional[str]:
+        """Resolved action-space flavor: explicit config value, else derived from type."""
+        explicit = self.representation_config.get("action_space")
+        if explicit is not None:
+            return explicit
+        rep_type = self.representation_config.get("type", "")
+        if rep_type in self._REACTIVE_REPR_TYPES:
+            return "reactive"
+        if rep_type in self._AGENTIC_REPR_TYPES:
+            return "agentic"
+        return None
 
 
 # ======================================================================
