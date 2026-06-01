@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.decision_loop.ooda_loop import (
+from src.decision_procedure.ooda_loop import (
     SITUATION_ANOMALY,
     SITUATION_BATTERY_CRITICAL,
     SITUATION_DATA_PIPELINE,
@@ -22,7 +22,7 @@ from src.decision_loop.ooda_loop import (
     SITUATION_STORAGE_CRITICAL,
     OODALoop,
 )
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.memory.fixed_memory import FixedMemory
 from src.representation.base import Representation
 

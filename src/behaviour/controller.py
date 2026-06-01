@@ -46,7 +46,7 @@ def register(name: str) -> Any:
     return _decorator
 
 
-class EmergenceController:
+class BehaviourController:
     """Factory for creating representation modules based on emergence mode.
 
     The controller reads the experiment configuration and returns the

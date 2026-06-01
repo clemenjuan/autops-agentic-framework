@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## What this is
-PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **5D morphological matrix**: Organization × Decision Loop × Representation × Emergence × Operations Paradigm. Each combination is a unique architecture evaluated under identical conditions.
+PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **two-tier morphological matrix** (see `docs/FOUNDATION_SPEC.md` §3): structural axes — Organization × Representation (substrate: symbolic/subsymbolic/hybrid) × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate — plus a **Behaviour** overlay (hand-designed vs emergent). Each combination is a unique architecture evaluated under identical conditions. (Code identifiers `decision_loop` / `emergence` / `agnt` are mid-migration to this framing; the §3 restructuring is pending supervisor review.)
 
 ## Execution environment
 - **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.

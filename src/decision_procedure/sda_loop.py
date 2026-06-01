@@ -17,12 +17,12 @@ and no iteration.
 from __future__ import annotations
 import time
 from typing import Any, Dict, Tuple
-from src.decision_loop.base import DecisionLoop
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.base import DecisionProcedure
+from src.decision_procedure.context import DecisionContext
 from src.representation.base import Representation
 
 
-class SDALoop(DecisionLoop):
+class SDALoop(DecisionProcedure):
     """Sense-Decide-Act: single-pass decision making."""
 
     def __init__(self, config: Dict[str, Any], representation: Representation) -> None:

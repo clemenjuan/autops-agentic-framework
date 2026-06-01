@@ -73,9 +73,9 @@ def generate_configs(
         )
         config["seed"] = seed
         config["agent_organization"] = org
-        config["decision_loop"] = loop
+        config["decision_procedure"] = loop
         config["representation"] = rep
-        config["emergence_mode"] = mode
+        config["behaviour"] = mode
         config["output_dir"] = f"data/results/{config['experiment_id']}"
 
         filename = f"{config['experiment_id']}.yaml"

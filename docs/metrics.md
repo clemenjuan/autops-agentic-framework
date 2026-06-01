@@ -187,9 +187,10 @@ exploratory and reported separately from confirmatory results.
   a principled minimum-detectable-effect; the revised threshold will be
   logged under "Analysis-plan amendments" (below) with the rationale.
 
-### Comparison scope (from FOUNDATION_SPEC §4.3)
-- Emergence is compared *within* representation family (PPO vs prompt-opt
-  vs writable-CoALA vs hand-designed), **not** across families.
+### Comparison scope (from FOUNDATION_SPEC §3.4)
+- The Behaviour overlay (emergence) is compared *within* a substrate (PPO vs prompt-opt
+  vs writable-CoALA vs hand-designed), **not** across substrates — each substrate has a
+  different learning mechanism, so there is no single "learned-everywhere" contrast.
 - For the ConventionalGround baseline, the planning-delay effect is isolated
   using `eventsat_sas_sda_symb_hd_cg_algobase.yaml` (algorithmic scheduler +
   CG ops) vs the AG counterpart, keeping representation constant.

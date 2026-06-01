@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 
 class Representation(ABC):

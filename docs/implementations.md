@@ -3,6 +3,14 @@
 Persistent record of every implemented component in the morphological matrix,
 its paper basis, and key design decisions. Grows as new components are added.
 
+> **Terminology note.** This registry uses the current code identifiers. Per the restructured
+> matrix ([`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)):
+> "Decision Loops" = the **Decision Procedure** axis; "Emergence" = the **Behaviour** overlay;
+> Representation = **substrate** only (symbolic/subsymbolic/hybrid), with `llm_eventsat` =
+> hybrid-**reactive** and `agentic_eventsat` = hybrid-**agentic** (an *action-space* flavor, not a
+> separate paradigm). Code field names (`decision_loop`, `emergence_config`, `agentic_eventsat`)
+> are renamed in the repo-adaptation pass, not here.
+
 ---
 
 ## Agent Organizations
@@ -149,8 +157,9 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Note on naming**: Deployed frontier systems (Claude, GPT-4o, Gemini tools API)
   standardize on ReAct-style reason-act-observe cycles in their orchestration layers.
   CoALA (Sumers et al. 2024) is a higher-level architecture blueprint that subsumes
-  ReAct; it is implemented as a hybrid representation type (`agentic_eventsat`),
-  not as a separate decision loop.
+  ReAct; it is implemented as the hybrid-**agentic** action-space flavor
+  (`agentic_eventsat`) — an action-space property, not a separate decision procedure
+  or representation substrate.
 
 ---
 
@@ -342,7 +351,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 - **File**: `src/representation/llm_eventsat.py`
 - **Registered as**: `llm_eventsat`
-- **Paradigm**: Hybrid (subsymbolic LLM + symbolic safety constraints)
+- **Substrate / action space**: Hybrid (subsymbolic LLM + symbolic safety constraints), **reactive** action space (single-shot encode→call→select)
 - **Paper basis**:
   - Rodriguez-Fernandez et al. (2024), "Language Models are Spacecraft Operators" [WC5WU34U]
     — LLM prompt design for satellite operations (§3.2 state formatting).
@@ -372,15 +381,16 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
 - **Learned-emergence variant** (Phase 5):
   - `prompt_optimized` (`_hybr_lep_*`): loads offline-optimised system prompt. `FixedMemory`
-    invariant preserved. **Note**: `writable_coala` does NOT apply here — single-shot LLM
-    has no iterative reasoning loop to accrete from (by design; see FOUNDATION_SPEC §4).
+    invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
+    gated by the *agentic* action space (writing is an action), which the reactive single-shot
+    LLM lacks (see [FOUNDATION_SPEC §3.2/§3.4](FOUNDATION_SPEC.md#32-behaviour-overlay)).
 - **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hybr_hd_*`; 12 `*_hybr_lep_*`
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
 - **File**: `src/representation/agentic_eventsat.py`
 - **Registered as**: `agentic_eventsat`
-- **Paradigm**: Hybrid (LLM agent + symbolic tools + grounding constraints)
+- **Substrate / action space**: Hybrid (LLM agent + symbolic tools + grounding constraints), **agentic** action space (tool-call loop + structured memory). Same substrate as `llm_eventsat`; differs only in action space.
 - **Supporting modules**:
   - `src/representation/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
   - `src/representation/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
@@ -552,7 +562,11 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ---
 
-## Emergence
+## Emergence (Behaviour overlay)
+
+Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32-behaviour-overlay)):
+`ppo`/`prompt_optimized` = emergent·policy (gated by substrate); `writable_coala` = emergent·memory
+(gated by the agentic action space). Mechanism is derived from Behaviour × substrate, not chosen freely.
 
 ### PPO Training — `_le_` subsymbolic variants
 
@@ -595,9 +609,10 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   `ExperimentRunner._create_memory()` and supplied via `DecisionContext.memory` (see the
   WritableMemory "Wiring" note above), so the LLM's write-tool calls reach a real writable
   store during the Plan-Tool-Reflect-Decide loop.
-- **Why `agentic_eventsat` only**: The multi-step iterative reasoning loop is required for
-  meaningful memory accretion within an episode. `llm_eventsat` (single-shot) lacks a
-  reasoning loop and cannot meaningfully decide when to accrete rules mid-decision.
+- **Why `agentic_eventsat` only**: emergent·memory is gated by the **agentic action space** —
+  writing to a store is itself an internal action (CoALA's *learning* action), which needs the
+  tool-call loop. `llm_eventsat` (reactive, single-shot) has no action with which to issue a
+  write. The gate is action space, not substrate.
 
 ---
 
@@ -622,7 +637,7 @@ software engineering** systems. The autops framework is positioned as a parallel
 reference architecture in a **sibling domain** (autonomous satellite operations).
 The mapping below tags each component already documented above with its layer in
 Bhati's stack — it is illustrative, not a structural adoption. See
-[`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architectures)
+[`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architecture-bhati-2026)
 for the framing.
 
 | Component | File / module | Bhati layer | Existing paper basis | Cross-domain note |

@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.environment.satellite_env import (
     ConstellationState,
     EnvironmentObservation,

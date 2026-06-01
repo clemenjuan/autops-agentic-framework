@@ -7,21 +7,21 @@
 
 ## Overview
 
-This framework enables systematic comparison of cognitive architectures for autonomous satellite constellation management. The design follows a **morphological matrix** approach, where each experimental dimension (agent organization, decision loop, representation, emergence mode, operations paradigm) is an orthogonal axis that can be varied independently.
+This framework enables systematic comparison of cognitive architectures for autonomous satellite constellation management. The design follows a **two-tier morphological matrix** (see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)): structural axes (Organization × Representation-substrate × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate) plus a **Behaviour** overlay (hand-designed vs emergent) over the cognitive modules.
 
 ## Architecture Diagram
 
 ![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
-## Layered View (Parallel to 5D Matrix)
+## Layered View (Parallel to the Matrix)
 
 Bhati (2026) [Z5TF79HY] proposes a six-layer reference architecture for **agentic
 software engineering** systems. The autops framework is positioned as a **parallel
 reference architecture** in a sibling domain (autonomous satellite operations), not
-a structural adoption. The layered view below is complementary to the 5D
+a structural adoption. The layered view below is complementary to the
 morphological matrix (which remains canonical) and to the diagram above; it makes
 the autops architectural choices legible to the broader agentic-AI literature. For
-the framing see [`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architectures);
+the framing see [`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architecture-bhati-2026);
 for the per-component mapping see
 [`implementations.md` → Layer Mapping](implementations.md#layer-mapping-bhati-2026).
 
@@ -60,11 +60,11 @@ semantics of Bhati's Figure 3.
 
 **L0 asymmetry.** Pure-symbolic variants (`symb`) have no L0 substrate; they sit at
 L1 directly. This is by design: it isolates the cognitive-paradigm effect that RQ1
-targets while keeping L2–L5 fixed across the 5D matrix.
+targets while keeping L2–L5 fixed across the matrix.
 
 ## Design Principles
 
-1. **Orthogonality**: Each dimension (organization, loop, representation, emergence, operations paradigm) is independent.
+1. **Two-tier structure**: structural axes describe what the agent *is*; the Behaviour overlay describes which module is learned vs specified. Axes are not all mutually independent — action-space richness varies only under the hybrid substrate; Behaviour is an overlay, not a peer axis ([`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)).
 2. **Modularity**: Components can be swapped without affecting others.
 3. **Reproducibility**: Configuration-driven experiments with seed control.
 4. **Fair Comparison**: Same environment and metrics for all variants.

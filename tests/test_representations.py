@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 import pytest
 
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.representation.base import Representation
 
 

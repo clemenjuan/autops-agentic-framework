@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.base import Representation
 from src.representation.neural_policy import TORCH_AVAILABLE, RandomPolicy
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 logger = logging.getLogger(__name__)
 

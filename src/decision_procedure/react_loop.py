@@ -56,8 +56,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.decision_loop.base import DecisionLoop
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.base import DecisionProcedure
+from src.decision_procedure.context import DecisionContext
 from src.representation.base import Representation
 
 # Modes that require meaningful battery reserve
@@ -73,7 +73,7 @@ _ENERGY_INTENSIVE_MODES = {
 _GROUNDING_MIN_SOC = 0.30
 
 
-class ReActLoop(DecisionLoop):
+class ReActLoop(DecisionProcedure):
     """Reason-Act-Observe iterative decision loop (Yao et al. 2023).
 
     Implements the ReAct cycle: at each step the representation is asked to
@@ -103,7 +103,7 @@ class ReActLoop(DecisionLoop):
         self._total_steps: int = 0
 
     # ------------------------------------------------------------------
-    # DecisionLoop interface
+    # DecisionProcedure interface
     # ------------------------------------------------------------------
 
     def process(

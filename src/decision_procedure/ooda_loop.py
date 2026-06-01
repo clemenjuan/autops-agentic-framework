@@ -29,8 +29,8 @@ from __future__ import annotations
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.decision_loop.base import DecisionLoop
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.base import DecisionProcedure
+from src.decision_procedure.context import DecisionContext
 from src.representation.base import Representation
 
 
@@ -45,7 +45,7 @@ SITUATION_DATA_PIPELINE = "data_pipeline_active"
 SITUATION_NOMINAL = "nominal"
 
 
-class OODALoop(DecisionLoop):
+class OODALoop(DecisionProcedure):
     """Observe-Orient-Decide-Act decision loop (Boyd, 1987).
 
     Implements Boyd's four phases with feedback loops, using METIS-inspired
@@ -79,7 +79,7 @@ class OODALoop(DecisionLoop):
         self._attention_guidance: Optional[Dict[str, Any]] = None
 
     # ------------------------------------------------------------------
-    # DecisionLoop interface
+    # DecisionProcedure interface
     # ------------------------------------------------------------------
 
     def process(

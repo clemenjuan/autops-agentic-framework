@@ -19,7 +19,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, Tuple
 
 
-class DecisionLoop(ABC):
+class DecisionProcedure(ABC):
     """Abstract base class for decision-making patterns.
 
     Decision loops define the temporal control flow of agent reasoning.

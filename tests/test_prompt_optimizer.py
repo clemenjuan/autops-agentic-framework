@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.emergence.prompt_optimizer import PromptOptimizer, _load_step_records
+from src.behaviour.prompt_optimizer import PromptOptimizer, _load_step_records
 
 
 # ======================================================================

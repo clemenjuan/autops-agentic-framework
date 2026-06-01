@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.representation.llm_client import LLMClient
 from src.representation.llm_eventsat import LLMEventSat, VALID_MODES
 from src.representation.llm_prompts import (
@@ -240,7 +240,7 @@ class TestLLMEventSat(unittest.TestCase):
         self.rep = LLMEventSat(_mock_config())
 
     def test_registration(self):
-        from src.emergence.controller import _REPRESENTATION_REGISTRY
+        from src.behaviour.controller import _REPRESENTATION_REGISTRY
         self.assertIn("llm_eventsat", _REPRESENTATION_REGISTRY)
 
     def test_encode_observation_returns_dict(self):
@@ -532,7 +532,7 @@ class TestConfigValidation(unittest.TestCase):
                 decision_loop=loop,
                 representation_config={"type": "llm_eventsat", "llm_mock": True},
             )
-            self.assertEqual(config.decision_loop, loop)
+            self.assertEqual(config.decision_procedure, loop)
 
     def test_hybrid_with_all_ops_paradigms(self):
         """The hybrid (LLM) family works under all paradigms via the right type.

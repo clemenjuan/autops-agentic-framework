@@ -936,7 +936,7 @@ def plot_metric_heatmap(
     episode_df: pd.DataFrame,
     metric: str,
     row_dim: str = "agent_organization",
-    col_dim: str = "decision_loop",
+    col_dim: str = "decision_procedure",
     *,
     figsize: Tuple[float, float] = FIG_COL,
     save_path: Optional[Union[str, Path]] = None,

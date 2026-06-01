@@ -111,7 +111,7 @@ class TestCmdTrainPPO:
         mock_trainer = MagicMock()
         mock_trainer.train.return_value = "data/trained_models/subm_le_test/policy.pt"
 
-        with patch("src.emergence.training_pipeline.PPOTrainer", return_value=mock_trainer):
+        with patch("src.behaviour.training_pipeline.PPOTrainer", return_value=mock_trainer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = 1000
@@ -136,7 +136,7 @@ class TestCmdTrainPPO:
         from src.cli import cmd_train
 
         # Make the import of training_pipeline fail (simulates missing torch)
-        with patch.dict("sys.modules", {"src.emergence.training_pipeline": None}):
+        with patch.dict("sys.modules", {"src.behaviour.training_pipeline": None}):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None
@@ -170,7 +170,7 @@ class TestCmdTrainPromptOptimized:
         mock_optimizer = MagicMock()
         mock_optimizer.optimize.return_value = "Optimised prompt text"
 
-        with patch("src.emergence.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
+        with patch("src.behaviour.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None
@@ -198,7 +198,7 @@ class TestCmdTrainPromptOptimized:
         mock_optimizer = MagicMock()
         mock_optimizer.optimize.return_value = "Prompt"
 
-        with patch("src.emergence.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
+        with patch("src.behaviour.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None

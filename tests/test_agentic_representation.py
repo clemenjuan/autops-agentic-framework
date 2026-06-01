@@ -10,7 +10,7 @@ import unittest
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.representation.agentic_tools import (
     TOOL_REGISTRY,
     VALID_MODES,
@@ -376,8 +376,8 @@ class TestAgenticEventSat(unittest.TestCase):
         self.repr = AgenticEventSat(_mock_config())
 
     def test_registration(self):
-        from src.emergence.controller import EmergenceController
-        self.assertIn("agentic_eventsat", EmergenceController.list_registered())
+        from src.behaviour.controller import BehaviourController
+        self.assertIn("agentic_eventsat", BehaviourController.list_registered())
 
     def test_encode_observation_empty(self):
         result = self.repr.encode_observation(object())
@@ -592,14 +592,14 @@ class TestAgenticEmergence(unittest.TestCase):
     """Test emergence controller integration."""
 
     def test_emergence_controller_creates_agentic(self):
-        from src.emergence.controller import EmergenceController
-        controller = EmergenceController(config=_mock_config())
+        from src.behaviour.controller import BehaviourController
+        controller = BehaviourController(config=_mock_config())
         repr_obj = controller.get_representation("agentic_eventsat")
         self.assertIsInstance(repr_obj, AgenticEventSat)
 
     def test_emergence_controller_lists_agentic(self):
-        from src.emergence.controller import EmergenceController
-        registered = EmergenceController.list_registered()
+        from src.behaviour.controller import BehaviourController
+        registered = BehaviourController.list_registered()
         self.assertIn("agentic_eventsat", registered)
 
 

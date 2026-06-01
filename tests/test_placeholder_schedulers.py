@@ -6,8 +6,8 @@ import warnings
 
 import pytest
 
-from src.decision_loop.context import DecisionContext
-from src.emergence.controller import EmergenceController
+from src.decision_procedure.context import DecisionContext
+from src.behaviour.controller import BehaviourController
 from src.orchestration.config_loader import ExperimentConfig
 from src.representation.placeholder_schedulers import (
     AgenticSchedulerEventSat,
@@ -67,7 +67,7 @@ class TestPlaceholderSchedulers:
     def test_registered_in_controller(self, cls, reg_name, family):
         import src.representation.placeholder_schedulers  # noqa: F401  (trigger @register)
 
-        controller = EmergenceController(config={})
+        controller = BehaviourController(config={})
         rep = controller.get_representation(repr_type=reg_name, repr_config={})
         assert isinstance(rep, cls)
 
@@ -112,4 +112,4 @@ class TestGroundScheduleGuard:
             emergence_mode="learned",
             emergence_config={"mode": "learned", "mechanism": "writable_coala"},
         )
-        assert cfg.emergence_config["mechanism"] == "writable_coala"
+        assert cfg.behaviour_config["mechanism"] == "writable_coala"

@@ -38,7 +38,7 @@ except ImportError:
     nn = None  # type: ignore
     Adam = None  # type: ignore
 
-from src.emergence.rollout_buffer import RolloutBuffer
+from src.behaviour.rollout_buffer import RolloutBuffer
 
 logger = logging.getLogger(__name__)
 

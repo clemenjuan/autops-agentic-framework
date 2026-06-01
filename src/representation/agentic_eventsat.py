@@ -40,7 +40,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.base import Representation
 from src.representation.llm_client import LLMClient
 from src.representation.agentic_prompts import (
@@ -56,7 +56,7 @@ from src.representation.agentic_tools import (
 )
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 logger = logging.getLogger(__name__)
 

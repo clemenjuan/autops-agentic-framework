@@ -16,6 +16,8 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ## Adding a New Decision Loop
 
+*(The "Decision Loop" code module is the **Decision Procedure** axis; see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).)*
+
 ### Prerequisites
 - Read and understand the source paper thoroughly.
 - Identify the algorithm steps (reference specific sections/figures).
@@ -55,6 +57,11 @@ Step-by-step guide for implementing new components in the experimental framework
 ---
 
 ## Adding a New Representation
+
+*Representation = **substrate** only (symbolic/subsymbolic/hybrid). Two things are **not** new
+representations: (1) action-space richness — reactive vs agentic is a hybrid-only flavor; (2)
+learned behaviour — `ppo`/`prompt_optimized`/`writable_coala` are the **Behaviour** overlay, wired
+via `emergence_config`, not separate classes. See [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).*
 
 ### Steps
 

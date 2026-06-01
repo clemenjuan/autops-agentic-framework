@@ -21,10 +21,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.representation.base import Representation
-from src.emergence.controller import register
+from src.behaviour.controller import register
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 
 @register("schedule_based_eventsat")
@@ -130,7 +130,7 @@ class ScheduleBasedEventSat(Representation):
           - urgency > 0.6 → front-load critical operations
           - attention_guidance → weight schedule focus
         """
-        from src.decision_loop.context import DecisionContext  # runtime import
+        from src.decision_procedure.context import DecisionContext  # runtime import
 
         state = context.state
         enrichments = context.enrichments

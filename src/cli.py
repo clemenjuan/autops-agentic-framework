@@ -128,7 +128,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     cfg = apply_overrides(cfg, seed=args.seed, output_dir=args.output_dir)
 
     representation = cfg.representation
-    mechanism = cfg.emergence_config.get("mechanism", "")
+    mechanism = cfg.behaviour_config.get("mechanism", "")
     experiment_id = cfg.experiment_id
 
     print(f"Training: {experiment_id}")
@@ -162,7 +162,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PPOTrainer for subsymbolic representation."""
     try:
-        from src.emergence.training_pipeline import PPOTrainer
+        from src.behaviour.training_pipeline import PPOTrainer
     except ImportError as e:
         print(
             f"ERROR: PPO training requires torch. Install with:\n"
@@ -171,7 +171,7 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    training_cfg = cfg.emergence_config.get("training_config", {})
+    training_cfg = cfg.behaviour_config.get("training_config", {})
     timesteps = args.timesteps or training_cfg.get("timesteps", 50_000)
     checkpoint_dir = f"data/trained_models/{cfg.experiment_id}"
 
@@ -194,7 +194,7 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PromptOptimizer for prompt_optimized LLM/agentic representations."""
-    from src.emergence.prompt_optimizer import PromptOptimizer
+    from src.behaviour.prompt_optimizer import PromptOptimizer
 
     # Derive the baseline source dir (hand-designed sibling)
     source_dir = args.source_dir or ""
@@ -203,7 +203,7 @@ def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     opt_config = {
         "experiment_id": cfg.experiment_id,
         "representation_config": cfg.representation_config,
-        "emergence_config": cfg.emergence_config,
+        "emergence_config": cfg.behaviour_config,
         "output_dir": "data/trained_prompts",
         **{k: v for k, v in (cfg.model_dump() if hasattr(cfg, "model_dump") else vars(cfg)).items()
            if k in ("llm_host", "llm_model", "llm_mock")},

@@ -5,7 +5,7 @@ Tests P1 (multi-step compression), P2 (mode transition overhead),
 P3 (3-pool data pipeline), and thermal model removal.
 """
 import pytest
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.environment.scenarios.eventsat_env import EventSatEnvironment
 
 

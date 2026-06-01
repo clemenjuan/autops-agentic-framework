@@ -141,13 +141,13 @@ def main() -> None:
 
     # --- Build policy + trainer ---
     from src.representation.neural_policy import ActorCritic
-    from src.emergence.rollout_buffer import RolloutBuffer
-    from src.emergence.training_pipeline import PPOTrainer
+    from src.behaviour.rollout_buffer import RolloutBuffer
+    from src.behaviour.training_pipeline import PPOTrainer
 
     policy = ActorCritic()
-    rollout_fragment = config.emergence_config.get("rollout_fragment", 128)
+    rollout_fragment = config.behaviour_config.get("rollout_fragment", 128)
     buffer = RolloutBuffer(buffer_size=rollout_fragment)
-    trainer = PPOTrainer(policy=policy, config=config.emergence_config)
+    trainer = PPOTrainer(policy=policy, config=config.behaviour_config)
 
     # Load checkpoint if specified
     checkpoint_path = config.representation_config.get("checkpoint_path", "")

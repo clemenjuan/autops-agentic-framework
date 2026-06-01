@@ -173,9 +173,9 @@ class ExperimentRunner:
         logger.info(
             "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s, ops=%s",
             self.config.agent_organization,
-            self.config.decision_loop,
+            self.config.decision_procedure,
             self.config.representation,
-            self.config.emergence_mode,
+            self.config.behaviour,
             self.config.operations_paradigm,
         )
 
@@ -240,7 +240,7 @@ class ExperimentRunner:
         Returns:
             An initialised ``WritableMemory`` or ``FixedMemory`` instance.
         """
-        mechanism = self.config.emergence_config.get("mechanism")
+        mechanism = self.config.behaviour_config.get("mechanism")
         if mechanism == "writable_coala":
             from src.memory.writable_memory import WritableMemory
 
@@ -297,7 +297,7 @@ class ExperimentRunner:
 
     def _create_decision_loops(self):
         """Factory for decision loop instances (one per agent)."""
-        from src.emergence.controller import EmergenceController
+        from src.behaviour.controller import BehaviourController
         import src.representation.rule_based_eventsat  # register representations
         import src.representation.schedule_based_eventsat  # register schedule planner
         import src.representation.conventional_schedule_eventsat  # register human schedule planner
@@ -305,7 +305,7 @@ class ExperimentRunner:
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
-        emergence = EmergenceController(config=self.config.emergence_config)
+        emergence = BehaviourController(config=self.config.behaviour_config)
         repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
             repr_type=repr_type,
@@ -318,32 +318,32 @@ class ExperimentRunner:
         self._representation = representation
         # Set up PPO training components if learned mode
         if (
-            self.config.emergence_mode == "learned"
+            self.config.behaviour == "learned"
             and hasattr(representation, "set_trainer")
             and not self.config.representation_config.get("rl_mock", False)
         ):
             try:
-                from src.emergence.rollout_buffer import RolloutBuffer
-                from src.emergence.training_pipeline import PPOTrainer
-                rollout_size = self.config.emergence_config.get("rollout_fragment", 128)
+                from src.behaviour.rollout_buffer import RolloutBuffer
+                from src.behaviour.training_pipeline import PPOTrainer
+                rollout_size = self.config.behaviour_config.get("rollout_fragment", 128)
                 self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
                 trainer = PPOTrainer(
                     policy=representation._policy,
-                    config=self.config.emergence_config,
+                    config=self.config.behaviour_config,
                 )
                 representation.set_trainer(trainer)
                 logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
             except ImportError as e:
                 logger.warning("Could not initialise PPO trainer: %s", e)
-        loop_type = self.config.decision_loop
+        loop_type = self.config.decision_procedure
         if loop_type == 'sda':
-            from src.decision_loop.sda_loop import SDALoop
+            from src.decision_procedure.sda_loop import SDALoop
             loop_cls = SDALoop
         elif loop_type == 'ooda':
-            from src.decision_loop.ooda_loop import OODALoop
+            from src.decision_procedure.ooda_loop import OODALoop
             loop_cls = OODALoop
         elif loop_type == 'react':
-            from src.decision_loop.react_loop import ReActLoop
+            from src.decision_procedure.react_loop import ReActLoop
             loop_cls = ReActLoop
         else:
             raise ValueError(f"Unknown decision_loop: '{loop_type}'")
@@ -351,7 +351,7 @@ class ExperimentRunner:
         loops = {}
         for agent_id in agents:
             loops[agent_id] = loop_cls(
-                config=self.config.decision_loop_config,
+                config=self.config.decision_procedure_config,
                 representation=representation,
             )
         return loops
@@ -726,9 +726,9 @@ class ExperimentRunner:
                     self.config.agent_organization, 0
                 ),
                 "agent_organization": self.config.agent_organization,
-                "decision_loop": self.config.decision_loop,
+                "decision_procedure": self.config.decision_procedure,
                 "representation": self.config.representation,
-                "emergence_mode": self.config.emergence_mode,
+                "behaviour": self.config.behaviour,
                 "operations_paradigm": self.config.operations_paradigm,
                 # Flag placeholder schedule-producers (ground-paradigm stand-ins)
                 # so analysis can exclude them from headline comparisons until the

@@ -56,7 +56,7 @@ def _make_subsymbolic_repr(mock: bool = True) -> "SubsymbolicEventSat":
 
 
 def _make_decision_context(loop_type: str = "sda", state: dict | None = None):
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
     return DecisionContext(
         state=state or {
             "battery_soc": 0.8,
@@ -469,7 +469,7 @@ class TestActorCritic(unittest.TestCase):
 class TestRolloutBuffer(unittest.TestCase):
 
     def _make_buffer(self, size: int = 20) -> "RolloutBuffer":
-        from src.emergence.rollout_buffer import RolloutBuffer
+        from src.behaviour.rollout_buffer import RolloutBuffer
         return RolloutBuffer(buffer_size=size)
 
     def test_store_and_size(self):
@@ -555,8 +555,8 @@ class TestPPOTrainer(unittest.TestCase):
 
     def setUp(self):
         from src.representation.neural_policy import ActorCritic
-        from src.emergence.training_pipeline import PPOTrainer
-        from src.emergence.rollout_buffer import RolloutBuffer
+        from src.behaviour.training_pipeline import PPOTrainer
+        from src.behaviour.rollout_buffer import RolloutBuffer
         self.policy = ActorCritic()
         self.trainer = PPOTrainer(
             policy=self.policy,
@@ -609,14 +609,14 @@ class TestPPOTrainer(unittest.TestCase):
             self.trainer.save(path)
 
             from src.representation.neural_policy import ActorCritic
-            from src.emergence.training_pipeline import PPOTrainer
+            from src.behaviour.training_pipeline import PPOTrainer
             new_policy = ActorCritic()
             new_trainer = PPOTrainer(new_policy, config={"ppo_epochs": 1, "minibatch_size": 4})
             new_trainer.load(path)
             self.assertEqual(new_trainer.training_step, step_before)
 
     def test_lr_schedule_applied(self):
-        from src.emergence.training_pipeline import PPOTrainer
+        from src.behaviour.training_pipeline import PPOTrainer
         from src.representation.neural_policy import ActorCritic
         trainer = PPOTrainer(
             ActorCritic(),
@@ -643,7 +643,7 @@ class TestSubsymbolicEventSatRegistration(unittest.TestCase):
 
     def test_registration(self):
         import src.representation.subsymbolic_eventsat  # noqa
-        from src.emergence.controller import _REPRESENTATION_REGISTRY
+        from src.behaviour.controller import _REPRESENTATION_REGISTRY
         self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
 
 
@@ -671,7 +671,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(state["_obs_vector"])))
 
     def test_select_action_valid_mode(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -684,7 +684,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIn(mode, valid)
 
     def test_select_action_has_sub_actions(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -697,7 +697,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIn(sat_action["pipeline_routing"], [0, 1])
 
     def test_anomaly_forces_safe(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         state["health_status"] = "thermal_warning"
         context = DecisionContext(
@@ -707,7 +707,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(action["eventsat_0"]["mode"], "safe")
 
     def test_empty_state_returns_charging(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         context = DecisionContext(
             state={}, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
         )
@@ -715,7 +715,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(action["eventsat_0"]["mode"], "charging")
 
     def test_grounding_no_pass_communication(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = {
             "health_status": "nominal",
             "battery_soc": 0.9,
@@ -753,7 +753,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.repr.update({"buffer": MagicMock(), "episode": 0})
 
     def test_get_metrics_returns_dict(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -767,7 +767,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(self.repr.get_name(), "SubsymbolicEventSat")
 
     def test_get_rationale_after_action(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -777,7 +777,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIsNotNone(rationale)
 
     def test_get_last_step_data(self):
-        from src.decision_loop.context import DecisionContext
+        from src.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -802,21 +802,21 @@ class TestSubsymbolicIntegrationLoops(unittest.TestCase):
         import src.representation.subsymbolic_eventsat  # noqa
 
     def _run_loop(self, loop_type: str) -> None:
-        from src.emergence.controller import EmergenceController
-        emergence = EmergenceController(config={"mode": "hand_designed"})
+        from src.behaviour.controller import BehaviourController
+        emergence = BehaviourController(config={"mode": "hand_designed"})
         representation = emergence.get_representation(
             "subsymbolic_eventsat",
             repr_config={"rl_mock": True, "deterministic": False},
         )
 
         if loop_type == "sda":
-            from src.decision_loop.sda_loop import SDALoop
+            from src.decision_procedure.sda_loop import SDALoop
             loop = SDALoop(config={}, representation=representation)
         elif loop_type == "ooda":
-            from src.decision_loop.ooda_loop import OODALoop
+            from src.decision_procedure.ooda_loop import OODALoop
             loop = OODALoop(config={}, representation=representation)
         elif loop_type == "react":
-            from src.decision_loop.react_loop import ReActLoop
+            from src.decision_procedure.react_loop import ReActLoop
             loop = ReActLoop(config={}, representation=representation)
 
         from src.memory.fixed_memory import FixedMemory
@@ -894,7 +894,7 @@ class TestExperimentRunnerSubsymbolic(unittest.TestCase):
             runner = ExperimentRunner(config=config)
             runner._create_decision_loops()
 
-            from src.emergence.controller import _REPRESENTATION_REGISTRY
+            from src.behaviour.controller import _REPRESENTATION_REGISTRY
             self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
 
 
