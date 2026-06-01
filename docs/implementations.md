@@ -3,13 +3,12 @@
 Persistent record of every implemented component in the morphological matrix,
 its paper basis, and key design decisions. Grows as new components are added.
 
-> **Terminology note.** This registry uses the current code identifiers. Per the restructured
-> matrix ([`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)):
-> "Decision Loops" = the **Decision Procedure** axis; "Emergence" = the **Behaviour** overlay;
-> Representation = **substrate** only (symbolic/subsymbolic/hybrid), with `llm_eventsat` =
-> hybrid-**reactive** and `agentic_eventsat` = hybrid-**agentic** (an *action-space* flavor, not a
-> separate paradigm). Code field names (`decision_loop`, `emergence_config`, `agentic_eventsat`)
-> are renamed in the repo-adaptation pass, not here.
+> **Terminology note** (per [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)):
+> the **Decision Procedure** axis lives in `src/decision_procedure/`; the **Behaviour** overlay
+> (`behaviour` / `behaviour_config`) in `src/behaviour/`; Representation = **substrate** only
+> (symbolic/subsymbolic/hybrid), with `llm_eventsat` = hybrid-**reactive** and `agentic_eventsat` =
+> hybrid-**agentic** (an *action-space* flavor, not a separate paradigm). The "Decision Loops" and
+> "Emergence" section headings below are kept as the components' common names.
 
 ---
 
@@ -67,7 +66,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### SDA (Sense-Decide-Act) — Phase 2 baseline
 
-- **File**: `src/decision_loop/sda_loop.py`
+- **File**: `src/decision_procedure/sda_loop.py`
 - **Paper basis**: Classic reactive agent pattern (sense-decide-act cycle)
 - **Structure**: Single-pass — encode observation via representation, select action, return.
   No iteration, reflection, or memory interaction.
@@ -78,7 +77,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### OODA (Observe-Orient-Decide-Act) — Phase 3
 
-- **File**: `src/decision_loop/ooda_loop.py`
+- **File**: `src/decision_procedure/ooda_loop.py`
 - **Paper basis**:
   - Miller, Hasbrouck & Udrea (2021), "Development of Human-Machine Collaborative Systems
     Using OODA Loops", ASCEND 2021. DOI: 10.2514/6.2021-4092
@@ -112,7 +111,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### ReAct (Reason-Act-Observe) — Phase 3
 
-- **File**: `src/decision_loop/react_loop.py`
+- **File**: `src/decision_procedure/react_loop.py`
 - **Paper basis**:
   - Yao et al. (2023), "ReAct: Synergizing Reasoning and Acting in Language Models",
     ICLR 2023. [R8AVHEAP / 6ATE8J8S]
@@ -165,7 +164,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ## DecisionContext Interface — Phase 3
 
-- **File**: `src/decision_loop/context.py`
+- **File**: `src/decision_procedure/context.py`
 - **Purpose**: Structured wrapper between decision loops and representations.
   Every loop produces a `DecisionContext`; every representation consumes one.
 - **Fields**:
@@ -343,7 +342,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms (AH/AG/CG)
 - **Training script**: `scripts/train_subsymbolic.py`
 - **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
-- **Supporting modules**: `src/emergence/rollout_buffer.py` (RolloutBuffer + GAE), `src/emergence/training_pipeline.py` (PPOTrainer)
+- **Supporting modules**: `src/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/behaviour/training_pipeline.py` (PPOTrainer)
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
 - **Configs**: 9 YAML files `eventsat_sas_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
 
@@ -380,11 +379,11 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
 - **Learned-emergence variant** (Phase 5):
-  - `prompt_optimized` (`_hybr_lep_*`): loads offline-optimised system prompt. `FixedMemory`
+  - `prompt_optimized` (`_hyre_lep_*`): loads offline-optimised system prompt. `FixedMemory`
     invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
     gated by the *agentic* action space (writing is an action), which the reactive single-shot
     LLM lacks (see [FOUNDATION_SPEC §3.2/§3.4](FOUNDATION_SPEC.md#32-behaviour-overlay)).
-- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hybr_hd_*`; 12 `*_hybr_lep_*`
+- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyre_hd_*`; 12 `*_hyre_lep_*`
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
@@ -445,13 +444,13 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
 - **Learned-emergence variants** (Phase 5):
   - `hand_designed` (default): fixed `AGENTIC_SYSTEM_PROMPT` + `FixedMemory`.
-  - `prompt_optimized` (`_agnt_lep_*`): loads offline-optimised system prompt from
+  - `prompt_optimized` (`_hyag_lep_*`): loads offline-optimised system prompt from
     `data/trained_prompts/<experiment_id>/prompt.txt` (written by `PromptOptimizer`).
     `FixedMemory` invariant preserved.
-  - `writable_coala` (`_agnt_lec_*`): swaps `FixedMemory` for `WritableMemory`;
+  - `writable_coala` (`_hyag_lec_*`): swaps `FixedMemory` for `WritableMemory`;
     injects two writable memory tools; expands system prompt with CoALA memory
-    instructions. **Fairness trade-off**: compared against `_agnt_hd_` baseline only.
-- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_agnt_hd_*`; 12 `*_agnt_lep_*`; 12 `*_agnt_lec_*`
+    instructions. **Fairness trade-off**: compared against `_hyag_hd_` baseline only.
+- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyag_hd_*`; 12 `*_hyag_lep_*`; 12 `*_hyag_lec_*`
 
 ---
 
@@ -531,7 +530,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 ### WritableMemory — `_lec_` variants only (CoALA learning)
 
 - **File**: `src/memory/writable_memory.py`
-- **Used by**: Only `emergence_config.mechanism = "writable_coala"` configs.
+- **Used by**: Only `behaviour_config.mechanism = "writable_coala"` configs.
 - **Wiring (source of truth)**: `ExperimentRunner._create_memory()` constructs the
   `WritableMemory` (for `writable_coala`) or `FixedMemory` (everything else) and the
   decision loops inject it into `DecisionContext.memory`. The representation always uses
@@ -557,7 +556,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   FixedMemory). Writable stores deliberately NOT cleared — they accumulate across episodes.
   Use `clear_learned_state()` for a full wipe.
 - **Fairness note**: `_lec_` variants intentionally deviate from the FixedMemory invariant.
-  These configs are compared against `_agnt_hd_` baselines only, not against symbolic or
+  These configs are compared against `_hyag_hd_` baselines only, not against symbolic or
   LLM variants. The deviation is documented here and in CLAUDE.md.
 
 ---
@@ -570,15 +569,15 @@ Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32
 
 ### PPO Training — `_le_` subsymbolic variants
 
-- **File**: `src/emergence/training_pipeline.py` (PPOTrainer)
-- **Mechanism**: `emergence_config.mechanism = "ppo"`
+- **File**: `src/behaviour/training_pipeline.py` (PPOTrainer)
+- **Mechanism**: `behaviour_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml`
 - **Output**: `data/trained_models/<experiment_id>/policy.pt`
 
 ### PromptOptimizer — `_lep_` LLM/agentic variants
 
-- **File**: `src/emergence/prompt_optimizer.py`
-- **Mechanism**: `emergence_config.mechanism = "prompt_optimized"`
+- **File**: `src/behaviour/prompt_optimizer.py`
+- **Mechanism**: `behaviour_config.mechanism = "prompt_optimized"`
 - **Paper basis**: Khattab et al. (2023) [DSPy] — programmatic prompt optimization; bootstrap
   few-shot and MIPRO as reference algorithms. Implemented as a minimal in-house bootstrap
   optimizer (no DSPy runtime dependency).
@@ -588,7 +587,7 @@ Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32
   3. Generate `num_candidates` few-shot-augmented system prompt candidates.
   4. Score candidates on 20% held-out split (mock-mode: proxy score; live: LLM accuracy).
   5. Write best prompt to `data/trained_prompts/<experiment_id>/prompt.txt` + `metadata.json`.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml`
 - **Source dir**: auto-derived from experiment_id (`_lep_` → `_hd_`), or explicit via
   `--source-dir`.
 - **Runtime**: `LLMEventSat` and `AgenticEventSat` load the prompt at `__init__`; fall back
@@ -599,9 +598,9 @@ Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32
 
 ### WritableCoALA — `_lec_` agentic variants (online learning)
 
-- **Mechanism**: `emergence_config.mechanism = "writable_coala"`
+- **Mechanism**: `behaviour_config.mechanism = "writable_coala"`
 - **Pre-training**: None. Memory accretion happens online at run-time.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml`
   (prints guidance; no artifact written)
 - **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala` and injects the
   `memory_write_rule` + `memory_write_episode` tools into the tool schema and CoALA memory
@@ -645,9 +644,9 @@ for the framing.
 | SingleAgentSystem (SAS) | `src/agent_organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
 | CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
 | Decentralized/Independent/Hybrid MAS | `src/agent_organization/{decentralized,independent,hybrid}_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to Flamingo N≥3 |
-| SDA loop | `src/decision_loop/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
-| OODA loop | `src/decision_loop/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
-| ReAct loop | `src/decision_loop/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |
+| SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
+| OODA loop | `src/decision_procedure/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
+| ReAct loop | `src/decision_procedure/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |
 | Rule-Based / Schedule-Based EventSat | `src/representation/...rule_based_eventsat`, `schedule_based_eventsat` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
 | Conventional Schedule EventSat | `src/representation/...conventional_schedule_eventsat` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
 | Subsymbolic EventSat | `src/representation/...subsymbolic_eventsat` | **L0** (policy net) + **L1** | Wang et al. 2022 (DRL) | L0 is the RL policy network rather than an LLM |
@@ -655,9 +654,9 @@ for the framing.
 | Agentic EventSat | `src/representation/...agentic_eventsat` | **L0** (LLM) + **L1** (CoALA) | Sumers et al. 2024 (CoALA) | Direct sibling of Bhati's L1 cognitive scaffolding |
 | FixedMemory | `src/memory/fixed_memory.py` | **L1** Memory | fairness invariant | Read-only short/long-term state |
 | WritableMemory | `src/memory/writable_memory.py` | **L1** Memory | Sumers et al. 2024 (CoALA §3) | Writable semantic + episodic stores — closest analogue of Bhati L1 "memory files" |
-| EmergenceController | `src/emergence/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
-| PPOTrainer | `src/emergence/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
-| PromptOptimizer | `src/emergence/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
+| BehaviourController | `src/behaviour/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
+| PPOTrainer | `src/behaviour/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
+| PromptOptimizer | `src/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
 | WritableCoALA | `_lec_` configs | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
 | Tools (BaseTool + scenario actions) | `src/tools/` | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
 | Satellite environment | `src/environment/`, `src/environment/orbital/`, `src/environment/scenarios/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
@@ -819,7 +818,7 @@ is a separate research question on optimal uplink timing.
 ## Experiment Configurations
 
 Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
-`org` ∈ {sas, cmas}, `loop` ∈ {sda, ooda, react}, `repr` ∈ {symb, hybr, subm, agnt},
+`org` ∈ {sas, cmas}, `loop` ∈ {sda, ooda, react}, `repr` ∈ {symb, hyre, subm, hyag},
 `emrg` ∈ {hd, le, lep, lec}, `ops` ∈ {ah, ag, cg}.
 
 ### Symbolic (Phases 2–3) — SAS only
@@ -828,13 +827,13 @@ Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 
 ### LLM Hybrid hand-designed (Phase 4a)
 
-12 SAS (`eventsat_sas_{sda,ooda,react}_hybr_hd_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hybr_hd_ah`).
+12 SAS (`eventsat_sas_{sda,ooda,react}_hyre_hd_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hyre_hd_ah`).
 
 ### LLM Hybrid prompt-optimized (Phase 5)
 
-12 SAS (`eventsat_sas_{sda,ooda,react}_hybr_lep_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hybr_lep_ah`). Mechanism: `prompt_optimized`.
+12 SAS (`eventsat_sas_{sda,ooda,react}_hyre_lep_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hyre_lep_ah`). Mechanism: `prompt_optimized`.
 
 ### Subsymbolic RL (Phase 4b)
 
@@ -842,18 +841,18 @@ Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 
 ### Agentic Hybrid hand-designed (Phase 4c)
 
-12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_hd_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_agnt_hd_ah`).
+12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_hd_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hyag_hd_ah`).
 
 ### Agentic Hybrid prompt-optimized (Phase 5)
 
-12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_lep_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_agnt_lep_ah`). Mechanism: `prompt_optimized`.
+12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_lep_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hyag_lep_ah`). Mechanism: `prompt_optimized`.
 
 ### Agentic Hybrid writable-CoALA (Phase 5)
 
-12 SAS (`eventsat_sas_{sda,ooda,react}_agnt_lec_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_agnt_lec_ah`). Mechanism: `writable_coala`.
+12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_lec_{ah,ag,cg}`) + 3 CMAS
+(`eventsat_cmas_{sda,ooda,react}_hyag_lec_ah`). Mechanism: `writable_coala`.
 
 **Total**: 84 experiment configs + 1 template.
 
@@ -863,7 +862,7 @@ Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 - **Ops paradigm comparison** (same loop + repr): AH vs AG vs CG → cost of planning delay and information staleness
 - **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints (Endsley 1995 SA degradation)
 - **Representation comparison** (same loop + ops): symbolic vs LLM vs agentic vs RL → cognitive paradigm effectiveness
-- **Single-shot vs agentic** (same loop + ops, AH only): `hybr_hd` vs `agnt_hd` → does multi-step reasoning with tools improve decisions?
+- **Single-shot vs agentic** (same loop + ops, AH only): `hyre_hd` vs `hyag_hd` → does multi-step reasoning with tools improve decisions?
 - **Hand-designed vs learned** (same repr + loop + ops): `_hd_` vs `_lep_` → does offline prompt optimization improve LLM/agentic decisions?
-- **Fixed vs writable memory** (agentic AH only): `_agnt_hd_` vs `_agnt_lec_` → does CoALA-style memory accretion improve decisions across episodes?
+- **Fixed vs writable memory** (agentic AH only): `_hyag_hd_` vs `_hyag_lec_` → does CoALA-style memory accretion improve decisions across episodes?
 - **Ground ops baseline**: CG with conventional schedule + SDA loop → human lower bound

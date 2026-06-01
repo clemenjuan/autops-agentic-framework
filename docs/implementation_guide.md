@@ -24,7 +24,7 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ### Steps
 
-1. **Create the module** at `src/decision_loop/<loop_name>.py`.
+1. **Create the module** at `src/decision_procedure/<loop_name>.py`.
 
 2. **Cite the paper** in the module docstring:
    ```python
@@ -37,7 +37,7 @@ Step-by-step guide for implementing new components in the experimental framework
    """
    ```
 
-3. **Subclass `DecisionLoop`** from `src/decision_loop/base.py`.
+3. **Subclass `DecisionProcedure`** from `src/decision_procedure/base.py`.
 
 4. **Implement `process()`**: Map the paper's algorithm steps into the
    `process(observation, memory) → (action, memory)` signature.
@@ -52,7 +52,7 @@ Step-by-step guide for implementing new components in the experimental framework
 7. **Register in configuration**: Ensure the experiment runner's factory
    can instantiate the new loop from YAML config.
 
-8. **Document**: Update `src/decision_loop/README.md`.
+8. **Document**: Update `src/decision_procedure/README.md`.
 
 ---
 
@@ -61,7 +61,7 @@ Step-by-step guide for implementing new components in the experimental framework
 *Representation = **substrate** only (symbolic/subsymbolic/hybrid). Two things are **not** new
 representations: (1) action-space richness — reactive vs agentic is a hybrid-only flavor; (2)
 learned behaviour — `ppo`/`prompt_optimized`/`writable_coala` are the **Behaviour** overlay, wired
-via `emergence_config`, not separate classes. See [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).*
+via `behaviour_config`, not separate classes. See [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).*
 
 ### Steps
 
@@ -76,7 +76,7 @@ via `emergence_config`, not separate classes. See [`FOUNDATION_SPEC.md` §3](FOU
 
 5. **For learned variants**: Also implement `update()` for training.
 
-6. **Register** with the `EmergenceController` using the `@register()` decorator:
+6. **Register** with the `BehaviourController` using the `@register()` decorator:
    ```python
    from src.emergence.controller import register
 
@@ -174,8 +174,8 @@ uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 10
 ### Training Learned-Emergence Variants
 ```bash
 uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml    # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml   # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml   # writable CoALA
+uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml   # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml   # writable CoALA
 ```
 
 ### Batch Experiments

@@ -11,9 +11,9 @@ Usage::
 
     # Training learned-emergence variants
     uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml      # PPO
-    uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml     # prompt-optimized
-    uv run autops train configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml     # agentic prompt-opt
-    uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml     # writable CoALA
+    uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml     # prompt-optimized
+    uv run autops train configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml     # agentic prompt-opt
+    uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml     # writable CoALA
 """
 
 from __future__ import annotations

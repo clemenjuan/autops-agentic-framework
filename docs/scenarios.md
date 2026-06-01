@@ -56,7 +56,7 @@ Internal TUM/AUTOPS mission data — high confidence in accurate subsystem model
 **Experiment configs:** `configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml` (autonomous hybrid), `configs/experiments/eventsat_sas_sda_symb_hd_cg.yaml` (conventional ground)
 **Metrics collector:** `src/orchestration/eventsat_metrics.py`
 **Representation:** `src/representation/rule_based_eventsat.py`
-**Decision loop:** `src/decision_loop/sda_loop.py`
+**Decision loop:** `src/decision_procedure/sda_loop.py`
 
 ### Satellite Modes
 

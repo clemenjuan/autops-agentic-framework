@@ -31,7 +31,7 @@ The metrics framework is designed to capture multiple performance dimensions for
 
 **Rationale:** Real-time constraints in space operations — decisions must be timely.
 
-**Measurement:** Wall-clock time per decision cycle (`time.perf_counter()` around `DecisionLoop.process()`).
+**Measurement:** Wall-clock time per decision cycle (`time.perf_counter()` around `DecisionProcedure.process()`).
 
 **Considerations:**
 - Symbolic representations are typically faster than LLM-based ones.

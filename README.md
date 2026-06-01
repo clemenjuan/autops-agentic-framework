@@ -66,9 +66,9 @@ uv run python -m pytest tests/ -v -o "addopts="
 # ops:  ah | ag | cg
 # SDA loop (baseline)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml    # hand-designed agentic
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml   # writable-CoALA
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml   # prompt-optimized
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_hd_ah.yaml    # hand-designed agentic
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml   # writable-CoALA
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml   # prompt-optimized
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
@@ -83,11 +83,11 @@ uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --analyze
 uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml
 
 # Prompt-optimization (LLM / agentic)
-uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml
+uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml
+uv run autops train configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml
 
 # Writable CoALA (no pre-training; memory accretes at runtime)
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml
+uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml
 ```
 
 ### Batch Experiments
@@ -127,10 +127,10 @@ autops-demo/
 |   |   +-- orbital/          # Orbital mechanics (eclipse, ground access, Orekit wrapper)
 |   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
 |   +-- agent_organization/   # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS
-|   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
+|   +-- decision_procedure/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
 |   +-- memory/               # FixedMemory (all variants) + WritableMemory (_lec_ only, CoALA §3)
-|   +-- emergence/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
+|   +-- behaviour/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
@@ -162,9 +162,9 @@ Experiments are defined via YAML files validated by Pydantic:
 ```yaml
 experiment_id: "eventsat_sas_sda_symb_hd_ah"
 agent_organization: sas
-decision_loop: sda
+decision_procedure: sda
 representation: symbolic
-emergence_mode: hand_designed
+behaviour: hand_designed
 operations_paradigm: autonomous_hybrid
 environment:
   scenario: eventsat

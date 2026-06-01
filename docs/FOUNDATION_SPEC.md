@@ -6,7 +6,7 @@
 
 **Repository:** autops-agentic-framework
 
-**Date:** June 1, 2026 (updated — morphological matrix restructuring; §3 pending supervisor review)
+**Date:** June 1, 2026 (updated — morphological matrix restructuring, implemented in code + configs)
 
 > **Scope of this document** (per the doc map in `CLAUDE.md`): research questions, the
 > morphological matrix structure, the cognitive-paradigm taxonomy, and the phase roadmap.
@@ -119,11 +119,10 @@ and the layered system view in
 
 ## 3. Morphological Matrix Structure
 
-> **Status:** this section reflects the CoALA-grounded restructuring (June 2026), **pending review
-> with the supervisor**. Code field names still use the legacy `decision_loop` / `emergence_mode`
-> / `representation_config.type = agentic_eventsat` vocabulary; the mapping to the structure below
-> is noted inline. The instantiated config set (84 EventSat configs) is a *re-labeling* under this
-> structure, not a re-enumeration.
+> The code and the 84 EventSat configs implement this structure directly (config fields
+> `decision_procedure` / `behaviour` / `behaviour_config`, `representation_config.action_space`,
+> filename tokens `symb`/`subm`/`hyre`/`hyag`). The migration was a 1:1 *re-labeling* of the existing
+> config set, not a re-enumeration.
 
 The matrix has **two tiers**. The structural tier describes the blueprint — what the agent is. The
 Behaviour overlay describes which cognitive module's competence was learned rather than specified.
@@ -140,13 +139,13 @@ when the core is a language model.
 |---|---|---|
 | **Organization** | SAS · centralized_mas · decentralized_mas · independent_mas · hybrid_mas | Only SAS + CMAS instantiated; the three MAS topologies deferred to N≥3 (Flamingo). Taxonomy: Kim et al. 2025 (§4). |
 | **Representation** | symbolic · subsymbolic · hybrid | **Substrate only.** Kautz 2022; Garcez & Lamb 2023; Colelough & Regli 2025. |
-| ↳ Action space (hybrid only) | reactive \| agentic | A **hybrid-only flavor**, not a separate axis — it has no degrees of freedom under symbolic/subsymbolic (those are always reactive; an agentic tool-call loop requires an LLM core). This is the principled home for the former `hybr`-vs-`agnt` split. |
-| **Decision Procedure** | SDA · OODA · ReAct | Legacy code field: `decision_loop`. |
+| ↳ Action space (hybrid only) | reactive \| agentic | A **hybrid-only flavor**, not a separate axis — it has no degrees of freedom under symbolic/subsymbolic (those are always reactive; an agentic tool-call loop requires an LLM core). This is where the `hyre` (reactive) and `hyag` (agentic) hybrid configs differ. |
+| **Decision Procedure** | SDA · OODA · ReAct | Code field: `decision_procedure`. |
 | **Operations Paradigm** | AH · AG · CG | Defines which *autonomy slots* are active (§3.3). |
 
-The former four representation "values" (`symb`, `subm`, `hybr`, `agnt`) map to **three substrates
-with hybrid split by action space**: `hybr` = hybrid-reactive, `agnt` = hybrid-agentic. Representation
-now denotes *only* substrate.
+The four representation filename tokens (`symb`, `subm`, `hyre`, `hyag`) map to **three substrates
+with hybrid split by action space**: `hyre` = hybrid-reactive, `hyag` = hybrid-agentic. Representation
+denotes *only* substrate.
 
 ### 3.2 Behaviour overlay
 
@@ -158,13 +157,13 @@ by the **action space** (writing to a store is itself an internal action — CoA
 action — so it needs the agentic action-space repertoire, not the reactive single-shot one). The
 substrate then decides *what* gets written.
 
-| Behaviour | Module learned | Gated by | Mechanism | Legacy suffix |
+| Behaviour | Module learned | Gated by | Mechanism | Filename suffix |
 |---|---|---|---|---|
 | hand-designed | — | — | — | `_hd_` |
 | emergent · policy | the policy / reasoning competence | substrate | **ppo** (subsymbolic) \| **prompt_optimized** (hybrid — works for reactive *and* agentic) | `_le_` / `_lep_` |
 | emergent · memory | declarative (semantic + episodic) memory | action space (agentic) | **writable_coala** | `_lec_` |
 
-So `prompt_optimized` is action-space-agnostic (hence both `hybr_lep` and `agnt_lep`), whereas
+So `prompt_optimized` is action-space-agnostic (hence both `hyre_lep` and `hyag_lep`), whereas
 `writable_coala` is tied to the agentic action space — *not* to the hybrid substrate. A
 symbolic-agentic agent could in principle write to memory too (cf. Soar); it simply isn't
 instantiated here.
@@ -172,7 +171,7 @@ instantiated here.
 **Memory invariant.** All variants use `FixedMemory` for fair comparison. The *only* thing that
 flips memory to `WritableMemory` is `emergent · memory` (writable_coala) — so the fairness-invariant
 exception is the visible side-effect of that one Behaviour state, not a separate axis. `_lec_` is
-compared against its `_agnt_hd_` counterpart (same representation, loop, and paradigm). See the
+compared against its `_hyag_hd_` counterpart (same representation, loop, and paradigm). See the
 Memory invariant note in `CLAUDE.md`.
 
 ### 3.3 Operations Paradigm as autonomy slots
@@ -183,8 +182,9 @@ The paradigm decides *where* autonomy sits, not which single core runs:
 - **ground planner** (long-horizon, synthesizes the uplinked schedule) — active in **AH and AG**
 - **CG** = neither (human flight-dynamics team; one-pass planning delay)
 
-**Decision held for now (pending supervisor):** the ground planner is the **same core run in
-planning mode** (forward-simulation from stale, last-downlinked state) for both AG and AH. This
+**Design decision:** the ground planner is the **same core run in
+planning mode** (forward-simulation from stale, last-downlinked state) for both AG and AH — and
+*which* core is set by the Representation axis, not the paradigm. This
 keeps **AH-vs-AG a clean measurement of the cost of losing onboard closed-loop autonomy**. A
 distinct-core ground planner (e.g. an RL long-horizon scheduler independent of the onboard core,
 see Phase 4.e and the Giulio collaboration) is deferred — it would confound the AH-vs-AG contrast
@@ -204,9 +204,9 @@ Not every theoretical cell is scientifically meaningful. The following are exclu
 | decentralized / independent / hybrid MAS (any) | Require N≥3 satellites; deferred to Flamingo. |
 
 **Comparison scope.** Because each substrate has a *different* learning mechanism, emergence is
-compared **within a representation family, not across** (e.g. `agnt_hd` vs `agnt_lep` vs `agnt_lec`;
-`hybr_hd` vs `hybr_lep`). Across-family comparisons hold Behaviour at the
-"representation-appropriate default" (e.g. `symb_hd` vs `hybr_hd` vs `agnt_hd` vs `subm_le`). There
+compared **within a representation family, not across** (e.g. `hyag_hd` vs `hyag_lep` vs `hyag_lec`;
+`hyre_hd` vs `hyre_lep`). Across-family comparisons hold Behaviour at the
+"representation-appropriate default" (e.g. `symb_hd` vs `hyre_hd` vs `hyag_hd` vs `subm_le`). There
 is no single "learned-everywhere" axis because no unified mechanism exists across substrates.
 
 **Loop × representation orthogonality note.** With deterministic symbolic reps, SDA vs OODA vs
@@ -292,7 +292,7 @@ A held-out architecture-selection rule reached 87% accuracy keyed on task proper
 (decomposability, tool complexity, sequential depth), not agent count — autops aims to derive
 analogous heuristics from its own matrix.
 
-### 4.3 Decision Procedure — `src/decision_loop/base.py`
+### 4.3 Decision Procedure — `src/decision_procedure/base.py`
 
 Abstract temporal control flow (`process(observation, memory) → (action, memory)`). Implementations
 follow their source papers strictly:
@@ -308,8 +308,8 @@ follow their source papers strictly:
 
 **CoALA is not a decision procedure.** CoALA (Sumers et al. 2024) is the substrate-general
 architecture blueprint of §3 (memory + action space + decision procedure). In this framework the
-agentic pattern it inspires is the **hybrid-agentic action-space flavor** (legacy
-`agentic_eventsat`), not a decision procedure and not a separate representation.
+agentic pattern it inspires is the **hybrid-agentic action-space flavor** (the
+`agentic_eventsat` representation type), not a decision procedure and not a separate substrate.
 
 ### 4.4 Representation — `src/representation/base.py`
 
@@ -336,7 +336,7 @@ queue/completion, and resource budgets — fixed across experiments for fair com
 `WritableMemory` (writable_coala only): adds writable semantic + episodic stores (CoALA §3). See the
 Memory invariant in §3.2 and `CLAUDE.md`.
 
-### 4.6 Behaviour Controller — `src/emergence/controller.py`
+### 4.6 Behaviour Controller — `src/behaviour/controller.py`
 
 Factory selecting hand-designed vs emergent representations and wiring the derived mechanism
 (`get_representation(...)`). Realizes the Behaviour overlay of §3.2; the `@register("name")`
@@ -422,7 +422,7 @@ one-pass delay; Sellmaier et al. 2022, ECSS-E-ST-70C]); `ScheduleBasedEventSat` 
 ### Phase 5 — Kim et al. taxonomy + learned emergence for LLM representations
 - Organization taxonomy rename to Kim et al. 2025 (SAS / CentralizedMAS instantiated; Decentralized
   / Independent / Hybrid MAS as N≥3 stubs).
-- `emergence_config.mechanism` with cross-field validators (`ppo`→subsymbolic;
+- `behaviour_config.mechanism` with cross-field validators (`ppo`→subsymbolic;
   `prompt_optimized`→hybrid; `writable_coala`→hybrid + agentic).
 - `WritableMemory` (CoALA §3) and CoALA memory-write tools (`memory_write_rule`,
   `memory_write_episode`) injected only for writable_coala.
@@ -434,7 +434,7 @@ one-pass delay; Sellmaier et al. 2022, ECSS-E-ST-70C]); `ScheduleBasedEventSat` 
 ### Phase 4.e — Learned scheduler (planned, not implemented)
 RL-trained schedule producer as the third schedule-producing representation (sibling of
 `schedule_based_eventsat` and `conventional_schedule_eventsat`), emitting `[(mode, num_steps), …]`
-consumed unchanged by `AutonomousGround`. Primary target `ops=ag` with `repr=subm`/`agnt`; secondary
+consumed unchanged by `AutonomousGround`. Primary target `ops=ag` with `repr=subm`/`hyag`; secondary
 `ops=ah`. No env/paradigm changes needed; distinct artifact from the onboard `subsymbolic_eventsat`
 (refined by Giulio on a separate RLlib branch). Open: policy architecture, duration representation,
 reward shaping, training harness, naming. This is the distinct-core ground planner flagged in §3.3 —
@@ -444,8 +444,7 @@ landing it reopens the AH-vs-AG confound question.
 Phases 1–5 are complete. The active roadmap lives in `implementations.md` (component registry,
 per-phase test counts) and the first-round LLM experiment plan (`_hd_` baselines → `_lep_` →
 `_lec_`). Remaining instantiation: the Flamingo N≥3 constellation (activates the deferred MAS
-topologies) and the large-scale (100+) RQ3 study. The §3 restructuring is pending supervisor review
-before config/validator field renames are applied.
+topologies) and the large-scale (100+) RQ3 study.
 
 ***
 

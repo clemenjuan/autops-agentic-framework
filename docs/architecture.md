@@ -42,9 +42,9 @@ for the per-component mapping see
 │      src/tools/  (BaseTool + scenario action defs)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L1  Reasoning · Memory · Self-Reflection                               │
-│      src/decision_loop/  (SDA / OODA / ReAct)                           │
+│      src/decision_procedure/  (SDA / OODA / ReAct)                           │
 │      src/memory/  (FixedMemory / WritableMemory)                        │
-│      src/emergence/  (EmergenceController, PPO, PromptOptimizer)        │
+│      src/behaviour/  (BehaviourController, PPO, PromptOptimizer)        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L0  Foundation Model    [gap for symbolic variants]                    │
 │      src/representation/llm_client.py  (LLM backend)                    │
@@ -98,7 +98,7 @@ Environment → Observation → OperationsParadigm.filter_observation()
                                               ↓
                             Organization → AgentObservation
                                               ↓
-                                        DecisionLoop.process()
+                                        DecisionProcedure.process()
                                               ↓
               AgentAction → Organization → OperationsParadigm.process_action()
                                               ↓
@@ -121,10 +121,10 @@ Two computation backends are supported:
 | `src/environment/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
 | `src/environment/scenarios/` | Scenario environments (EventSat, Flamingo, ...) |
 | `src/agent_organization/` | Agent coordination patterns |
-| `src/decision_loop/` | Decision-making temporal patterns |
+| `src/decision_procedure/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
 | `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
-| `src/emergence/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/behaviour/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
 | `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |
@@ -138,7 +138,7 @@ Two computation backends are supported:
 
 All architecture variants access the **same** `FixedMemory` structure by default to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
 
-**Exception**: `_lec_` configs (`emergence_config.mechanism = "writable_coala"`) use `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — these variants are compared against the hand-designed agentic baseline only, not against other representation types. See `src/memory/writable_memory.py` and CLAUDE.md for the rationale.
+**Exception**: `_lec_` configs (`behaviour_config.mechanism = "writable_coala"`) use `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — these variants are compared against the hand-designed agentic baseline only, not against other representation types. See `src/memory/writable_memory.py` and CLAUDE.md for the rationale.
 
 ### Why YAML Configuration?
 

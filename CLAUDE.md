@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## What this is
-PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **two-tier morphological matrix** (see `docs/FOUNDATION_SPEC.md` §3): structural axes — Organization × Representation (substrate: symbolic/subsymbolic/hybrid) × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate — plus a **Behaviour** overlay (hand-designed vs emergent). Each combination is a unique architecture evaluated under identical conditions. (Code identifiers `decision_loop` / `emergence` / `agnt` are mid-migration to this framing; the §3 restructuring is pending supervisor review.)
+PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **two-tier morphological matrix** (see `docs/FOUNDATION_SPEC.md` §3): structural axes — Organization × Representation (substrate: symbolic/subsymbolic/hybrid) × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate — plus a **Behaviour** overlay (hand-designed vs emergent). Each combination is a unique architecture evaluated under identical conditions.
 
 ## Execution environment
 - **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.
@@ -23,29 +23,29 @@ uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
 uv run pytest tests/ -v -o "addopts="     # Full test suite (575 tests)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
-# Run experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
-# org: sas | cmas (instantiated)                 loop: sda | ooda | react
-# repr: symb | hybr | subm | agnt                ops:  ah  | ag   | cg
-# emrg: hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
+# Run experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
+# org:  sas | cmas (instantiated)                proc: sda | ooda | react
+# repr: symb | hyre | subm | hyag                ops:  ah  | ag   | cg
+# beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
 #
 # Canonical config values (as accepted by config_loader.py):
 #   agent_organization: sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
-#   emergence_config.mechanism: hand_designed | ppo | prompt_optimized | writable_coala
+#   behaviour_config.mechanism: hand_designed | ppo | prompt_optimized | writable_coala
 # (dmas/imas/hmas are registered but deferred to Flamingo N>=3 scenarios — see Architecture.)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
-uv run autops run configs/experiments/eventsat_sas_sda_hybr_hd_ah.yaml  # LLM hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_hyre_hd_ah.yaml  # LLM hybrid
 uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_hd_ah.yaml  # Agentic hybrid
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml # Writable CoALA
-uv run autops run configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml # Prompt-optimized
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_hd_ah.yaml  # Agentic hybrid
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml # Writable CoALA
+uv run autops run configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml # Prompt-optimized
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
 
 # Training learned-emergence variants
 uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml         # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml        # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml        # writable CoALA
+uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml        # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml        # writable CoALA
 
 # Batch run / analyze — see uv run autops --help
 ```
@@ -74,10 +74,10 @@ uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml       
 src/
   environment/        # Satellite sim (ABC + EventSat scenario + orbital/)
   agent_organization/ # SAS / CentralizedMAS (instantiated) + DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025; deferred to Flamingo N>=3)
-  decision_loop/      # SDA / OODA / ReAct  (+DecisionContext interface)
+  decision_procedure/      # SDA / OODA / ReAct  (+DecisionContext interface)
   representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
   memory/             # FixedMemory (default, all variants); WritableMemory (_lec_ only — see below)
-  emergence/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
+  behaviour/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
   operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
@@ -87,15 +87,15 @@ tests/                # 21 test modules, 575 tests
 
 **Key interfaces:**
 - `DecisionContext(state, loop_type, memory, enrichments, loop_metadata)` — passes from loop → representation
-- `@register("name")` decorator on representation class → auto-registers in `EmergenceController`
+- `@register("name")` decorator on representation class → auto-registers in `BehaviourController`
 - New representations must be imported in `experiment_runner.py` `_create_decision_loops()` to trigger registration
 
 ## Memory invariant
 All hand-designed and non-CoALA learned variants use `FixedMemory` for fair comparison.
-**Exception**: `_lec_` configs (`emergence_config.mechanism = "writable_coala"`) use `WritableMemory`,
+**Exception**: `_lec_` configs (`behaviour_config.mechanism = "writable_coala"`) use `WritableMemory`,
 which adds writable semantic + episodic stores (CoALA §3, Sumers et al. 2024). This deviates
 from the fairness invariant intentionally — these variants are compared against the
-hand-designed agentic baseline (`_agnt_hd_`), not against other representations.
+hand-designed agentic baseline (`_hyag_hd_`), not against other representations.
 See `src/memory/writable_memory.py` for the implementation.
 
 ## Coding conventions
@@ -117,7 +117,7 @@ uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single
 
 ## Gotchas
 - `uv run` not `python` — running `python` directly misses the venv
-- `representation_config.type` must match an `@register("name")` string exactly; typos give `KeyError` from `EmergenceController`
+- `representation_config.type` must match an `@register("name")` string exactly; typos give `KeyError` from `BehaviourController`
 - LLM experiments require `OLLAMA_HOST` env var (TUM: `https://ollama.sps.ed.tum.de`) or `OPENAI_API_KEY`; use `llm_mock: true` for local dev without LLM access
 - LLM response cache at `data/llm_cache/` — delete to force fresh calls  
 - `autonomous_ground` and `conventional_ground` ops paradigms require `operations_paradigm_config.orbital_period_steps: 93`
