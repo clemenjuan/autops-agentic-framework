@@ -329,9 +329,9 @@ class TestConventionalGroundIntegration:
         cfg = ExperimentConfig(
             experiment_id="cg_test_conventional_schedule",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="conventional_ground",
             operations_paradigm_config={"orbital_period_steps": 93},
             representation_config={"type": "conventional_schedule_eventsat"},

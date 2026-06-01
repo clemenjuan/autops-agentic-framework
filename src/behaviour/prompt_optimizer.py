@@ -177,9 +177,9 @@ class PromptOptimizer:
             - ``experiment_id`` (str): Used to name the output directory.
             - ``representation_config.type`` (str): ``llm_eventsat`` or
               ``agentic_eventsat`` — selects the base prompt.
-            - ``emergence_config.num_examples`` (int): Number of few-shot
+            - ``behaviour_config.num_examples`` (int): Number of few-shot
               examples to inject (default 5).
-            - ``emergence_config.num_candidates`` (int): Candidate prompts to
+            - ``behaviour_config.num_candidates`` (int): Candidate prompts to
               score (default 3).
             - ``output_dir`` (str): Root results directory (default
               ``data/trained_prompts``).
@@ -192,7 +192,7 @@ class PromptOptimizer:
         self._experiment_id: str = self._config.get("experiment_id", "unnamed")
         repr_cfg = self._config.get("representation_config", {})
         self._repr_type: str = repr_cfg.get("type", "llm_eventsat")
-        emergence_cfg = self._config.get("emergence_config", {})
+        emergence_cfg = self._config.get("behaviour_config", {})
         self._num_examples: int = emergence_cfg.get("num_examples", _DEFAULT_NUM_EXAMPLES)
         self._num_candidates: int = emergence_cfg.get("num_candidates", _DEFAULT_NUM_CANDIDATES)
         self._output_dir: Path = (

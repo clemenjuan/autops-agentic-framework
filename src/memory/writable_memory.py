@@ -7,7 +7,7 @@ CoALA-style learning (Sumers et al. 2024 [CoALA]). Used exclusively by
 
 **Fairness note**: All hand-designed and non-CoALA learned variants use
 ``FixedMemory`` for fair comparison. This class is used ONLY when
-``emergence_config.mechanism = "writable_coala"`` is explicitly set.
+``behaviour_config.mechanism = "writable_coala"`` is explicitly set.
 The `_lec_` experiment configs document this trade-off.
 
 Memory architecture (CoALA §3):

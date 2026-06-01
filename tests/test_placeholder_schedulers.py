@@ -109,7 +109,7 @@ class TestGroundScheduleGuard:
             "hybrid",
             "agentic_scheduler_eventsat",
             "autonomous_ground",
-            emergence_mode="learned",
-            emergence_config={"mode": "learned", "mechanism": "writable_coala"},
+            behaviour="emergent",
+            behaviour_config={"mode": "emergent", "mechanism": "writable_coala"},
         )
         assert cfg.behaviour_config["mechanism"] == "writable_coala"

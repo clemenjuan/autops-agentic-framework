@@ -116,7 +116,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 def cmd_train(args: argparse.Namespace) -> None:
     """Train a learned-emergence representation for the given config.
 
-    Dispatches based on ``representation`` × ``emergence_config.mechanism``:
+    Dispatches based on ``representation`` × ``behaviour_config.mechanism``:
 
     - subsymbolic + ppo         → PPOTrainer (writes policy.pt)
     - hybrid    + prompt_optimized → PromptOptimizer (writes prompt.txt)
@@ -203,7 +203,7 @@ def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     opt_config = {
         "experiment_id": cfg.experiment_id,
         "representation_config": cfg.representation_config,
-        "emergence_config": cfg.behaviour_config,
+        "behaviour_config": cfg.behaviour_config,
         "output_dir": "data/trained_prompts",
         **{k: v for k, v in (cfg.model_dump() if hasattr(cfg, "model_dump") else vars(cfg)).items()
            if k in ("llm_host", "llm_model", "llm_mock")},

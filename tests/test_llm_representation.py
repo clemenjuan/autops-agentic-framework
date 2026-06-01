@@ -529,7 +529,7 @@ class TestConfigValidation(unittest.TestCase):
         for loop in ["sda", "ooda", "react"]:
             config = ExperimentConfig(
                 representation="hybrid",
-                decision_loop=loop,
+                decision_procedure=loop,
                 representation_config={"type": "llm_eventsat", "llm_mock": True},
             )
             self.assertEqual(config.decision_procedure, loop)

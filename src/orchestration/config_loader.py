@@ -17,9 +17,7 @@ import yaml
 import warnings
 
 from pydantic import (
-    AliasChoices,
     BaseModel,
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
@@ -84,10 +82,6 @@ class ExperimentConfig(BaseModel):
     captured here.
     """
 
-    # Accept both the canonical field name and the legacy alias on input
-    # (see validation_alias below); legacy aliases removed after migration.
-    model_config = ConfigDict(populate_by_name=True)
-
     # Identification
     experiment_id: str = Field(default="exp_unnamed")
     description: str = Field(default="")
@@ -97,28 +91,16 @@ class ExperimentConfig(BaseModel):
 
     # Morphological matrix dimensions
     agent_organization: str = Field(default="sas")
-    decision_procedure: str = Field(
-        default="sda",
-        validation_alias=AliasChoices("decision_procedure", "decision_loop"),
-    )
+    decision_procedure: str = Field(default="sda")
     representation: str = Field(default="symbolic")
-    behaviour: str = Field(
-        default="hand_designed",
-        validation_alias=AliasChoices("behaviour", "emergence_mode"),
-    )
+    behaviour: str = Field(default="hand_designed")
     operations_paradigm: str = Field(default="autonomous_hybrid")
 
     # Component-specific sub-configs
     agent_organization_config: Dict[str, Any] = Field(default_factory=dict)
-    decision_procedure_config: Dict[str, Any] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices("decision_procedure_config", "decision_loop_config"),
-    )
+    decision_procedure_config: Dict[str, Any] = Field(default_factory=dict)
     representation_config: Dict[str, Any] = Field(default_factory=dict)
-    behaviour_config: Dict[str, Any] = Field(
-        default_factory=dict,
-        validation_alias=AliasChoices("behaviour_config", "emergence_config"),
-    )
+    behaviour_config: Dict[str, Any] = Field(default_factory=dict)
     operations_paradigm_config: Dict[str, Any] = Field(default_factory=dict)
 
     # Environment
@@ -150,13 +132,30 @@ class ExperimentConfig(BaseModel):
         "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
     }
     VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
-    # "learned" is the deprecated spelling of "emergent" (accepted during migration).
-    VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent", "learned"}
+    VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent"}
     VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
         "autonomous_hybrid", "autonomous_ground", "conventional_ground",
     }
     # Decision loops are extensible — no fixed set enforced here.
+
+    _LEGACY_FIELD_NAMES: ClassVar[Set[str]] = {
+        "decision_loop", "decision_loop_config", "emergence_mode", "emergence_config",
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_field_names(cls, data: Any) -> Any:
+        """Reject pre-migration field names so stale configs fail loudly."""
+        if isinstance(data, dict):
+            present = cls._LEGACY_FIELD_NAMES & set(data)
+            if present:
+                raise ValueError(
+                    f"Legacy config field(s) {sorted(present)} are no longer supported. "
+                    f"Use decision_procedure / decision_procedure_config / behaviour / "
+                    f"behaviour_config (see FOUNDATION_SPEC.md §3)."
+                )
+        return data
 
     @field_validator("agent_organization")
     @classmethod
@@ -342,13 +341,13 @@ class ExperimentConfig(BaseModel):
         if mechanism is not None:
             if mechanism not in self.VALID_MECHANISMS:
                 raise ValueError(
-                    f"emergence_config.mechanism must be one of "
+                    f"behaviour_config.mechanism must be one of "
                     f"{self.VALID_MECHANISMS}, got '{mechanism}'"
                 )
             allowed_reps = self._MECHANISM_REPRESENTATION_RULES[mechanism]
             if self.representation not in allowed_reps:
                 raise ValueError(
-                    f"emergence_config.mechanism='{mechanism}' is only valid with "
+                    f"behaviour_config.mechanism='{mechanism}' is only valid with "
                     f"representation in {allowed_reps}, got '{self.representation}'"
                 )
             if mechanism == "writable_coala":
@@ -368,7 +367,7 @@ class ExperimentConfig(BaseModel):
 
         # Warn if emergent hybrid config has no mechanism
         if (
-            self.behaviour in ("learned", "emergent")
+            self.behaviour == "emergent"
             and self.representation == "hybrid"
             and mechanism is None
         ):
@@ -390,29 +389,6 @@ class ExperimentConfig(BaseModel):
             )
 
         return self
-
-    # ------------------------------------------------------------------
-    # Backward-compat read aliases for legacy attribute names.
-    # YAML/keyword input aliases are handled by validation_alias above;
-    # these cover Python attribute access (config.decision_loop, ...).
-    # Removed in Stage 4 of the matrix-restructure migration.
-    # ------------------------------------------------------------------
-
-    @property
-    def decision_loop(self) -> str:
-        return self.decision_procedure
-
-    @property
-    def decision_loop_config(self) -> Dict[str, Any]:
-        return self.decision_procedure_config
-
-    @property
-    def emergence_mode(self) -> str:
-        return self.behaviour
-
-    @property
-    def emergence_config(self) -> Dict[str, Any]:
-        return self.behaviour_config
 
     @property
     def action_space(self) -> Optional[str]:

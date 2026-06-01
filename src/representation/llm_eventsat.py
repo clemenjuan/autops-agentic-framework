@@ -8,7 +8,7 @@ output against physical constraints and retries on invalid responses.
 Works with all 3 decision loops (SDA, OODA, ReAct) and all 3 operations
 paradigms (AH, AG, CG) — fully orthogonal in the morphological matrix.
 
-Learned-emergence variants (emergence_config.mechanism):
+Learned-emergence variants (behaviour_config.mechanism):
 - ``hand_designed`` (default): fixed SYSTEM_PROMPT + FixedMemory.
 - ``prompt_optimized``: loads an offline-optimised system prompt from
   ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
@@ -79,7 +79,7 @@ class LLMEventSat(Representation):
         self._client = LLMClient(cfg)
 
         # Learned-emergence mechanism
-        emergence_cfg: Dict[str, Any] = cfg.get("emergence_config", {})
+        emergence_cfg: Dict[str, Any] = cfg.get("behaviour_config", {})
         mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
         experiment_id: str = cfg.get("experiment_id", "")
         self._system_prompt: str = self._resolve_system_prompt(

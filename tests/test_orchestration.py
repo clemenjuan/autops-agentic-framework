@@ -32,9 +32,9 @@ class TestExperimentConfig:
         cfg = ExperimentConfig()
         assert cfg.seed == 42
         assert cfg.agent_organization == "sas"
-        assert cfg.decision_loop == "sda"
+        assert cfg.decision_procedure == "sda"
         assert cfg.representation == "symbolic"
-        assert cfg.emergence_mode == "hand_designed"
+        assert cfg.behaviour == "hand_designed"
         assert cfg.num_episodes == 100
 
     def test_invalid_organization_raises(self) -> None:
@@ -46,8 +46,8 @@ class TestExperimentConfig:
             ExperimentConfig(representation="quantum")
 
     def test_invalid_emergence_mode_raises(self) -> None:
-        with pytest.raises(ValueError, match="emergence_mode"):
-            ExperimentConfig(emergence_mode="magic")
+        with pytest.raises(ValueError, match="behaviour"):
+            ExperimentConfig(behaviour="magic")
 
     def test_invalid_log_level_raises(self) -> None:
         with pytest.raises(ValueError, match="log_level"):
@@ -59,7 +59,7 @@ class TestCombinationGuardrails:
 
     def _make_cfg(self, loop: str, ops: str, rep_type: str) -> ExperimentConfig:
         return ExperimentConfig(
-            decision_loop=loop,
+            decision_procedure=loop,
             operations_paradigm=ops,
             representation_config={"type": rep_type},
         )
@@ -116,12 +116,12 @@ class TestCombinationGuardrails:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             cfg = self._make_cfg("react", "conventional_ground", "schedule_based_eventsat")
-        assert cfg.decision_loop == "react"
+        assert cfg.decision_procedure == "react"
         assert cfg.operations_paradigm == "conventional_ground"
 
 
 class TestEmergenceMechanism:
-    """Validation of emergence_config.mechanism cross-field constraints."""
+    """Validation of behaviour_config.mechanism cross-field constraints."""
 
     def _make_learned(
         self,
@@ -130,29 +130,29 @@ class TestEmergenceMechanism:
         mechanism: str | None,
     ) -> ExperimentConfig:
         import warnings
-        emergence_config: dict = {"mode": "learned"}
+        behaviour_config: dict = {"mode": "emergent"}
         if mechanism is not None:
-            emergence_config["mechanism"] = mechanism
+            behaviour_config["mechanism"] = mechanism
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return ExperimentConfig(
                 representation=representation,
                 representation_config={"type": repr_type},
-                emergence_mode="learned",
-                emergence_config=emergence_config,
+                behaviour="emergent",
+                behaviour_config=behaviour_config,
             )
 
     def test_ppo_with_subsymbolic_valid(self) -> None:
         cfg = self._make_learned("subsymbolic", "subsymbolic_eventsat", "ppo")
-        assert cfg.emergence_config["mechanism"] == "ppo"
+        assert cfg.behaviour_config["mechanism"] == "ppo"
 
     def test_prompt_optimized_with_hybrid_valid(self) -> None:
         cfg = self._make_learned("hybrid", "llm_eventsat", "prompt_optimized")
-        assert cfg.emergence_config["mechanism"] == "prompt_optimized"
+        assert cfg.behaviour_config["mechanism"] == "prompt_optimized"
 
     def test_writable_coala_with_agentic_valid(self) -> None:
         cfg = self._make_learned("hybrid", "agentic_eventsat", "writable_coala")
-        assert cfg.emergence_config["mechanism"] == "writable_coala"
+        assert cfg.behaviour_config["mechanism"] == "writable_coala"
 
     def test_invalid_mechanism_raises(self) -> None:
         with pytest.raises(ValueError, match="mechanism"):
@@ -166,10 +166,10 @@ class TestEmergenceMechanism:
             cfg = ExperimentConfig(
                 representation="symbolic",
                 representation_config={"type": "rule_based_eventsat"},
-                emergence_mode="hand_designed",
-                emergence_config={"mode": "hand_designed", "mechanism": "hand_designed"},
+                behaviour="hand_designed",
+                behaviour_config={"mode": "hand_designed", "mechanism": "hand_designed"},
             )
-        assert cfg.emergence_config["mechanism"] == "hand_designed"
+        assert cfg.behaviour_config["mechanism"] == "hand_designed"
 
     def test_ppo_with_hybrid_raises(self) -> None:
         with pytest.raises(ValueError, match="mechanism.*ppo"):
@@ -188,8 +188,8 @@ class TestEmergenceMechanism:
             ExperimentConfig(
                 representation="hybrid",
                 representation_config={"type": "llm_eventsat"},
-                emergence_mode="learned",
-                emergence_config={"mode": "learned"},
+                behaviour="emergent",
+                behaviour_config={"mode": "emergent"},
             )
 
     def test_hand_designed_no_mechanism_no_warning(self) -> None:
@@ -199,8 +199,8 @@ class TestEmergenceMechanism:
             ExperimentConfig(
                 representation="hybrid",
                 representation_config={"type": "llm_eventsat"},
-                emergence_mode="hand_designed",
-                emergence_config={"mode": "hand_designed"},
+                behaviour="hand_designed",
+                behaviour_config={"mode": "hand_designed"},
             )
 
 
@@ -361,8 +361,8 @@ class TestRunnerMemoryWiring:
             output_dir=str(tmp_path),
             representation="hybrid",
             representation_config={"type": "agentic_eventsat"},
-            emergence_mode="learned",
-            emergence_config={"mode": "learned", "mechanism": "writable_coala"},
+            behaviour="emergent",
+            behaviour_config={"mode": "emergent", "mechanism": "writable_coala"},
         )
         runner = ExperimentRunner(config=cfg)
         mem = runner._create_memory()
@@ -411,17 +411,19 @@ class TestMatrixRestructureNaming:
         assert cfg.decision_procedure == "ooda"
         assert cfg.behaviour == "emergent"
 
-    def test_legacy_aliases_still_load(self) -> None:
-        cfg = ExperimentConfig(decision_loop="react", emergence_mode="hand_designed",
-                               decision_loop_config={"x": 1}, emergence_config={"y": 2})
-        # legacy input keys map onto canonical fields...
-        assert cfg.decision_procedure == "react"
-        assert cfg.behaviour == "hand_designed"
-        assert cfg.decision_procedure_config == {"x": 1}
-        # ...and legacy read-properties still resolve
-        assert cfg.decision_loop == "react"
-        assert cfg.emergence_mode == "hand_designed"
-        assert cfg.emergence_config == {"y": 2}
+    @pytest.mark.parametrize(
+        "legacy_kwargs",
+        [
+            {"decision_loop": "react"},
+            {"emergence_mode": "hand_designed"},
+            {"emergence_config": {"mode": "hand_designed"}},
+            {"decision_loop_config": {"x": 1}},
+        ],
+    )
+    def test_legacy_field_names_rejected(self, legacy_kwargs: dict) -> None:
+        """Old field names no longer accepted (extra='forbid')."""
+        with pytest.raises(ValueError):
+            ExperimentConfig(**legacy_kwargs)
 
     def test_action_space_valid(self) -> None:
         cfg = ExperimentConfig(representation="hybrid",

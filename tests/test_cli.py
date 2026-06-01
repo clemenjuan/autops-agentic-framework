@@ -25,9 +25,9 @@ def _write_config(
     data = {
         "experiment_id": name,
         "agent_organization": "sas",
-        "decision_loop": "sda",
+        "decision_procedure": "sda",
         "representation": "symbolic",
-        "emergence_mode": "hand_designed",
+        "behaviour": "hand_designed",
         "operations_paradigm": "autonomous_hybrid",
         "num_episodes": 1,
         "max_steps": 2,
@@ -101,9 +101,9 @@ class TestCmdTrainPPO:
             "subm_le_test",
             extra={
                 "representation": "subsymbolic",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "subsymbolic_eventsat"},
-                "emergence_config": {"mechanism": "ppo"},
+                "behaviour_config": {"mechanism": "ppo"},
             },
         )
         from src.cli import cmd_train
@@ -128,9 +128,9 @@ class TestCmdTrainPPO:
             "subm_le_notorch",
             extra={
                 "representation": "subsymbolic",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "subsymbolic_eventsat"},
-                "emergence_config": {"mechanism": "ppo"},
+                "behaviour_config": {"mechanism": "ppo"},
             },
         )
         from src.cli import cmd_train
@@ -160,9 +160,9 @@ class TestCmdTrainPromptOptimized:
             "hybr_lep_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "llm_eventsat"},
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             },
         )
         from src.cli import cmd_train
@@ -188,9 +188,9 @@ class TestCmdTrainPromptOptimized:
             "agnt_lep_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "agentic_eventsat"},
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             },
         )
         from src.cli import cmd_train
@@ -224,9 +224,9 @@ class TestCmdTrainWritableCoala:
             "agnt_lec_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "agentic_eventsat"},
-                "emergence_config": {"mechanism": "writable_coala"},
+                "behaviour_config": {"mechanism": "writable_coala"},
             },
         )
         from src.cli import cmd_train
@@ -256,9 +256,9 @@ class TestCmdTrainUnknown:
             "weird_test",
             extra={
                 "representation": "symbolic",
-                "emergence_mode": "hand_designed",
+                "behaviour": "hand_designed",
                 "representation_config": {"type": "rule_based_eventsat"},
-                "emergence_config": {},
+                "behaviour_config": {},
             },
         )
         from src.cli import cmd_train

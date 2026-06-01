@@ -55,10 +55,10 @@ class BehaviourController:
 
     Attributes:
         config: Emergence-specific configuration from experiment YAML.
-        mode: Emergence mode (``"hand_designed"`` or ``"learned"``).
+        mode: Behaviour (``"hand_designed"`` or ``"emergent"``).
     """
 
-    VALID_MODES = {"hand_designed", "learned"}
+    VALID_MODES = {"hand_designed", "emergent"}
 
     def __init__(self, config: Dict[str, Any]) -> None:
         """Initialise the emergence controller.

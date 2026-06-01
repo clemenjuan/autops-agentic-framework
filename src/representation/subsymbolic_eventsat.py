@@ -12,9 +12,9 @@ The policy operates on a 25D observation vector (Groups 1-5 per the plan),
 outputs MultiDiscrete([7, 2, 2]) actions, and is subject to the same symbolic
 safety grounding constraints as LLMEventSat.
 
-When emergence_mode == "learned" the representation delegates PPO updates to
+When behaviour == "emergent" the representation delegates PPO updates to
 PPOTrainer (called from experiment_runner after each episode). When
-emergence_mode == "hand_designed" update() is a no-op (policy is frozen).
+behaviour == "hand_designed" update() is a no-op (policy is frozen).
 
 Papers:
 - Oliver et al. EUCASS 2025 (8KDZ5Z53): architecture, obs/action space
@@ -282,7 +282,7 @@ class SubsymbolicEventSat(Representation):
         """Delegate PPO update to the trainer (learned mode only).
 
         Called by experiment_runner after each episode when
-        emergence_mode == "learned". No-op if trainer not set.
+        behaviour == "emergent". No-op if trainer not set.
 
         Args:
             experience: Dict with keys: buffer (RolloutBuffer), episode (int).

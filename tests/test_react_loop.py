@@ -450,11 +450,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_integration",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={
+            decision_procedure_config={
                 "max_iterations": 3,
                 "grounding_checks": ["battery_feasibility", "pass_window_timing"],
             },
@@ -485,11 +485,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_schedule",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_ground",
-            decision_loop_config={
+            decision_procedure_config={
                 "max_iterations": 3,
                 "grounding_checks": ["battery_feasibility", "pass_window_timing"],
             },
@@ -521,11 +521,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_metrics",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={"max_iterations": 3},
+            decision_procedure_config={"max_iterations": 3},
             representation_config={"type": "rule_based_eventsat"},
             environment={
                 "constellation_size": 1,

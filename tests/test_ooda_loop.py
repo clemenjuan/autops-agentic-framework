@@ -498,11 +498,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_test_ah",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={
+            decision_procedure_config={
                 "orient_history_window": 10,
                 "max_orient_iterations": 1,
             },
@@ -533,11 +533,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_test_cg",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="conventional_ground",
-            decision_loop_config={
+            decision_procedure_config={
                 "orient_history_window": 10,
                 "max_orient_iterations": 1,
             },
@@ -569,11 +569,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_metrics_test",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={"orient_history_window": 5},
+            decision_procedure_config={"orient_history_window": 5},
             representation_config={"type": "rule_based_eventsat"},
             environment={
                 "constellation_size": 1,

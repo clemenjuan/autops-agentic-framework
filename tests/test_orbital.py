@@ -222,9 +222,9 @@ class TestEventSatWithOrbitalContext:
         cfg = ExperimentConfig(
             experiment_id="orbital_test",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
             representation_config={"type": "rule_based_eventsat"},
             environment={"constellation_size": 1, "timestep_seconds": 60,

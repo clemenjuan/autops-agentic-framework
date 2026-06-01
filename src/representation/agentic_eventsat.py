@@ -13,7 +13,7 @@ Memory architecture (mapped to FixedMemory without modification):
 - Semantic memory: Domain rules hardcoded in AGENTIC_SYSTEM_PROMPT
 - Procedural memory: Tool definitions in TOOL_SCHEMAS
 
-Learned-emergence variants (emergence_config.mechanism):
+Learned-emergence variants (behaviour_config.mechanism):
 - ``hand_designed`` (default): fixed AGENTIC_SYSTEM_PROMPT + FixedMemory.
 - ``prompt_optimized``: loads an offline-optimised system prompt from
   ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
@@ -114,7 +114,7 @@ class AgenticEventSat(Representation):
         )
 
         # Learned-emergence mechanism
-        emergence_cfg: Dict[str, Any] = cfg.get("emergence_config", {})
+        emergence_cfg: Dict[str, Any] = cfg.get("behaviour_config", {})
         self._mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
         experiment_id: str = cfg.get("experiment_id", "")
 

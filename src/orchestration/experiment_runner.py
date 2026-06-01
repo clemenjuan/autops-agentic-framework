@@ -72,7 +72,7 @@ class ExperimentRunner:
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
-        # RL training components (populated if emergence_mode == "learned")
+        # RL training components (populated if behaviour == "emergent")
         self._representation: Any = None
         self._rollout_buffer: Any = None
         # Decision trace writer (active when log_level == DEBUG)
@@ -318,7 +318,7 @@ class ExperimentRunner:
         self._representation = representation
         # Set up PPO training components if learned mode
         if (
-            self.config.behaviour == "learned"
+            self.config.behaviour == "emergent"
             and hasattr(representation, "set_trainer")
             and not self.config.representation_config.get("rl_mock", False)
         ):
@@ -346,7 +346,7 @@ class ExperimentRunner:
             from src.decision_procedure.react_loop import ReActLoop
             loop_cls = ReActLoop
         else:
-            raise ValueError(f"Unknown decision_loop: '{loop_type}'")
+            raise ValueError(f"Unknown decision_procedure: '{loop_type}'")
         agents = self._organization.get_agents() if self._organization else ['central_agent']
         loops = {}
         for agent_id in agents:

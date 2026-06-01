@@ -440,7 +440,7 @@ def evaluate_plan(
 # ======================================================================
 
 # These are NOT in TOOL_REGISTRY by default — they're injected at runtime
-# only when emergence_config.mechanism == "writable_coala".
+# only when behaviour_config.mechanism == "writable_coala".
 
 _WRITABLE_TOOL_REGISTRY: Dict[str, ToolDef] = {}
 
@@ -483,7 +483,7 @@ def memory_write_rule(
 ) -> Dict[str, Any]:
     """Write a domain rule to writable semantic memory."""
     if memory is None or not hasattr(memory, "write_semantic_rule"):
-        return {"error": "Writable memory not available. Check emergence_config.mechanism."}
+        return {"error": "Writable memory not available. Check behaviour_config.mechanism."}
     confirmation = memory.write_semantic_rule(
         rule_text=rule_text,
         condition=condition,
@@ -514,7 +514,7 @@ def memory_write_episode(
 ) -> Dict[str, Any]:
     """Write an episode summary to writable episodic memory."""
     if memory is None or not hasattr(memory, "write_episodic_entry"):
-        return {"error": "Writable memory not available. Check emergence_config.mechanism."}
+        return {"error": "Writable memory not available. Check behaviour_config.mechanism."}
     confirmation = memory.write_episodic_entry(summary=summary, outcome=outcome)
     return {"status": "written", "message": confirmation}
 
@@ -546,7 +546,7 @@ def get_tool_schemas(include_writable: bool = False) -> List[Dict[str, Any]]:
 
     Args:
         include_writable: If True, include writable-memory tools (only valid
-            when emergence_config.mechanism == "writable_coala").
+            when behaviour_config.mechanism == "writable_coala").
     """
     schemas = [t.to_schema() for t in TOOL_REGISTRY.values()]
     if include_writable:
