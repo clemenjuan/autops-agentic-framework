@@ -1,0 +1,57 @@
+# EventSat | Centralized · SDA · Hybrid · Hand-designed · Conventional-Ground
+# ============================================================================
+# 5D Morphological Matrix: sas | sda | hyre | lep | cg
+#
+# LLM hybrid representation with SDA reactive loop and human conventional ground ops.
+# Papers: Rodriguez-Fernandez et al. (2024), Li (2025)
+
+experiment_id: eventsat_sas_sda_hyre_lep_cg
+description: EventSat LLM hybrid representation with SDA reactive loop and human conventional
+  ground ops. LLM reasons about mode selection with symbolic safety grounding.
+seed: 42
+agent_organization: sas
+decision_procedure: sda
+representation: hybrid
+behaviour: emergent                 # lep
+operations_paradigm: conventional_ground
+agent_organization_config: {}
+decision_procedure_config:
+  sense_encode: true
+  decide_act: true
+representation_config:
+  type: llm_scheduler_eventsat
+  action_space: reactive
+  llm_provider: auto
+  llm_model: qwen3.5:122b
+  openai_model: gpt-4o-mini
+  llm_temperature: 0.0
+  llm_mock: false
+  llm_cache_dir: data/llm_cache
+behaviour_config:
+  mode: emergent
+  mechanism: prompt_optimized
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+memory_config:
+  history_depth: 100
+num_episodes: 5
+max_steps: 10080
+metrics:
+  enabled:
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
+  collection_frequency: per_step
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO
+operations_paradigm_config:
+  default_mode: charging
+  orbital_period_steps: 93

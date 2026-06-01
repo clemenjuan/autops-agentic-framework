@@ -7,7 +7,7 @@
 # Naming convention: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>
 #   org:  sas | cmas | dmas | imas | hmas
 #   loop: sda | ooda | react
-#   repr: symb | hybr | subm | agnt
+#   repr: symb | hyre | subm | hyag
 #   emrg: hd | le | lep | lec
 #   ops:  ah (autonomous_hybrid) | ag (autonomous_ground) | cg (conventional_ground)
 # Example: eventsat_sas_sda_symb_hd_ah
@@ -23,13 +23,13 @@ seed: 42
 agent_organization: "sas"
 
 # decision_loop: sda | ooda | react | <custom>
-decision_loop: "sda"
+decision_procedure: "sda"
 
 # representation: symbolic | subsymbolic | hybrid
 representation: "symbolic"
 
 # emergence_mode: hand_designed | learned
-emergence_mode: "hand_designed"
+behaviour: "hand_designed"
 
 # operations_paradigm: autonomous_hybrid | autonomous_ground | conventional_ground
 operations_paradigm: "autonomous_hybrid"
@@ -42,7 +42,7 @@ agent_organization_config:
   # DecentralizedMAS: topology (ring | mesh | visibility) — deferred to N≥3
   {}
 
-decision_loop_config:
+decision_procedure_config:
   # Loop-specific parameters (e.g. max_iterations, timeout)
   {}
 
@@ -53,7 +53,7 @@ representation_config:
   # Subsymbolic: network architecture, checkpoint path
   {}
 
-emergence_config:
+behaviour_config:
   # mode is inferred from top-level emergence_mode
   # mechanism: ppo (subsymbolic) | prompt_optimized (hybrid LLM) | writable_coala (agentic only)
   # For learned: training_checkpoint, policy_type

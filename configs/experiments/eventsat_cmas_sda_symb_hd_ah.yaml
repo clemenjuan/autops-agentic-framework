@@ -20,22 +20,22 @@ seed: 42
 
 # -- Morphological Matrix (5 dimensions) -----------------------------------
 agent_organization: centralized_mas       # hier (Kim et al. 2025 Centralized MAS)
-decision_loop: sda                     # sda
+decision_procedure: sda                     # sda
 representation: symbolic               # symb
-emergence_mode: hand_designed          # hd
+behaviour: hand_designed          # hd
 operations_paradigm: autonomous_hybrid # ah
 
 # -- Component Configs -----------------------------------------------------
 agent_organization_config: {}         # No extra config needed for hierarchical
 
-decision_loop_config:
+decision_procedure_config:
   sense_encode: true
   decide_act: true
 
 representation_config:
   type: rule_based_eventsat
 
-emergence_config:
+behaviour_config:
   mode: hand_designed
 
 # -- Environment -----------------------------------------------------------

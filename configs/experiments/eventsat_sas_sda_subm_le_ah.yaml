@@ -23,15 +23,15 @@ seed: 42
 
 # -- Morphological Matrix (5 dimensions) -----------------------------------
 agent_organization: sas        # cen
-decision_loop: sda                     # sda
+decision_procedure: sda                     # sda
 representation: subsymbolic            # subm
-emergence_mode: learned                # le
+behaviour: emergent                # le
 operations_paradigm: autonomous_hybrid # ah
 
 # -- Component Configs -----------------------------------------------------
 agent_organization_config: {}
 
-decision_loop_config:
+decision_procedure_config:
   sense_encode: true
   decide_act: true
 
@@ -47,9 +47,9 @@ representation_config:
   detection_steps: 5           # 300s / 60s = 5 steps
   jetson_capacity_mb: 249036.8
 
-emergence_config:
+behaviour_config:
   mechanism: ppo
-  mode: learned
+  mode: emergent
   # PPO hyperparameters — Oliver et al. EUCASS 2025 (8KDZ5Z53)
   rollout_fragment: 128        # Steps collected per update (rollout_fragment)
   lr: 1.0e-4

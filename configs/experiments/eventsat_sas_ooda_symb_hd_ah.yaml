@@ -28,15 +28,15 @@ seed: 42
 
 # -- Morphological Matrix (5 dimensions) -----------------------------------
 agent_organization: sas        # cen
-decision_loop: ooda                    # ooda
+decision_procedure: ooda                    # ooda
 representation: symbolic               # symb
-emergence_mode: hand_designed          # hd
+behaviour: hand_designed          # hd
 operations_paradigm: autonomous_hybrid # ah
 
 # -- Component Configs -----------------------------------------------------
 agent_organization_config: {}
 
-decision_loop_config:
+decision_procedure_config:
   orient_history_window: 10            # Past states for CBR retrieve
   max_orient_iterations: 1             # Boyd's feedback loop (re-orient if ambiguous)
   urgency_bypass_threshold: 0.9        # Orient→Act bypass for critical situations
@@ -44,7 +44,7 @@ decision_loop_config:
 representation_config:
   type: rule_based_eventsat
 
-emergence_config:
+behaviour_config:
   mode: hand_designed
 
 # -- Environment -----------------------------------------------------------

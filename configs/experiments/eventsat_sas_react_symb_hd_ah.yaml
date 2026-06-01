@@ -26,15 +26,15 @@ seed: 42
 
 # -- Morphological Matrix (5 dimensions) -----------------------------------
 agent_organization: sas         # cen
-decision_loop: react                    # react
+decision_procedure: react                    # react
 representation: symbolic                # symb
-emergence_mode: hand_designed           # hd
+behaviour: hand_designed           # hd
 operations_paradigm: autonomous_hybrid  # ah
 
 # -- Component Configs -----------------------------------------------------
 agent_organization_config: {}
 
-decision_loop_config:
+decision_procedure_config:
   max_iterations: 3              # Max Thought-Action-Observation cycles
   grounding_checks:              # Constraints validated after each action
     - battery_feasibility        # SoC >= 0.30 for energy-intensive modes
@@ -43,7 +43,7 @@ decision_loop_config:
 representation_config:
   type: rule_based_eventsat
 
-emergence_config:
+behaviour_config:
   mode: hand_designed
 
 operations_paradigm_config:

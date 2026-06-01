@@ -9,14 +9,14 @@ description: >
 seed: 42
 
 agent_organization: sas
-decision_loop: react
+decision_procedure: react
 representation: subsymbolic
-emergence_mode: learned
+behaviour: emergent
 operations_paradigm: autonomous_ground
 
 agent_organization_config: {}
 
-decision_loop_config:
+decision_procedure_config:
   max_iterations: 3
   think_before_act: true
 
@@ -31,9 +31,9 @@ representation_config:
   detection_steps: 5
   jetson_capacity_mb: 249036.8
 
-emergence_config:
+behaviour_config:
   mechanism: ppo
-  mode: learned
+  mode: emergent
   rollout_fragment: 128
   lr: 1.0e-4
   lr_schedule:
