@@ -86,8 +86,9 @@ class EventSatEnvironment(SatelliteEnvironment):
         # (subsymbolic / hybrid onboard, paradigms AO/AH) needs the Jetson powered on
         # to run per-step inference. Jetson-on draws ~7 W (inference itself is
         # microseconds → no extra compute energy). This is ADDED to modes where the
-        # Jetson would otherwise be off (charging, communication, observe, safe). It is
-        # NOT added during the Jetson-compute modes (compress / detect / send), whose
+        # Jetson would otherwise be off (charging, communication, safe). It is
+        # NOT added during the Jetson-on payload modes (observe — the event camera hangs
+        # off the Jetson — compress / detect / send), whose
         # per-mode consumption already includes the working Jetson — there the inference
         # simply runs before the task, no double-count. Symbolic onboard runs on the OBC
         # (sub-watt) and ground paradigms decide on the ground → no overhead. Set
@@ -96,7 +97,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.onboard_compute_active = False
         # Modes whose consumption already includes the working Jetson (no overhead added).
         self.jetson_active_modes = set(pwr.get("jetson_active_modes", [
-            "payload_compress", "payload_detect", "payload_send",
+            "payload_observe", "payload_compress", "payload_detect", "payload_send",
         ]))
 
         # Storage (3-pool pipeline)

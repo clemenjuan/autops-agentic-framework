@@ -32,7 +32,7 @@ TUM's own EventSat satellite. Full access to subsystem models and mission data e
 ### Constraints
 
 - Orbit-dependent visibility windows to targets and ground stations (400 km SSO).
-- Power budget (solar charging vs. consumption duty cycle; 84 Wh battery, 24 W solar). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to modes where the Jetson would otherwise be off (charging/communication/observe/safe), but not to the Jetson-compute modes (compress/detect/send already include it); symbolic onboard (OBC rules) and ground paradigms (AG/CG) have no such overhead.
+- Power budget (solar charging vs. consumption duty cycle; 84 Wh battery, 24 W solar). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to modes where the Jetson would otherwise be off (charging/communication/safe), but not to the Jetson-on payload modes (observe/compress/detect/send already include the powered Jetson); symbolic onboard (OBC rules) and ground paradigms (AG/CG) have no such overhead.
 - 3-pool data pipeline with RS-485 bottleneck (50 kbps Jetson→OBC).
 - Daily downlink budget (27 MB with GSaaS; configurable).
 - Multi-step processing: compression (2× obs time), detection (5 min), send (rate-limited).
