@@ -296,6 +296,36 @@ class ExperimentConfig(BaseModel):
             self.operations_paradigm,
         )
 
+    @property
+    def resolved_onboard_type(self) -> Optional[str]:
+        """Onboard per-step core, for paradigms with an onboard slot (AO, AH).
+
+        Symbolic→rule_based; subsymbolic→subsymbolic_eventsat; hybrid AH onboard is
+        the subsymbolic RL policy (+ its symbolic guardrails). None for AG/CG.
+        """
+        if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
+            return None
+        if self.representation == "symbolic":
+            return "rule_based_eventsat"
+        return "subsymbolic_eventsat"
+
+    @property
+    def resolved_ground_planner_type(self) -> Optional[str]:
+        """Ground full-pass planner (schedule producer), for AH/AG/CG. None for AO.
+
+        AH shares AG's *algorithmic* ground planner (same artifact across AH & AG);
+        CG uses its human-realistic planner.
+        """
+        ops = self.operations_paradigm
+        if ops == "autonomous_onboard":
+            return None
+        ground_ops = "autonomous_ground" if ops == "autonomous_hybrid" else ops
+        return self._resolve_repr_type(
+            self.representation,
+            self.representation_config.get("action_space"),
+            ground_ops,
+        )
+
     @model_validator(mode="after")
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
         """Warn about dimension triples that are degenerate given current representations."""

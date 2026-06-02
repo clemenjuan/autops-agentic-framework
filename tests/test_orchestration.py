@@ -535,3 +535,35 @@ class TestAutonomousOnboard:
         assert ao.should_allow_inference(0, False) is True
         assert ao.can_self_recover_anomaly() is True             # onboard FDIR
         assert ao.process_action(act, 0, False) == act           # pass-through, no schedule
+
+
+class TestTwoCoreResolution:
+    """resolved_onboard_type + resolved_ground_planner_type per (substrate, action_space, ops)."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, onboard, ground",
+        [
+            # AO: onboard only
+            ("symbolic", None, "autonomous_onboard", "rule_based_eventsat", None),
+            ("subsymbolic", None, "autonomous_onboard", "subsymbolic_eventsat", None),
+            # AG/CG: ground only
+            ("symbolic", None, "autonomous_ground", None, "schedule_based_eventsat"),
+            ("symbolic", None, "conventional_ground", None, "conventional_schedule_eventsat"),
+            ("subsymbolic", None, "autonomous_ground", None, "subsymbolic_scheduler_eventsat"),
+            ("hybrid", "reactive", "autonomous_ground", None, "llm_scheduler_eventsat"),
+            # AH: both; ground = AG-equivalent (algorithmic), onboard = per-step
+            ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat", "schedule_based_eventsat"),
+            ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat", "subsymbolic_scheduler_eventsat"),
+            ("hybrid", "reactive", "autonomous_hybrid", "subsymbolic_eventsat", "llm_scheduler_eventsat"),
+            ("hybrid", "agentic", "autonomous_hybrid", "subsymbolic_eventsat", "agentic_scheduler_eventsat"),
+        ],
+    )
+    def test_two_core_resolution(self, rep, action_space, ops, onboard, ground) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.resolved_onboard_type == onboard
+        assert cfg.resolved_ground_planner_type == ground
