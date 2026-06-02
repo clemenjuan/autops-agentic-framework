@@ -82,18 +82,22 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.max_soc = bat.get("max_soc", 1.0)
         self.charge_efficiency = bat.get("charge_efficiency", 0.9)
         self.consumption = pwr.get("consumption", {})
-        # Onboard-compute (Jetson) power floor: a *Jetson-based* onboard core
+        # Onboard-compute (Jetson) power overhead: a *Jetson-based* onboard core
         # (subsymbolic / hybrid onboard, paradigms AO/AH) needs the Jetson powered on
-        # to run per-step inference. Powered-on draw is ~constant (~7 W); inference
-        # itself is microseconds, adding no compute energy. So the Jetson-on state is a
-        # FLOOR, not an addition: consumption = max(per_mode, onboard_compute_w). When
-        # the satellite only computes (e.g. charging) it draws the 7 W floor; when it
-        # also compresses/sends/communicates, that larger per-mode draw dominates (no
-        # double-count). Symbolic onboard runs on the OBC (sub-watt) and ground
-        # paradigms decide on the ground → no floor. Set per-episode by the runner via
-        # `onboard_compute_active`.
+        # to run per-step inference. Jetson-on draws ~7 W (inference itself is
+        # microseconds → no extra compute energy). This is ADDED to modes where the
+        # Jetson would otherwise be off (charging, communication, observe, safe). It is
+        # NOT added during the Jetson-compute modes (compress / detect / send), whose
+        # per-mode consumption already includes the working Jetson — there the inference
+        # simply runs before the task, no double-count. Symbolic onboard runs on the OBC
+        # (sub-watt) and ground paradigms decide on the ground → no overhead. Set
+        # per-episode by the runner via `onboard_compute_active`.
         self.onboard_compute_w = pwr.get("onboard_compute_w", 7.0)
         self.onboard_compute_active = False
+        # Modes whose consumption already includes the working Jetson (no overhead added).
+        self.jetson_active_modes = set(pwr.get("jetson_active_modes", [
+            "payload_compress", "payload_detect", "payload_send",
+        ]))
 
         # Storage (3-pool pipeline)
         stor = self.scenario.get("storage", {})
@@ -466,10 +470,10 @@ class EventSatEnvironment(SatelliteEnvironment):
     def _update_battery(self, mode, in_sun):
         phase = "sun_w" if in_sun else "eclipse_w"
         consumption_w = self.consumption.get(mode, {}).get(phase, 5.0)
-        # A Jetson-based onboard core keeps the Jetson powered → a floor, not an add:
-        # idle compute draws the floor; heavier per-mode loads dominate (no double-count).
-        if self.onboard_compute_active:
-            consumption_w = max(consumption_w, self.onboard_compute_w)
+        # A Jetson-based onboard core keeps the Jetson powered (+~7W), added to modes
+        # where it would otherwise be off; the Jetson-compute modes already include it.
+        if self.onboard_compute_active and mode not in self.jetson_active_modes:
+            consumption_w += self.onboard_compute_w
         generation_w = self.solar_generation_w if in_sun else 0.0
         net_power_w = generation_w - consumption_w
         energy_delta_wh = net_power_w * (self.step_duration_s / 3600.0)

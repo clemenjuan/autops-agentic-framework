@@ -198,9 +198,9 @@ Four-paradigm ladder, each comparison sharing a core:
 | **CG** conventional_ground | — | ✓ (human, one-pass delay) | — |
 
 **Onboard power cost.** A *Jetson-based* onboard core (subsymbolic / hybrid onboard, in AO and AH)
-keeps the Jetson powered every step to run per-step inference — a ~7 W power **floor**
-(`max(per_mode, power.onboard_compute_w)`, not added: idle draws the floor, heavier modes dominate),
-modelled via `config.onboard_uses_jetson` → `env.onboard_compute_active`. **Symbolic** onboard rules run on the
+keeps the Jetson powered every step to run per-step inference — ~7 W (`power.onboard_compute_w`)
+**added** to non-Jetson-compute modes (not to compress/detect/send, which already include the working
+Jetson), modelled via `config.onboard_uses_jetson` → `env.onboard_compute_active`. **Symbolic** onboard rules run on the
 OBC (sub-watt) → no overhead; AG/CG decide on the ground → no overhead. This makes Jetson-based
 onboard autonomy a real energy/responsiveness trade-off.
 

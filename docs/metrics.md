@@ -62,7 +62,7 @@ Lower CV = more consistent = better robustness. Computed at experiment level fro
 
 **Definition:** Mission utility per Watt-hour consumed.
 
-**Rationale:** Satellites have limited power, data bandwidth, and computation. Note Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) carry a ~7 W Jetson-on power floor (`max(per_mode, power.onboard_compute_w)`), so they consume more energy in low-power modes than symbolic onboard (OBC rules) or ground paradigms — the onboard responsiveness-vs-power trade-off shows up directly here.
+**Rationale:** Satellites have limited power, data bandwidth, and computation. Note Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) in non-Jetson-compute modes, so they consume more energy than symbolic onboard (OBC rules) or ground paradigms — the onboard responsiveness-vs-power trade-off shows up directly here.
 
 **Measurement:** `resource_efficiency = utility / total_energy_consumed_wh`, where energy is estimated from battery state-of-charge deltas per step (`max(0, soc_delta * battery_capacity_wh)`), summed across the episode. Higher is better.
 

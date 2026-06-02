@@ -822,7 +822,7 @@ class TestAnomalyForcedSafe:
 
 
 class TestOnboardComputeOverhead:
-    """Jetson-on is a power FLOOR (max), not an addition — no double-count."""
+    """Jetson-on is +7W ADDED to non-Jetson modes; not added during Jetson-compute modes."""
 
     def _soc_after(self, env, mode, compute_active):
         env.battery_soc = 0.8
@@ -830,28 +830,28 @@ class TestOnboardComputeOverhead:
         env._update_battery(mode, in_sun=False)  # eclipse: pure consumption
         return env.battery_soc
 
-    def test_floor_applies_when_idle(self):
+    def test_overhead_added_when_idle(self):
         env = _make_env()
-        env.consumption = {"charging": {"eclipse_w": 4.72}}  # below the 7 W floor
+        env.consumption = {"charging": {"eclipse_w": 4.72}}
         env.onboard_compute_w = 7.0
         step_frac = env.step_duration_s / 3600.0
         soc_ground = self._soc_after(env, "charging", False)
         soc_onboard = self._soc_after(env, "charging", True)
         assert soc_onboard < soc_ground
-        # diff = (floor - base), not the full floor (max, not sum)
-        expected = (7.0 - 4.72) * step_frac / env.battery_capacity_wh
+        # full +7W added on top of charging
+        expected = 7.0 * step_frac / env.battery_capacity_wh
         assert abs((soc_ground - soc_onboard) - expected) < 1e-9
 
-    def test_no_change_when_mode_above_floor(self):
+    def test_no_overhead_during_jetson_compute_mode(self):
         env = _make_env()
-        env.consumption = {"payload_compress": {"eclipse_w": 12.77}}  # above 7 W floor
+        env.consumption = {"payload_compress": {"eclipse_w": 12.77}}
         env.onboard_compute_w = 7.0
-        # Heavier per-mode load dominates → onboard floor adds nothing (no double-count)
+        # compress already includes the working Jetson → no add (no double-count)
         soc_ground = self._soc_after(env, "payload_compress", False)
         soc_onboard = self._soc_after(env, "payload_compress", True)
         assert abs(soc_ground - soc_onboard) < 1e-12
 
-    def test_no_floor_when_ground(self):
+    def test_no_overhead_when_ground(self):
         env = _make_env()
         env.consumption = {"charging": {"eclipse_w": 4.72}}
         env.battery_soc = 0.8
