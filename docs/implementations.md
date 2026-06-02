@@ -461,9 +461,10 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 ## Operations Paradigms
 
 Four paradigms (ladder): **autonomous_onboard** (onboard only) → **autonomous_hybrid** (onboard +
-ground) → **autonomous_ground** (ground only) → **conventional_ground** (human ground). Onboard
-paradigms (AO/AH) set `env.onboard_autonomy_active=True` via `has_onboard_autonomy()`, adding the
-Jetson compute draw (`power.onboard_compute_w`).
+ground) → **autonomous_ground** (ground only) → **conventional_ground** (human ground). A
+Jetson-based onboard core (subsymbolic/hybrid onboard, AO/AH) sets `env.onboard_compute_active=True`
+via `config.onboard_uses_jetson`, adding the Jetson compute draw (`power.onboard_compute_w`);
+symbolic onboard (OBC rules) and ground paradigms carry no overhead.
 
 ### Autonomous Onboard — onboard-only primitive
 

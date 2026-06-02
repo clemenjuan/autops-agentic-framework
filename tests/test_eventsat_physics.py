@@ -829,12 +829,12 @@ class TestOnboardComputeOverhead:
         step_frac = env.step_duration_s / 3600.0
 
         env.battery_soc = 0.8
-        env.onboard_autonomy_active = False
+        env.onboard_compute_active = False
         env._update_battery("charging", in_sun=False)   # eclipse: pure consumption
         soc_ground = env.battery_soc
 
         env.battery_soc = 0.8
-        env.onboard_autonomy_active = True
+        env.onboard_compute_active = True
         env._update_battery("charging", in_sun=False)
         soc_onboard = env.battery_soc
 
@@ -845,7 +845,7 @@ class TestOnboardComputeOverhead:
 
     def test_no_overhead_when_ground(self):
         env = _make_env()
-        env.onboard_autonomy_active = False
+        env.onboard_compute_active = False
         env.battery_soc = 0.8
         env._update_battery("charging", in_sun=False)
         # Matches a manual computation with no overhead

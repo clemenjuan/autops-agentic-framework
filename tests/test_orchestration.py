@@ -611,3 +611,29 @@ class TestAutonomousHybridArbitration:
         )
         assert out["eventsat_0"]["mode"] == "payload_observe"  # no plan → onboard
         assert ah.get_metrics()["onboard_overrides"] == 0.0
+
+
+class TestOnboardUsesJetson:
+    """Jetson overhead applies only to Jetson-based onboard (subsymbolic/hybrid AO/AH)."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, expected",
+        [
+            ("symbolic", None, "autonomous_onboard", False),   # rules on OBC
+            ("subsymbolic", None, "autonomous_onboard", True),  # RL on Jetson
+            ("symbolic", None, "autonomous_hybrid", False),     # rule_based onboard on OBC
+            ("subsymbolic", None, "autonomous_hybrid", True),
+            ("hybrid", "agentic", "autonomous_hybrid", True),   # subsymbolic onboard on Jetson
+            ("symbolic", None, "autonomous_ground", False),     # ground → no onboard
+            ("subsymbolic", None, "autonomous_ground", False),
+            ("hybrid", "reactive", "conventional_ground", False),
+        ],
+    )
+    def test_onboard_uses_jetson(self, rep, action_space, ops, expected) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.onboard_uses_jetson is expected

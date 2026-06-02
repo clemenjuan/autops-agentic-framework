@@ -326,6 +326,20 @@ class ExperimentConfig(BaseModel):
             ground_ops,
         )
 
+    @property
+    def onboard_uses_jetson(self) -> bool:
+        """Whether the onboard compute (Jetson) is kept powered for per-step inference.
+
+        True only when an onboard slot is active (AO/AH) **and** the onboard core is
+        Jetson-based (subsymbolic RL, or hybrid whose onboard is the RL policy).
+        Symbolic onboard rules run on the OBC (3.3 V, sub-watt) → no Jetson overhead.
+        Drives `env.onboard_compute_active`.
+        """
+        return (
+            self.operations_paradigm in ("autonomous_onboard", "autonomous_hybrid")
+            and self.representation in ("subsymbolic", "hybrid")
+        )
+
     @model_validator(mode="after")
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
         """Warn about dimension triples that are degenerate given current representations."""

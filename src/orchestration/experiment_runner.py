@@ -200,15 +200,13 @@ class ExperimentRunner:
         # Operations paradigm (5th dimension)
         self._operations_paradigm = self._create_operations_paradigm()
 
-        # Onboard autonomy keeps the Jetson powered every step → extra power draw.
-        # Tell the environment whether decision-making runs onboard (AO/AH) or on
-        # the ground (AG/CG).
+        # A Jetson-based onboard core (subsymbolic/hybrid onboard, AO/AH) keeps the
+        # Jetson powered every step → extra power draw. Symbolic onboard rules run on
+        # the OBC (no overhead); ground paradigms decide on the ground (no overhead).
         if self._environment is not None and hasattr(
-            self._environment, "onboard_autonomy_active"
+            self._environment, "onboard_compute_active"
         ):
-            self._environment.onboard_autonomy_active = (
-                self._operations_paradigm.has_onboard_autonomy()
-            )
+            self._environment.onboard_compute_active = self.config.onboard_uses_jetson
 
         # Metrics collector
         self._metrics_collector = self._create_metrics_collector()

@@ -61,12 +61,14 @@ power:
     max_soc: 1.0
     charge_efficiency: 0.9
 
-  # Onboard-autonomy compute overhead (Watts). Added to per-step consumption when
-  # decision-making runs ONBOARD (autonomous_onboard / autonomous_hybrid): the
-  # Jetson must stay powered every step to run inference, not just during payload
-  # modes. Ground paradigms (AG/CG) decide on the ground → no overhead. Placeholder
-  # ~ Jetson Orin Nano idle draw; calibrate against measured idle power.
-  onboard_compute_w: 5.0
+  # Onboard-compute (Jetson) overhead (Watts). Added to per-step consumption only
+  # when a Jetson-based onboard core runs inference every step (subsymbolic / hybrid
+  # onboard, paradigms AO/AH). Symbolic onboard rules run on the OBC (sub-watt) → no
+  # overhead; ground paradigms (AG/CG) → no overhead. ~ comparable to the Jetson-on
+  # payload modes (compress/detect/send ≈ 7-13 W); calibrate against measured power.
+  # NOTE: flat overhead — may double-count the Jetson during payload modes (already
+  # in the consumption table); refine if that matters.
+  onboard_compute_w: 7.0
 
   # Consumption by mode (total Watts from PDR Table 6.2)
   consumption:

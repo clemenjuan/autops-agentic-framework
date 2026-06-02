@@ -197,10 +197,12 @@ Four-paradigm ladder, each comparison sharing a core:
 | **AG** autonomous_ground | — | ✓ | ground planner with AH (AH↔AG = onboard-override effect) |
 | **CG** conventional_ground | — | ✓ (human, one-pass delay) | — |
 
-**Onboard power cost.** AO and AH keep the onboard compute (Jetson) powered every step to run
-per-step inference — a continuous draw (`power.onboard_compute_w`) on top of per-mode consumption,
-modelled via `OperationsParadigm.has_onboard_autonomy()` → `env.onboard_autonomy_active`. AG/CG decide
-on the ground (no overhead). This makes onboard autonomy a real energy/responsiveness trade-off.
+**Onboard power cost.** A *Jetson-based* onboard core (subsymbolic / hybrid onboard, in AO and AH)
+keeps the Jetson powered every step to run per-step inference — a continuous draw
+(`power.onboard_compute_w`, ~ Jetson-on payload modes) on top of per-mode consumption, modelled via
+`config.onboard_uses_jetson` → `env.onboard_compute_active`. **Symbolic** onboard rules run on the
+OBC (sub-watt) → no overhead; AG/CG decide on the ground → no overhead. This makes Jetson-based
+onboard autonomy a real energy/responsiveness trade-off.
 
 **Design decision (distinct cores; shared ground planner).** The two slots are *different* trained
 cores, not one core in two modes:
