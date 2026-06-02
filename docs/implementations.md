@@ -852,7 +852,7 @@ is a separate research question on optimal uplink timing.
 
 Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 `org` ∈ {sas, cmas}, `loop` ∈ {sda, ooda, react}, `repr` ∈ {symb, hyre, subm, hyag},
-`emrg` ∈ {hd, le, lep, lec}, `ops` ∈ {ah, ag, cg}.
+`emrg` ∈ {hd, le, lep, lec}, `ops` ∈ {ao, ah, ag, cg}.
 
 ### Symbolic (Phases 2–3) — SAS only
 
@@ -887,12 +887,18 @@ Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_lec_{ah,ag,cg}`) + 3 CMAS
 (`eventsat_cmas_{sda,ooda,react}_hyag_lec_ah`). Mechanism: `writable_coala`.
 
-**Total**: 84 experiment configs + 1 template.
+### Autonomous Onboard (Stage 1 — onboard-only)
+
+6 SAS `eventsat_sas_{sda,ooda,react}_{symb_hd,subm_le}_ao` — onboard core only (no ground plan).
+
+**Total**: 91 experiment configs + 1 template.
 
 ### Comparison axes
 
 - **Loop comparison** (same repr + ops): SDA vs OODA vs ReAct → decision quality vs latency
-- **Ops paradigm comparison** (same loop + repr): AH vs AG vs CG → cost of planning delay and information staleness
+- **Ops paradigm ladder** (same loop + repr): AO vs AH vs AG vs CG → onboard-only vs onboard+ground vs ground-only vs human-ground
+- **Onboard-override effect** (same repr, shared ground planner): AH vs AG → what the onboard per-step override buys (`onboard_overrides`)
+- **Value of a ground plan** (same onboard core): AO vs AH → does adding the ground plan help beyond pure onboard
 - **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints (Endsley 1995 SA degradation)
 - **Representation comparison** (same loop + ops): symbolic vs LLM vs agentic vs RL → cognitive paradigm effectiveness
 - **Single-shot vs agentic** (same loop + ops, AH only): `hyre_hd` vs `hyag_hd` → does multi-step reasoning with tools improve decisions?

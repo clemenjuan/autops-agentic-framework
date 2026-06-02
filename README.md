@@ -50,7 +50,7 @@ representation class is resolved from `representation × action_space × operati
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling decision procedures from representations
-- 637 tests (614 passing; 23 RL tests skipped without the `rl` extra)
+- 660 tests (637 passing; 23 RL tests skipped without the `rl` extra)
 
 ## Quick Start
 
@@ -150,7 +150,7 @@ autops-demo/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 637 tests (614 pass; 23 RL skipped without --extra rl)
++-- tests/                    # 660 tests (637 pass; 23 RL skipped without --extra rl)
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)

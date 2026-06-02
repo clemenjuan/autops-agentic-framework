@@ -256,14 +256,16 @@ procedures:
 
 | Representation state | Behaviours | Decision Proc. (meaningful) | × Ops | enumerated | distinct |
 |---|---|---|---|---|---|
-| symbolic | hd (1) | SDA only (others collapse) | 3 | 9 | 3 |
-| subsymbolic | ppo (1) | SDA only | 3 | 9 | 3 |
-| hybrid-reactive | hd, lep (2) | SDA/OODA/ReAct (3) | 3 | 18 | 18 |
-| hybrid-agentic | hd, lep, lec (3) | SDA/OODA/ReAct (3) | 3 | 27 | 27 |
+| symbolic | hd (1) | SDA only (others collapse) | 4 (AO/AH/AG/CG) | 12 | 4 |
+| subsymbolic | ppo (1) | SDA only | 4 (AO/AH/AG/CG) | 12 | 4 |
+| hybrid-reactive | hd, lep (2) | SDA/OODA/ReAct (3) | 3 (AH/AG/CG; no AO) | 18 | 18 |
+| hybrid-agentic | hd, lep, lec (3) | SDA/OODA/ReAct (3) | 3 (AH/AG/CG; no AO) | 27 | 27 |
 
-**≈ 51 behaviourally distinct SAS architectures** (63 if the deterministic × non-SDA cells are
-kept as nominal configs, as they currently are). Plus **12 CMAS** (AH-only). Multiply by Organization
-once the MAS topologies come online at N≥3.
+**≈ 53 behaviourally distinct SAS architectures** (69 if the deterministic × non-SDA cells are
+kept as nominal configs, as they currently are). Plus **12 CMAS** (AH-only). `autonomous_onboard`
+(AO) is onboard-only, valid for symbolic & subsymbolic (hybrid+AO excluded, §3.4); the **6 `_ao`
+configs** currently instantiated are symbolic-hd + subsymbolic-le × {sda,ooda,react}. Multiply by
+Organization once the MAS topologies come online at N≥3.
 
 *Open items flagged for supervisor review:* (a) ReAct ⇄ agentic coupling — `hybrid-reactive + ReAct`
 may collapse into agentic on inspection; (b) distinct-core ground planner (§3.3); (c) whether
@@ -467,8 +469,8 @@ one-pass delay; Sellmaier et al. 2022, ECSS-E-ST-70C]); `ScheduleBasedEventSat` 
   `memory_write_episode`) injected only for writable_coala.
 - `PromptOptimizer` (bootstrap few-shot, Khattab et al. 2023 [DSPy]; no DSPy runtime dep) and the
   `autops train` CLI dispatch (PPO / prompt-opt / writable-coala guidance).
-- **84 EventSat configs** total (48 hand-designed + 36 learned), 36 SAS + 12 CMAS at the structural
-  level.
+- **84 EventSat configs** at Phase 5 (48 hand-designed + 36 learned), 36 SAS + 12 CMAS structurally.
+  The later 4-paradigm work added 6 `_ao` (autonomous_onboard) cells → **91 total** (see §3.3).
 
 ### Phase 4.e — Real ground planners (planned)
 **The AH dual-slot mechanism is built** (`AutonomousHybrid` runs onboard + ground-planner cores with

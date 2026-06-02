@@ -147,7 +147,7 @@ exploratory and reported separately from confirmatory results.
 ### Sample size
 - **Default**: `num_episodes: 100` per config. Lower values (1, 5) are
   permitted only for smoke tests and must not appear in reported results.
-- **Per config**: constant across the 84 configs of a single sweep.
+- **Per config**: constant across the 91 configs of a single sweep.
 - **Episode length**: `max_steps: 10080` (7 EventSat days, 1-minute resolution).
   Shorter slices (1440 = 24 h) are only used for debugging.
 
