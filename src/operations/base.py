@@ -295,6 +295,10 @@ class OperationsParadigm(ABC):
         """
         return False
 
+    def get_metrics(self) -> Dict[str, float]:
+        """Paradigm-level metrics for the episode (default: none)."""
+        return {}
+
     def get_name(self) -> str:
         """Return the paradigm name."""
         return self.__class__.__name__

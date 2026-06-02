@@ -383,11 +383,12 @@ downlink (`update_ground_knowledge`). Defines the autonomy slots of §3.3.
 - **AutonomousOnboard**: onboard-only — a single per-step core acts every step on full real-time
   state, closed-loop, no ground plan. `has_onboard_autonomy()=True` (Jetson power overhead). The
   onboard-only primitive of the ladder (§3.3).
-- **AutonomousHybrid**: onboard autonomy (rules / small DNNs) acts every step on full real-time
-  state; ground systems prepare plans between passes from last telemetry, uplinked at next contact;
-  onboard can override for faults/opportunities. No LLM runs onboard in EventSat. (Rossi et al.
-  2023; Sellmaier et al. 2022 §16.4.) *Dual-slot wiring is the §3.3 design, built in the AH dual-slot
-  work; today AH runs onboard-only pass-through.*
+- **AutonomousHybrid** (dual-slot): the onboard per-step core acts every step on full real-time
+  state; the ground planner (same artifact as AG) refreshes the uplinked plan at passes from stale
+  telemetry; between passes the satellite follows the plan unless the onboard core overrides on a
+  safety mode (counted as `onboard_overrides`). During contact AH communicates (matching AG). Real
+  full-pass RL / LLM planners are Phase 4.e (placeholders today). (Rossi et al. 2023; Sellmaier et al.
+  2022 §16.4.)
 - **AutonomousGround**: ground sees only downlinked (stale) telemetry; an algorithmic scheduler
   prepares optimal schedules between passes, uplinked next contact; satellite executes with zero
   onboard autonomy. The algorithmic ideal — no planning delay.
@@ -467,25 +468,20 @@ one-pass delay; Sellmaier et al. 2022, ECSS-E-ST-70C]); `ScheduleBasedEventSat` 
 - **84 EventSat configs** total (48 hand-designed + 36 learned), 36 SAS + 12 CMAS at the structural
   level.
 
-### Phase 4.e — Real ground planners + AH dual-slot (planned, not implemented)
-Replaces the symbolic-planner placeholders (`*_scheduler_eventsat`, `is_placeholder=True`) with the
-real distinct-core ground planners of §3.3, all emitting `[(mode, num_steps), …]` consumed unchanged
-by the ground paradigms:
+### Phase 4.e — Real ground planners (planned)
+**The AH dual-slot mechanism is built** (`AutonomousHybrid` runs onboard + ground-planner cores with
+plan-default/triggered override; runner wires both; §4.7). What remains is replacing the
+symbolic-planner placeholders (`*_scheduler_eventsat`, `is_placeholder=True`) with the real
+distinct-core ground planners of §3.3, all emitting `[(mode, num_steps), …]`:
 
 - **full-pass RL planner** (subsymbolic) — a *distinct* artifact from the onboard per-step
   `subsymbolic_eventsat`: own training objective + sequence/schedule action space (not the per-step
   policy rolled out). Open: policy architecture, duration representation, reward shaping, training
   harness. (Relates to Giulio's separate RLlib branch.)
 - **LLM / agentic planners** — `llm_scheduler_eventsat` / `agentic_scheduler_eventsat` as real
-  schedule generators (single-shot vs tool-using), not symbolic stand-ins.
-
-**AH dual-slot wiring.** AH must run **two** cores — the shared ground planner (same artifact as the
-AG cell) producing the uplinked plan, **plus** the onboard per-step RL policy (+ optional symbolic
-rules) that can override it. Today AH runs only the onboard representation (the ground-prep is a
-simulation simplification, see `implementations.md`). This needs the runner to instantiate both an
-onboard core and a ground-planner core for AH from the single `representation` value (subsymbolic →
-RL planner + RL onboard; hybrid → LLM/agentic planner + subsymbolic-onboard). Holding the ground
-planner identical across AH and AG is what makes AH-vs-AG measure the onboard-override effect.
+  schedule generators (single-shot vs tool-using), not symbolic stand-ins. This also re-activates the
+  learned mechanisms for hybrid AH (`_lep_`/`_lec_` would optimize / accrete on the LLM ground
+  planner), which are inert while the placeholders stand in.
 
 ### Next steps
 Phases 1–5 are complete. The active roadmap lives in `implementations.md` (component registry,

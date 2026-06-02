@@ -476,15 +476,22 @@ Jetson compute draw (`power.onboard_compute_w`).
 - **Key property**: pure onboard autonomy with the Jetson power overhead; the AO↔AH contrast isolates
   the value of adding a ground plan.
 
-### Autonomous Hybrid — Phase 2 baseline (dual-slot pending — see Phase 4.e)
+### Autonomous Hybrid — dual-slot (onboard + ground planner)
 
 - **File**: `src/operations/autonomous_hybrid.py`
-- **Structure (current)**: Passthrough observation (full real-time state), unrestricted action timing
-  (every timestep), immediate execution. `has_onboard_autonomy()=True` (Jetson overhead applies).
-  *Today this is effectively onboard-only;* the true **dual-slot** AH (shared ground planner +
-  onboard per-step override) is the §3.3 design, built in the AH dual-slot work (FOUNDATION_SPEC
-  Phase 4.e).
-- **Anomaly recovery**: Onboard FDIR — agent clears safe mode once countdown expires.
+- **Two cores**: the runner runs the **onboard** loop (`resolved_onboard_type`) every step on full
+  real-time state, and a **ground-planner** loop (`resolved_ground_planner_type`, the same artifact
+  AG uses) at ground passes on the stale view → `set_uplinked_plan`.
+- **Arbitration** (`process_action`): during a pass → `communication` (downlink telemetry + uplink
+  plan, matching AG so the ground planner is identical across AH/AG); between passes → follow the
+  uplinked plan unless the onboard mode is a safety mode (`onboard_override_modes`, default
+  `{charging, safe}`) differing from the plan → **override** (counted). No/exhausted plan → onboard.
+  `onboard_authoritative=True` makes onboard always win (ablation knob).
+- **Metrics**: `onboard_overrides`, `onboard_override_rate` (per-episode, in `paradigm_metrics`).
+- **`has_onboard_autonomy()=True`** (Jetson overhead). **Anomaly recovery**: onboard FDIR.
+- **Note**: hybrid AH onboard is the subsymbolic per-step core; its ground planner is currently the
+  `*_scheduler` placeholder, so LLM-learned mechanisms (`_lep_`/`_lec_`) are inert under AH until the
+  real LLM/agentic planners land (Phase 4.e).
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 
@@ -647,6 +654,9 @@ Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32
   mean_orient_urgency
 - **ReAct-specific** (Phase 3): reasoning_depth, iterations, grounding_violations,
   converged (per-step); aggregated over episodes for comparison
+- **AH-specific** (paradigm metrics, per episode): `onboard_overrides`, `onboard_override_rate` —
+  between-pass steps where the onboard core overrode the uplinked plan (surfaced in each episode's
+  `paradigm_metrics`).
 
 ---
 

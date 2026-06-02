@@ -514,11 +514,19 @@ class ExperimentRunner:
         if self._metrics_collector is not None:
             episode_metrics = self._metrics_collector.finalise_episode(episode_id)
 
+        # Paradigm-level metrics (e.g. AH onboard_overrides) — captured before the
+        # next episode's reset() clears them.
+        paradigm_metrics = (
+            self._operations_paradigm.get_metrics()
+            if self._operations_paradigm is not None else {}
+        )
+
         return {
             "episode_id": episode_id,
             "num_steps": len(step_data),
             "wall_clock_seconds": episode_duration,
             "episode_metrics": episode_metrics,
+            "paradigm_metrics": paradigm_metrics,
             "orbital_elements": episode_orbit,
             "ground_passes": episode_ground_passes,
             "steps": step_data,
