@@ -183,19 +183,30 @@ Memory invariant note in `CLAUDE.md`.
 
 ### 3.3 Operations Paradigm as autonomy slots
 
-The paradigm decides *where* autonomy sits, not which single core runs:
+The paradigm decides *which autonomy slots are active*; each slot is a **distinct core**:
 
-- **onboard** (closed-loop, short-horizon, reacts between passes) — active in **AH** only
-- **ground planner** (long-horizon, synthesizes the uplinked schedule) — active in **AH and AG**
+- **ground planner** (long-horizon, synthesizes the whole-pass uplinked schedule) — active in **AH and AG**
+- **onboard** (closed-loop, per-step, reacts between passes) — active in **AH** only
 - **CG** = neither (human flight-dynamics team; one-pass planning delay)
 
-**Design decision:** the ground planner is the **same core run in
-planning mode** (forward-simulation from stale, last-downlinked state) for both AG and AH — and
-*which* core is set by the Representation axis, not the paradigm. This
-keeps **AH-vs-AG a clean measurement of the cost of losing onboard closed-loop autonomy**. A
-distinct-core ground planner (e.g. an RL long-horizon scheduler independent of the onboard core,
-see Phase 4.e and the Giulio collaboration) is deferred — it would confound the AH-vs-AG contrast
-and answers a different research question ("which ground planner is best?").
+**Design decision (distinct cores; shared ground planner).** The two slots are *different* trained
+cores, not one core in two modes:
+
+- The **ground planner** is a long-horizon planner that emits a full-pass schedule — a subsymbolic
+  full-pass RL planner, or an LLM / agentic planner. **The same ground-planner artifact is used in
+  both AH and AG** (it is shared across those two paradigms, not retrained per paradigm).
+- The **onboard** core is the per-step RL policy (optionally wrapped with symbolic safety rules,
+  e.g. SoC < 20 % ⇒ charge), active only in AH, and it can override the uplinked plan.
+
+A single config still carries **one `representation` value** describing the whole system: a
+*subsymbolic* AH config is subsymbolic in **both** slots (full-pass RL planner + per-step RL
+onboard); a *hybrid* AH config pairs an **LLM/agentic ground planner** with a **subsymbolic
+(+rules) onboard** — the "hybrid" label is exactly that ground-LLM + onboard-RL/symbolic mix.
+
+Because the ground planner **and the simulations** are held identical across AH and AG, **AH-vs-AG
+isolates the real effect of the onboard per-step override** — it is the only moving part. (If the
+ground planner differed between AH and AG, the two paradigms would mostly reproduce each other or
+confound the override effect with a planner difference.)
 
 ### 3.4 Exclusion rules (locked)
 
@@ -438,14 +449,25 @@ one-pass delay; Sellmaier et al. 2022, ECSS-E-ST-70C]); `ScheduleBasedEventSat` 
 - **84 EventSat configs** total (48 hand-designed + 36 learned), 36 SAS + 12 CMAS at the structural
   level.
 
-### Phase 4.e — Learned scheduler (planned, not implemented)
-RL-trained schedule producer as the third schedule-producing representation (sibling of
-`schedule_based_eventsat` and `conventional_schedule_eventsat`), emitting `[(mode, num_steps), …]`
-consumed unchanged by `AutonomousGround`. Primary target `ops=ag` with `repr=subm`/`hyag`; secondary
-`ops=ah`. No env/paradigm changes needed; distinct artifact from the onboard `subsymbolic_eventsat`
-(refined by Giulio on a separate RLlib branch). Open: policy architecture, duration representation,
-reward shaping, training harness, naming. This is the distinct-core ground planner flagged in §3.3 —
-landing it reopens the AH-vs-AG confound question.
+### Phase 4.e — Real ground planners + AH dual-slot (planned, not implemented)
+Replaces the symbolic-planner placeholders (`*_scheduler_eventsat`, `is_placeholder=True`) with the
+real distinct-core ground planners of §3.3, all emitting `[(mode, num_steps), …]` consumed unchanged
+by the ground paradigms:
+
+- **full-pass RL planner** (subsymbolic) — a *distinct* artifact from the onboard per-step
+  `subsymbolic_eventsat`: own training objective + sequence/schedule action space (not the per-step
+  policy rolled out). Open: policy architecture, duration representation, reward shaping, training
+  harness. (Relates to Giulio's separate RLlib branch.)
+- **LLM / agentic planners** — `llm_scheduler_eventsat` / `agentic_scheduler_eventsat` as real
+  schedule generators (single-shot vs tool-using), not symbolic stand-ins.
+
+**AH dual-slot wiring.** AH must run **two** cores — the shared ground planner (same artifact as the
+AG cell) producing the uplinked plan, **plus** the onboard per-step RL policy (+ optional symbolic
+rules) that can override it. Today AH runs only the onboard representation (the ground-prep is a
+simulation simplification, see `implementations.md`). This needs the runner to instantiate both an
+onboard core and a ground-planner core for AH from the single `representation` value (subsymbolic →
+RL planner + RL onboard; hybrid → LLM/agentic planner + subsymbolic-onboard). Holding the ground
+planner identical across AH and AG is what makes AH-vs-AG measure the onboard-override effect.
 
 ### Next steps
 Phases 1–5 are complete. The active roadmap lives in `implementations.md` (component registry,
