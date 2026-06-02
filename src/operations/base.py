@@ -285,6 +285,16 @@ class OperationsParadigm(ABC):
         """
         return True  # Default: always allowed (backward compatible)
 
+    def has_onboard_autonomy(self) -> bool:
+        """Whether per-step decision-making runs onboard.
+
+        True for onboard / hybrid paradigms — the onboard compute (Jetson) is
+        kept powered every step, adding a continuous power draw (see
+        ``EventSatEnvironment.onboard_autonomy_active``). False for ground
+        paradigms, where decisions are made on the ground.
+        """
+        return False
+
     def get_name(self) -> str:
         """Return the paradigm name."""
         return self.__class__.__name__

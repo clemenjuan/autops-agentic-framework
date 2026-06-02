@@ -82,6 +82,14 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.max_soc = bat.get("max_soc", 1.0)
         self.charge_efficiency = bat.get("charge_efficiency", 0.9)
         self.consumption = pwr.get("consumption", {})
+        # Onboard-autonomy power overhead: when decision-making runs ONBOARD
+        # (autonomous_onboard / autonomous_hybrid), the Jetson must stay powered
+        # every step to run inference, adding a continuous draw on top of the
+        # per-mode consumption. Ground paradigms (AG/CG) decide on the ground, so
+        # the Jetson only draws during payload modes (already in the table).
+        # Set per-episode by the runner via `onboard_autonomy_active`.
+        self.onboard_compute_w = pwr.get("onboard_compute_w", 5.0)
+        self.onboard_autonomy_active = False
 
         # Storage (3-pool pipeline)
         stor = self.scenario.get("storage", {})
@@ -454,6 +462,9 @@ class EventSatEnvironment(SatelliteEnvironment):
     def _update_battery(self, mode, in_sun):
         phase = "sun_w" if in_sun else "eclipse_w"
         consumption_w = self.consumption.get(mode, {}).get(phase, 5.0)
+        # Onboard autonomy keeps the Jetson powered every step (per-step inference).
+        if self.onboard_autonomy_active:
+            consumption_w += self.onboard_compute_w
         generation_w = self.solar_generation_w if in_sun else 0.0
         net_power_w = generation_w - consumption_w
         energy_delta_wh = net_power_w * (self.step_duration_s / 3600.0)

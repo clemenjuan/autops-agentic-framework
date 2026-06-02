@@ -819,3 +819,36 @@ class TestAnomalyForcedSafe:
 
         result = env.step({"eventsat_0": {"mode": "charging"}})
         assert result.info.get("anomaly_forced_safe") == 0.0
+
+
+class TestOnboardComputeOverhead:
+    """Onboard autonomy keeps the Jetson powered → extra continuous draw."""
+
+    def test_onboard_overhead_adds_jetson_power(self):
+        env = _make_env()
+        step_frac = env.step_duration_s / 3600.0
+
+        env.battery_soc = 0.8
+        env.onboard_autonomy_active = False
+        env._update_battery("charging", in_sun=False)   # eclipse: pure consumption
+        soc_ground = env.battery_soc
+
+        env.battery_soc = 0.8
+        env.onboard_autonomy_active = True
+        env._update_battery("charging", in_sun=False)
+        soc_onboard = env.battery_soc
+
+        # Onboard draws more → lower SoC, by exactly onboard_compute_w worth of energy
+        assert soc_onboard < soc_ground
+        expected = env.onboard_compute_w * step_frac / env.battery_capacity_wh
+        assert abs((soc_ground - soc_onboard) - expected) < 1e-9
+
+    def test_no_overhead_when_ground(self):
+        env = _make_env()
+        env.onboard_autonomy_active = False
+        env.battery_soc = 0.8
+        env._update_battery("charging", in_sun=False)
+        # Matches a manual computation with no overhead
+        base = env.consumption.get("charging", {}).get("eclipse_w", 5.0)
+        expected_soc = 0.8 - base * (env.step_duration_s / 3600.0) / env.battery_capacity_wh
+        assert abs(env.battery_soc - expected_soc) < 1e-9

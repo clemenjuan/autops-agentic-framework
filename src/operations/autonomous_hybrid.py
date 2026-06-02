@@ -46,6 +46,10 @@ class AutonomousHybrid(OperationsParadigm):
         """Onboard FDIR can clear anomalies without ground contact."""
         return True
 
+    def has_onboard_autonomy(self) -> bool:
+        """AH runs the onboard per-step core — Jetson powered every step."""
+        return True
+
     def process_action(
         self,
         action: Dict[str, Any],
