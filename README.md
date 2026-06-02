@@ -33,7 +33,12 @@ representation class is resolved from `representation × action_space × operati
   - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
   - *Hybrid — reactive* (single-shot LLM): `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
   - *Hybrid — agentic* (tool-using): `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
-  - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Oliver et al. 2025) — 25D obs, MultiDiscrete actions, trainable policy
+  - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Juan Oliver et al. 2025) — trainable per-step policy (AH)
+
+  Under ground paradigms (AG/CG), non-symbolic representations act as **schedule producers** — the
+  same core run in planning mode. These (`subsymbolic_scheduler_eventsat`, `llm_scheduler_eventsat`,
+  `agentic_scheduler_eventsat`) are currently symbolic-planner **placeholders** (`is_placeholder`),
+  pending the learned-scheduler work (Phase 4.e).
 - **Learned-emergence for LLM representations** (Phase 5):
   - `prompt_optimized` (`_lep_`): offline bootstrap few-shot prompt optimization (DSPy-style; 24 configs)
   - `writable_coala` (`_lec_`): online CoALA memory accretion with writable semantic + episodic stores (12 configs)
