@@ -251,16 +251,58 @@ class ExperimentConfig(BaseModel):
         "conventional_schedule_eventsat",
     }
 
+    @staticmethod
+    def _resolve_repr_type(representation: str, action_space: Optional[str], ops: str) -> str:
+        """Resolve the concrete representation class from the matrix coordinates.
+
+        The class is determined by (substrate, action_space, operations_paradigm):
+        ops picks per-step controller (AH) vs schedule-producer (AG/CG), and for
+        hybrids action_space picks reactive vs agentic. An explicit
+        ``representation_config.type`` overrides this (see ``resolved_representation_type``).
+        """
+        if representation == "symbolic":
+            return {
+                "autonomous_hybrid": "rule_based_eventsat",
+                "autonomous_ground": "schedule_based_eventsat",
+                "conventional_ground": "conventional_schedule_eventsat",
+            }[ops]
+        if representation == "subsymbolic":
+            return (
+                "subsymbolic_eventsat" if ops == "autonomous_hybrid"
+                else "subsymbolic_scheduler_eventsat"
+            )
+        if representation == "hybrid":
+            if action_space not in ("reactive", "agentic"):
+                raise ValueError(
+                    "hybrid representation requires representation_config.action_space "
+                    "(reactive|agentic) when representation_config.type is not set"
+                )
+            if action_space == "reactive":
+                return "llm_eventsat" if ops == "autonomous_hybrid" else "llm_scheduler_eventsat"
+            return "agentic_eventsat" if ops == "autonomous_hybrid" else "agentic_scheduler_eventsat"
+        raise ValueError(f"cannot resolve representation type for representation='{representation}'")
+
+    @property
+    def resolved_representation_type(self) -> str:
+        """Concrete representation class name. Explicit `type` wins; else resolved."""
+        explicit = self.representation_config.get("type")
+        if explicit:
+            return explicit
+        return self._resolve_repr_type(
+            self.representation,
+            self.representation_config.get("action_space"),
+            self.operations_paradigm,
+        )
+
     @model_validator(mode="after")
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
         """Warn about dimension triples that are degenerate given current representations."""
         ops = self.operations_paradigm
         loop = self.decision_procedure
-        rep_type = self.representation_config.get("type", "")
-
-        # Action space (hybrid-only flavor: reactive vs agentic). Optional during
-        # migration; validated when present and must agree with substrate + type.
         action_space = self.representation_config.get("action_space")
+
+        # Action space (hybrid-only flavor: reactive vs agentic). Validate value +
+        # substrate agreement before resolution.
         if action_space is not None:
             if action_space not in self.VALID_ACTION_SPACES:
                 raise ValueError(
@@ -272,14 +314,21 @@ class ExperimentConfig(BaseModel):
                     f"action_space='agentic' requires representation='hybrid', "
                     f"got '{self.representation}'"
                 )
-            if rep_type in self._REACTIVE_REPR_TYPES and action_space != "reactive":
+
+        # Resolve the concrete representation class (raises if hybrid lacks action_space).
+        rep_type = self.resolved_representation_type
+
+        # When an explicit type override is given, it must agree with action_space.
+        explicit_type = self.representation_config.get("type")
+        if explicit_type and action_space is not None:
+            if explicit_type in self._REACTIVE_REPR_TYPES and action_space != "reactive":
                 raise ValueError(
-                    f"representation_config.type='{rep_type}' is reactive but "
+                    f"representation_config.type='{explicit_type}' is reactive but "
                     f"action_space='{action_space}'"
                 )
-            if rep_type in self._AGENTIC_REPR_TYPES and action_space != "agentic":
+            if explicit_type in self._AGENTIC_REPR_TYPES and action_space != "agentic":
                 raise ValueError(
-                    f"representation_config.type='{rep_type}' is agentic but "
+                    f"representation_config.type='{explicit_type}' is agentic but "
                     f"action_space='{action_space}'"
                 )
 

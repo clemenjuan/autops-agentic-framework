@@ -465,3 +465,43 @@ class TestMatrixRestructureNaming:
                                                           "action_space": "agentic"},
                                    behaviour_config={"mechanism": "writable_coala"})
         assert cfg.behaviour_config["mechanism"] == "writable_coala"
+
+
+class TestRepresentationResolution:
+    """`type` is resolved from (representation, action_space, ops); explicit type overrides."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, expected",
+        [
+            ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat"),
+            ("symbolic", None, "autonomous_ground", "schedule_based_eventsat"),
+            ("symbolic", None, "conventional_ground", "conventional_schedule_eventsat"),
+            ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat"),
+            ("subsymbolic", None, "autonomous_ground", "subsymbolic_scheduler_eventsat"),
+            ("hybrid", "reactive", "autonomous_hybrid", "llm_eventsat"),
+            ("hybrid", "reactive", "conventional_ground", "llm_scheduler_eventsat"),
+            ("hybrid", "agentic", "autonomous_hybrid", "agentic_eventsat"),
+            ("hybrid", "agentic", "autonomous_ground", "agentic_scheduler_eventsat"),
+        ],
+    )
+    def test_resolution(self, rep, action_space, ops, expected) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.resolved_representation_type == expected
+
+    def test_hybrid_without_action_space_raises(self) -> None:
+        with pytest.raises(ValueError, match="action_space"):
+            ExperimentConfig(representation="hybrid", operations_paradigm="autonomous_hybrid")
+
+    def test_explicit_type_overrides(self) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation="symbolic",
+                                   operations_paradigm="conventional_ground",
+                                   representation_config={"type": "schedule_based_eventsat"})
+        assert cfg.resolved_representation_type == "schedule_based_eventsat"  # not conventional_*

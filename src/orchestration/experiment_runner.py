@@ -306,7 +306,7 @@ class ExperimentRunner:
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
         emergence = BehaviourController(config=self.config.behaviour_config)
-        repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
+        repr_type = self.config.resolved_representation_type
         representation = emergence.get_representation(
             repr_type=repr_type,
             repr_config=self.config.representation_config,

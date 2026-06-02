@@ -147,6 +147,13 @@ The four representation filename tokens (`symb`, `subm`, `hyre`, `hyag`) map to 
 with hybrid split by action space**: `hyre` = hybrid-reactive, `hyag` = hybrid-agentic. Representation
 denotes *only* substrate.
 
+The concrete implementation class is **resolved** from `representation × action_space (hybrid only)
+× operations_paradigm` — `operations_paradigm` selects the per-step controller (AH) vs the
+schedule-producer (AG/CG), and `action_space` selects reactive vs agentic. Configs therefore carry
+no `representation_config.type`; it remains only as an optional explicit override (e.g. the
+`_algobase` cell: symbolic CG forced to the *algorithmic* `schedule_based_eventsat` instead of the
+human `conventional_schedule_eventsat`). See `ExperimentConfig.resolved_representation_type`.
+
 ### 3.2 Behaviour overlay
 
 Behaviour is **not a flat algorithm enum** and **not a peer axis** — it asks, of the cognitive

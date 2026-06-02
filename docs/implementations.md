@@ -187,6 +187,10 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ## Representations
 
+> The registered name below (the "Registered as" field) is **resolved** at runtime from
+> `representation × action_space × operations_paradigm` (`ExperimentConfig.resolved_representation_type`);
+> configs no longer set `representation_config.type` except as an explicit override (e.g. `_algobase`).
+
 ### Rule-Based EventSat — Phase 2 baseline + Phase 3 OODA-aware + ReAct-capable
 
 - **File**: `src/representation/rule_based_eventsat.py`

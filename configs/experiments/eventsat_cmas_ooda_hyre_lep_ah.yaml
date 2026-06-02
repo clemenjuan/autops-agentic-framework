@@ -27,7 +27,6 @@ decision_procedure_config:
   urgency_bypass_threshold: 0.9
 
 representation_config:
-  type: llm_eventsat
   action_space: reactive
   llm_provider: auto
   llm_model: qwen3.5:122b

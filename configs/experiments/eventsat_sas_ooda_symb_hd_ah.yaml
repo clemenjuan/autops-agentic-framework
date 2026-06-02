@@ -41,8 +41,7 @@ decision_procedure_config:
   max_orient_iterations: 1             # Boyd's feedback loop (re-orient if ambiguous)
   urgency_bypass_threshold: 0.9        # Orient→Act bypass for critical situations
 
-representation_config:
-  type: rule_based_eventsat
+representation_config: {}
 
 behaviour_config:
   mode: hand_designed

@@ -27,7 +27,6 @@ decision_procedure_config:
   urgency_bypass_threshold: 0.9
 
 representation_config:
-  type: subsymbolic_eventsat
   rl_mock: false
   deterministic: false
   checkpoint_path: ""

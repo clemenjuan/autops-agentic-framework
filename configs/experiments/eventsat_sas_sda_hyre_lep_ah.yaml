@@ -31,7 +31,6 @@ decision_procedure_config:
   decide_act: true
 
 representation_config:
-  type: llm_eventsat
   action_space: reactive
   # LLM provider configuration (configurable per deployment)
   llm_provider: auto          # "auto" (Ollama → OpenAI), "ollama", or "openai"

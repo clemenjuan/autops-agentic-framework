@@ -31,8 +31,7 @@ decision_procedure_config:
   max_orient_iterations: 1
   urgency_bypass_threshold: 0.9
 
-representation_config:
-  type: rule_based_eventsat
+representation_config: {}
 
 behaviour_config:
   mode: hand_designed

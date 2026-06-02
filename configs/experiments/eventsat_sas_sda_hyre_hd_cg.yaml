@@ -19,7 +19,6 @@ decision_procedure_config:
   sense_encode: true
   decide_act: true
 representation_config:
-  type: llm_scheduler_eventsat
   action_space: reactive
   llm_provider: auto
   llm_model: qwen3.5:122b

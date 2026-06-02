@@ -32,7 +32,6 @@ decision_procedure_config:
   threshold: 0.5
 
 representation_config:
-  type: agentic_eventsat
   action_space: agentic
   llm_provider: auto
   llm_model: qwen3.5:122b

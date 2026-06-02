@@ -100,7 +100,7 @@ See `src/memory/writable_memory.py` for the implementation.
 
 ## Coding conventions
 - Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)
-- `representation: symbolic | subsymbolic | hybrid` — top-level dimension; `representation_config.type` picks the specific implementation (e.g. `rule_based_eventsat`, `llm_eventsat`)
+- `representation: symbolic | subsymbolic | hybrid` — substrate. The concrete implementation class is **resolved** from `representation × representation_config.action_space (hybrid only) × operations_paradigm` (e.g. symbolic+AH→`rule_based_eventsat`, hybrid+agentic+AH→`agentic_eventsat`, hybrid+reactive+AG→`llm_scheduler_eventsat`). `representation_config.type` is an **optional override** (e.g. the `_algobase` CG cell). See `ExperimentConfig.resolved_representation_type`.
 - Loop-specific data goes in `context.enrichments`, never in representation state
 - All representations must implement `encode_observation()` + `select_action()`; optionally `reason()` for ReAct, `update()` for learned variants
 - Rationale strings always set `self._last_rationale` for explainability metrics

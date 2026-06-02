@@ -32,8 +32,7 @@ decision_procedure_config:
   sense_encode: true
   decide_act: true
 
-representation_config:
-  type: rule_based_eventsat
+representation_config: {}
 
 behaviour_config:
   mode: hand_designed

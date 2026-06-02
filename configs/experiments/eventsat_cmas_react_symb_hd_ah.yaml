@@ -32,8 +32,7 @@ decision_procedure_config:
     - battery_feasibility
     - pass_window_timing
 
-representation_config:
-  type: rule_based_eventsat
+representation_config: {}
 
 behaviour_config:
   mode: hand_designed

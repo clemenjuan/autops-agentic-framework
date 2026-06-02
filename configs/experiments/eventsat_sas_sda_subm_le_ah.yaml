@@ -36,7 +36,6 @@ decision_procedure_config:
   decide_act: true
 
 representation_config:
-  type: subsymbolic_eventsat
   rl_mock: false               # Set true for CI/local without torch
   deterministic: false         # Stochastic during training; set true for eval
   checkpoint_path: ""          # Path to .pt checkpoint (empty = random init)

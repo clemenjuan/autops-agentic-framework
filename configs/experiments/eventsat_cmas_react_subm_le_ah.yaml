@@ -28,7 +28,6 @@ decision_procedure_config:
     - pass_window_timing
 
 representation_config:
-  type: subsymbolic_eventsat
   rl_mock: false
   deterministic: false
   checkpoint_path: ""

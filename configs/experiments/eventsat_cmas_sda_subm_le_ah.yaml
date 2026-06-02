@@ -31,7 +31,6 @@ decision_procedure_config:
   decide_act: true
 
 representation_config:
-  type: subsymbolic_eventsat
   rl_mock: false
   deterministic: false
   checkpoint_path: ""

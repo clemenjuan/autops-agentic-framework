@@ -28,7 +28,6 @@ decision_procedure_config:
     - pass_window_timing
 
 representation_config:
-  type: agentic_eventsat
   action_space: agentic
   llm_provider: auto
   llm_model: qwen3.5:122b
