@@ -361,7 +361,10 @@ class ExperimentRunner:
         paradigm_type = self.config.operations_paradigm
         paradigm_config = self.config.operations_paradigm_config
 
-        if paradigm_type == "autonomous_hybrid":
+        if paradigm_type == "autonomous_onboard":
+            from src.operations.autonomous_onboard import AutonomousOnboard
+            return AutonomousOnboard(config=paradigm_config)
+        elif paradigm_type == "autonomous_hybrid":
             from src.operations.autonomous_hybrid import AutonomousHybrid
             return AutonomousHybrid(config=paradigm_config)
         elif paradigm_type == "autonomous_ground":

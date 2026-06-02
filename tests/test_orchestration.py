@@ -505,3 +505,33 @@ class TestRepresentationResolution:
                                    operations_paradigm="conventional_ground",
                                    representation_config={"type": "schedule_based_eventsat"})
         assert cfg.resolved_representation_type == "schedule_based_eventsat"  # not conventional_*
+
+
+class TestAutonomousOnboard:
+    """autonomous_onboard paradigm: onboard-only, resolves to the per-step core."""
+
+    @pytest.mark.parametrize("rep, expected", [
+        ("symbolic", "rule_based_eventsat"),
+        ("subsymbolic", "subsymbolic_eventsat"),
+    ])
+    def test_ao_resolves_onboard_core(self, rep, expected) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm="autonomous_onboard")
+        assert cfg.resolved_representation_type == expected
+
+    def test_hybrid_onboard_excluded(self) -> None:
+        with pytest.raises(ValueError, match="autonomous_onboard"):
+            ExperimentConfig(representation="hybrid", operations_paradigm="autonomous_onboard",
+                             representation_config={"action_space": "agentic"})
+
+    def test_paradigm_is_passthrough_onboard(self) -> None:
+        from src.operations.autonomous_onboard import AutonomousOnboard
+        ao = AutonomousOnboard()
+        act = {"eventsat_0": {"mode": "payload_observe"}}
+        assert ao.filter_observation("OBS", 0) == "OBS"          # real-time
+        assert ao.can_act(0, ground_pass_active=False) is True   # acts every step
+        assert ao.should_allow_inference(0, False) is True
+        assert ao.can_self_recover_anomaly() is True             # onboard FDIR
+        assert ao.process_action(act, 0, False) == act           # pass-through, no schedule

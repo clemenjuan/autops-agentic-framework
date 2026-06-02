@@ -135,7 +135,7 @@ class ExperimentConfig(BaseModel):
     VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent"}
     VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
-        "autonomous_hybrid", "autonomous_ground", "conventional_ground",
+        "autonomous_onboard", "autonomous_hybrid", "autonomous_ground", "conventional_ground",
     }
     # Decision loops are extensible — no fixed set enforced here.
 
@@ -260,15 +260,17 @@ class ExperimentConfig(BaseModel):
         hybrids action_space picks reactive vs agentic. An explicit
         ``representation_config.type`` overrides this (see ``resolved_representation_type``).
         """
+        _ONBOARD_OPS = ("autonomous_onboard", "autonomous_hybrid")
         if representation == "symbolic":
             return {
+                "autonomous_onboard": "rule_based_eventsat",
                 "autonomous_hybrid": "rule_based_eventsat",
                 "autonomous_ground": "schedule_based_eventsat",
                 "conventional_ground": "conventional_schedule_eventsat",
             }[ops]
         if representation == "subsymbolic":
             return (
-                "subsymbolic_eventsat" if ops == "autonomous_hybrid"
+                "subsymbolic_eventsat" if ops in _ONBOARD_OPS
                 else "subsymbolic_scheduler_eventsat"
             )
         if representation == "hybrid":
@@ -314,6 +316,16 @@ class ExperimentConfig(BaseModel):
                     f"action_space='agentic' requires representation='hybrid', "
                     f"got '{self.representation}'"
                 )
+
+        # autonomous_onboard is onboard-only; a hybrid has no onboard core of its
+        # own (its LLM is a ground component), so hybrid+ao is degenerate.
+        if self.representation == "hybrid" and ops == "autonomous_onboard":
+            raise ValueError(
+                "representation='hybrid' with operations_paradigm='autonomous_onboard' "
+                "is excluded: a hybrid has no standalone onboard core (its LLM is a "
+                "ground planner). Use a symbolic or subsymbolic onboard, or paradigm "
+                "autonomous_hybrid (onboard + ground)."
+            )
 
         # Resolve the concrete representation class (raises if hybrid lacks action_space).
         rep_type = self.resolved_representation_type
