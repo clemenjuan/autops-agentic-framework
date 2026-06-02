@@ -69,6 +69,7 @@ class ExperimentRunner:
         self._environment: Any = None
         self._organization: Any = None
         self._decision_loops: Dict[str, Any] = {}  # agent_id → loop
+        self._ground_planner_loops: Dict[str, Any] = {}  # AH only: agent_id → ground-planner loop
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
@@ -316,7 +317,12 @@ class ExperimentRunner:
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
         emergence = BehaviourController(config=self.config.behaviour_config)
-        repr_type = self.config.resolved_representation_type
+        # Primary per-step core: the onboard core for paradigms with an onboard
+        # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
+        repr_type = (
+            self.config.resolved_onboard_type
+            or self.config.resolved_representation_type
+        )
         representation = emergence.get_representation(
             repr_type=repr_type,
             repr_config=self.config.representation_config,
@@ -364,6 +370,25 @@ class ExperimentRunner:
                 config=self.config.decision_procedure_config,
                 representation=representation,
             )
+
+        # Dual-slot AH: build the ground-planner core (runs at passes on the stale
+        # view to refresh the uplinked plan; onboard loop above runs every step).
+        self._ground_planner_loops = {}
+        if (
+            self.config.operations_paradigm == "autonomous_hybrid"
+            and self.config.resolved_ground_planner_type is not None
+        ):
+            gp_rep = emergence.get_representation(
+                repr_type=self.config.resolved_ground_planner_type,
+                repr_config=self.config.representation_config,
+            )
+            if hasattr(gp_rep, "seed"):
+                gp_rep.seed(self.config.seed)
+            for agent_id in agents:
+                self._ground_planner_loops[agent_id] = loop_cls(
+                    config=self.config.decision_procedure_config,
+                    representation=gp_rep,
+                )
         return loops
 
     def _create_operations_paradigm(self) -> Any:
@@ -590,11 +615,27 @@ class ExperimentRunner:
                 "inference_skipped": True,
             })
 
-        # 5. Collect actions
+        # 5. Collect actions (the onboard core's per-step action)
         if self._organization is not None:
             env_actions = self._organization.collect_actions(agent_actions)
         else:
             env_actions = {}
+
+        # 5b. Dual-slot AH: at ground passes, refresh the uplinked plan by running
+        # the ground planner on the stale ground view; the onboard action above is
+        # then arbitrated against this plan in process_action.
+        if self._ground_planner_loops and ground_pass_active and observation is not None:
+            stale_obs = self._operations_paradigm.ground_planner_view(observation, step)
+            gp_obs = (
+                self._organization.distribute_observation(stale_obs)
+                if (self._organization is not None and stale_obs is not None)
+                else {}
+            )
+            for agent_id, gp_loop in self._ground_planner_loops.items():
+                gp_action, self._memory = gp_loop.process(
+                    gp_obs.get(agent_id), self._memory
+                )
+                self._operations_paradigm.set_uplinked_plan(gp_action)
 
         # 6. Process actions through operations paradigm (may buffer/gate)
         if self._operations_paradigm is not None:

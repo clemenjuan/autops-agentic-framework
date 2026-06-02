@@ -567,3 +567,47 @@ class TestTwoCoreResolution:
                                    representation_config=rc)
         assert cfg.resolved_onboard_type == onboard
         assert cfg.resolved_ground_planner_type == ground
+
+
+class TestAutonomousHybridArbitration:
+    """Dual-slot AH: plan-default between passes, onboard override on safety modes."""
+
+    def _ah_with_plan(self):
+        from src.operations.autonomous_hybrid import AutonomousHybrid
+        ah = AutonomousHybrid()
+        ah.set_uplinked_plan(
+            {"eventsat_0": {"schedule": [("payload_observe", 3), ("charging", 2)]}}
+        )
+        return ah
+
+    def test_follows_plan_when_onboard_not_safety(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "payload_compress"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "payload_observe"  # plan, not onboard
+        assert ah._onboard_overrides == 0
+
+    def test_onboard_overrides_on_safety_mode(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "charging"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "charging"  # safety override of the plan
+        assert ah._onboard_overrides == 1
+
+    def test_onboard_wins_during_pass(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "communication"}}, step=1, ground_pass_active=True
+        )
+        assert out["eventsat_0"]["mode"] == "communication"  # real-time during contact
+
+    def test_no_plan_falls_back_to_onboard(self) -> None:
+        from src.operations.autonomous_hybrid import AutonomousHybrid
+        ah = AutonomousHybrid()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "payload_observe"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "payload_observe"  # no plan → onboard
+        assert ah.get_metrics()["onboard_overrides"] == 0.0
