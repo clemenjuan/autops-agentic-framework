@@ -25,7 +25,7 @@ uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
 # org:  sas | cmas (instantiated)                proc: sda | ooda | react
-# repr: symb | hyre | subm | hyag                ops:  ah  | ag   | cg
+# repr: symb | hyre | subm | hyag                ops:  ao | ah | ag | cg
 # beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
 #
 # Canonical config values (as accepted by config_loader.py):
@@ -78,7 +78,7 @@ src/
   representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
   memory/             # FixedMemory (default, all variants); WritableMemory (_lec_ only — see below)
   behaviour/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
-  operations/         # autonomous_hybrid / autonomous_ground / conventional_ground
+  operations/         # autonomous_onboard / autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
 configs/experiments/  # 84 experiment configs + 1 template (48 hand-designed + 36 learned variants)
@@ -133,6 +133,7 @@ uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single
 - Observation: 9.41 MB raw, 5.11:1 compression, 2× obs time to compress, 5 min CV detection
 - ADCS settling: 135s for observe/communicate mode transitions
 - Modes: `charging`, `communication`, `payload_observe`, `payload_compress`, `payload_detect`, `payload_send`, `safe`
-- Anomaly: environment-enforced safe mode; AH clears via onboard FDIR, CG requires ground pass resume command
+- Anomaly: environment-enforced safe mode; onboard paradigms (AO/AH) clear via onboard FDIR, AG/CG require ground pass resume command
 - Daily downlink budget: 27 MB (configurable in `eventsat.yaml`)
+- Onboard autonomy (AO/AH) keeps the Jetson powered every step → extra `power.onboard_compute_w` (≈5 W placeholder) draw on top of per-mode consumption; ground paradigms (AG/CG) decide on-ground, no overhead. Wired via `OperationsParadigm.has_onboard_autonomy()` → `env.onboard_autonomy_active`
 - Jetson→OBC: RS-485 50 kbps one-way, requires explicit `payload_send` mode

@@ -28,7 +28,7 @@ for the per-component mapping see
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  L5  Governance & Safety                                                │
-│      src/operations/  (AH / AG / CG)                                    │
+│      src/operations/  (AO / AH / AG / CG)                               │
 │      env-enforced safe mode (eventsat_env.py)                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L4  Orchestration                                                      │
@@ -125,7 +125,7 @@ Two computation backends are supported:
 | `src/representation/` | Knowledge & decision representations |
 | `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
 | `src/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
-| `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
+| `src/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |
 | `configs/` | YAML experiment configurations |

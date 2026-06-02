@@ -343,7 +343,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
 - **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
 - **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
-- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms (AH/AG/CG)
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 4 ops paradigms (AO/AH/AG/CG)
 - **Training script**: `scripts/train_subsymbolic.py`
 - **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
 - **Supporting modules**: `src/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/behaviour/training_pipeline.py` (PPOTrainer)
@@ -376,7 +376,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - File-based response cache (`data/llm_cache/`) keyed on prompt hash.
   - Mock mode (`llm_mock: true`) for CI — no live LLM calls.
   - Configurable model, temperature, provider via YAML.
-- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms
+- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 4 ops paradigms
   (AH/AG/CG). Unlike symbolic which needed 3 separate representation types per ops
   paradigm, the LLM representation handles all ops contexts through its prompt.
 - **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
@@ -460,14 +460,31 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ## Operations Paradigms
 
-### Autonomous Hybrid — Phase 2 baseline
+Four paradigms (ladder): **autonomous_onboard** (onboard only) → **autonomous_hybrid** (onboard +
+ground) → **autonomous_ground** (ground only) → **conventional_ground** (human ground). Onboard
+paradigms (AO/AH) set `env.onboard_autonomy_active=True` via `has_onboard_autonomy()`, adding the
+Jetson compute draw (`power.onboard_compute_w`).
+
+### Autonomous Onboard — onboard-only primitive
+
+- **File**: `src/operations/autonomous_onboard.py`
+- **Structure**: Pass-through observation (full real-time state), acts every step, no ground plan /
+  no schedule — a single per-step onboard core, closed-loop. `has_onboard_autonomy()=True`.
+- **Resolves to**: the onboard core (symbolic→`rule_based_eventsat`, subsymbolic→`subsymbolic_eventsat`).
+  Hybrid+AO excluded (no standalone onboard LLM).
+- **Configs**: `eventsat_sas_{sda,ooda,react}_{symb_hd,subm_le}_ao` (6 SAS).
+- **Key property**: pure onboard autonomy with the Jetson power overhead; the AO↔AH contrast isolates
+  the value of adding a ground plan.
+
+### Autonomous Hybrid — Phase 2 baseline (dual-slot pending — see Phase 4.e)
 
 - **File**: `src/operations/autonomous_hybrid.py`
-- **Structure**: Passthrough observation (full real-time state), unrestricted
-  action timing (every timestep), immediate execution.
+- **Structure (current)**: Passthrough observation (full real-time state), unrestricted action timing
+  (every timestep), immediate execution. `has_onboard_autonomy()=True` (Jetson overhead applies).
+  *Today this is effectively onboard-only;* the true **dual-slot** AH (shared ground planner +
+  onboard per-step override) is the §3.3 design, built in the AH dual-slot work (FOUNDATION_SPEC
+  Phase 4.e).
 - **Anomaly recovery**: Onboard FDIR — agent clears safe mode once countdown expires.
-- **Key property**: Zero information delay, zero planning latency. Upper bound for
-  operations paradigm performance.
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 

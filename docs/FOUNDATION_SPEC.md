@@ -141,7 +141,7 @@ when the core is a language model.
 | **Representation** | symbolic · subsymbolic · hybrid | **Substrate only.** Kautz 2022; Garcez & Lamb 2023; Colelough & Regli 2025. |
 | ↳ Action space (hybrid only) | reactive \| agentic | A **hybrid-only flavor**, not a separate axis — it has no degrees of freedom under symbolic/subsymbolic (those are always reactive; an agentic tool-call loop requires an LLM core). This is where the `hyre` (reactive) and `hyag` (agentic) hybrid configs differ. |
 | **Decision Procedure** | SDA · OODA · ReAct | Code field: `decision_procedure`. |
-| **Operations Paradigm** | AH · AG · CG | Defines which *autonomy slots* are active (§3.3). |
+| **Operations Paradigm** | AO · AH · AG · CG | Defines which *autonomy slots* are active (§3.3). |
 
 The four representation filename tokens (`symb`, `subm`, `hyre`, `hyag`) map to **three substrates
 with hybrid split by action space**: `hyre` = hybrid-reactive, `hyag` = hybrid-agentic. Representation
@@ -183,11 +183,24 @@ Memory invariant note in `CLAUDE.md`.
 
 ### 3.3 Operations Paradigm as autonomy slots
 
-The paradigm decides *which autonomy slots are active*; each slot is a **distinct core**:
+The paradigm decides *which autonomy slots are active*; each slot is a **distinct core**. Two slots:
 
 - **ground planner** (long-horizon, synthesizes the whole-pass uplinked schedule) — active in **AH and AG**
-- **onboard** (closed-loop, per-step, reacts between passes) — active in **AH** only
-- **CG** = neither (human flight-dynamics team; one-pass planning delay)
+- **onboard** (closed-loop, per-step) — active in **AO and AH**
+
+Four-paradigm ladder, each comparison sharing a core:
+
+| paradigm | onboard slot | ground slot | shares |
+|---|---|---|---|
+| **AO** autonomous_onboard | ✓ | — | onboard with AH (AO↔AH = does a ground plan help?) |
+| **AH** autonomous_hybrid | ✓ | ✓ | both |
+| **AG** autonomous_ground | — | ✓ | ground planner with AH (AH↔AG = onboard-override effect) |
+| **CG** conventional_ground | — | ✓ (human, one-pass delay) | — |
+
+**Onboard power cost.** AO and AH keep the onboard compute (Jetson) powered every step to run
+per-step inference — a continuous draw (`power.onboard_compute_w`) on top of per-mode consumption,
+modelled via `OperationsParadigm.has_onboard_autonomy()` → `env.onboard_autonomy_active`. AG/CG decide
+on the ground (no overhead). This makes onboard autonomy a real energy/responsiveness trade-off.
 
 **Design decision (distinct cores; shared ground planner).** The two slots are *different* trained
 cores, not one core in two modes:
@@ -218,6 +231,7 @@ Not every theoretical cell is scientifically meaningful. The following are exclu
 | subsymbolic + hand-designed | A PPO policy is learned by construction; a hand-designed subsymbolic agent is incoherent here. Subsymbolic appears only with emergent·policy (ppo). |
 | reactive (any substrate) + emergent·memory | Memory-writing is an internal action; a reactive single-shot agent has no action to issue it. emergent·memory requires the **agentic action space** — gated by action space, not by substrate. (In this framework the only agentic action space is hybrid-agentic, so `_lec_` appears there.) |
 | subsymbolic + prompt_optimized / writable_coala | PPO has no prompt or declarative store to accrete into. |
+| hybrid + `AO` (autonomous_onboard) | AO is onboard-only; a hybrid has no standalone onboard core (its LLM is a ground component). AO applies to symbolic & subsymbolic only. |
 | `cmas × {AG, CG}` | CMAS coordination is degenerate at N=1 when ground is the strategic layer. CMAS appears only with AH. |
 | decentralized / independent / hybrid MAS (any) | Require N≥3 satellites; deferred to Flamingo. |
 
@@ -366,10 +380,14 @@ The deployment/autonomy envelope sitting between organization and environment: f
 (`filter_observation`), gates actions (`can_act`, `process_action`), and updates ground knowledge on
 downlink (`update_ground_knowledge`). Defines the autonomy slots of §3.3.
 
+- **AutonomousOnboard**: onboard-only — a single per-step core acts every step on full real-time
+  state, closed-loop, no ground plan. `has_onboard_autonomy()=True` (Jetson power overhead). The
+  onboard-only primitive of the ladder (§3.3).
 - **AutonomousHybrid**: onboard autonomy (rules / small DNNs) acts every step on full real-time
   state; ground systems prepare plans between passes from last telemetry, uplinked at next contact;
   onboard can override for faults/opportunities. No LLM runs onboard in EventSat. (Rossi et al.
-  2023; Sellmaier et al. 2022 §16.4.)
+  2023; Sellmaier et al. 2022 §16.4.) *Dual-slot wiring is the §3.3 design, built in the AH dual-slot
+  work; today AH runs onboard-only pass-through.*
 - **AutonomousGround**: ground sees only downlinked (stale) telemetry; an algorithmic scheduler
   prepares optimal schedules between passes, uplinked next contact; satellite executes with zero
   onboard autonomy. The algorithmic ideal — no planning delay.

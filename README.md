@@ -15,7 +15,7 @@ what the agent *is*; a **Behaviour overlay** describes where its competence come
 | **Organization**       | SAS, Centralized MAS (instantiated); Decentralized / Independent / Hybrid MAS deferred to constellation scenarios (Kim et al. 2025) |
 | **Representation** (substrate) | Symbolic, Subsymbolic, Hybrid — hybrid split by **action space**: reactive vs agentic |
 | **Decision Procedure** | SDA, OODA, ReAct                                            |
-| **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground   |
+| **Operations Paradigm**| Autonomous Onboard, Autonomous Hybrid, Autonomous Ground, Conventional Ground |
 
 **Behaviour overlay**: Hand-designed vs Emergent — the learning mechanism (PPO / prompt-optimized /
 writable-CoALA) is derived from the substrate, not chosen separately.
@@ -26,9 +26,9 @@ representation class is resolved from `representation × action_space × operati
 
 ### Current Status
 
-**Phase 5 complete** — 84 experiment configurations across the full morphological matrix:
+**Phase 5 complete** — 91 experiment configurations across the full morphological matrix:
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
-- **Operations paradigms**: Autonomous Hybrid (onboard real-time), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints)
+- **Operations paradigms**: Autonomous Onboard (onboard-only, per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints). Onboard autonomy (AO/AH) adds a continuous Jetson compute draw (`power.onboard_compute_w`).
 - **Representations** (3 substrates; concrete class resolved from substrate × action_space × ops):
   - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
   - *Hybrid — reactive* (single-shot LLM): `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
@@ -50,7 +50,7 @@ representation class is resolved from `representation × action_space × operati
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling decision procedures from representations
-- 631 tests (608 passing; 23 RL tests skipped without the `rl` extra)
+- 637 tests (614 passing; 23 RL tests skipped without the `rl` extra)
 
 ## Quick Start
 
@@ -73,7 +73,7 @@ uv run python -m pytest tests/ -v -o "addopts="
 # org:  sas | cmas  (canonical YAML values: sas | centralized_mas; dmas/imas/hmas deferred)
 # proc: sda | ooda | react           repr: symb | hyre | subm | hyag
 # beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
-# ops:  ah | ag | cg
+# ops:  ao (autonomous_onboard) | ah | ag | cg
 # SDA loop (baseline)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
 uv run autops run configs/experiments/eventsat_sas_sda_hyag_hd_ah.yaml    # hand-designed agentic
@@ -141,16 +141,16 @@ autops-demo/
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
 |   +-- memory/               # FixedMemory (all variants) + WritableMemory (_lec_ only, CoALA §3)
 |   +-- behaviour/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
-|   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
+|   +-- operations/           # Operations paradigm (autonomous_onboard, autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
-|   +-- experiments/          # 84 experiment configs + 1 template (48 hd + 36 learned: le/lep/lec)
+|   +-- experiments/          # 91 experiment configs + 1 template
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 631 tests (608 pass; 23 RL skipped without --extra rl)
++-- tests/                    # 637 tests (614 pass; 23 RL skipped without --extra rl)
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
