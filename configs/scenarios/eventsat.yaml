@@ -61,13 +61,13 @@ power:
     max_soc: 1.0
     charge_efficiency: 0.9
 
-  # Onboard-compute (Jetson) overhead (Watts). Added to per-step consumption only
-  # when a Jetson-based onboard core runs inference every step (subsymbolic / hybrid
-  # onboard, paradigms AO/AH). Symbolic onboard rules run on the OBC (sub-watt) → no
-  # overhead; ground paradigms (AG/CG) → no overhead. ~ comparable to the Jetson-on
-  # payload modes (compress/detect/send ≈ 7-13 W); calibrate against measured power.
-  # NOTE: flat overhead — may double-count the Jetson during payload modes (already
-  # in the consumption table); refine if that matters.
+  # Onboard-compute (Jetson) power FLOOR (Watts) — applied as max(per_mode, this),
+  # not added. A Jetson-based onboard core (subsymbolic / hybrid onboard, paradigms
+  # AO/AH) keeps the Jetson powered to run per-step inference; powered-on draw ~7 W,
+  # inference itself is microseconds (no compute energy). When the satellite is
+  # otherwise idle (charging) it draws this floor; when it compresses/sends/
+  # communicates, that larger per-mode draw dominates (no double-count). Symbolic
+  # onboard runs on the OBC (sub-watt) → no floor; ground paradigms (AG/CG) → no floor.
   onboard_compute_w: 7.0
 
   # Consumption by mode (total Watts from PDR Table 6.2)

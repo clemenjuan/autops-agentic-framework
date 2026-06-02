@@ -822,33 +822,40 @@ class TestAnomalyForcedSafe:
 
 
 class TestOnboardComputeOverhead:
-    """Onboard autonomy keeps the Jetson powered → extra continuous draw."""
+    """Jetson-on is a power FLOOR (max), not an addition — no double-count."""
 
-    def test_onboard_overhead_adds_jetson_power(self):
+    def _soc_after(self, env, mode, compute_active):
+        env.battery_soc = 0.8
+        env.onboard_compute_active = compute_active
+        env._update_battery(mode, in_sun=False)  # eclipse: pure consumption
+        return env.battery_soc
+
+    def test_floor_applies_when_idle(self):
         env = _make_env()
+        env.consumption = {"charging": {"eclipse_w": 4.72}}  # below the 7 W floor
+        env.onboard_compute_w = 7.0
         step_frac = env.step_duration_s / 3600.0
-
-        env.battery_soc = 0.8
-        env.onboard_compute_active = False
-        env._update_battery("charging", in_sun=False)   # eclipse: pure consumption
-        soc_ground = env.battery_soc
-
-        env.battery_soc = 0.8
-        env.onboard_compute_active = True
-        env._update_battery("charging", in_sun=False)
-        soc_onboard = env.battery_soc
-
-        # Onboard draws more → lower SoC, by exactly onboard_compute_w worth of energy
+        soc_ground = self._soc_after(env, "charging", False)
+        soc_onboard = self._soc_after(env, "charging", True)
         assert soc_onboard < soc_ground
-        expected = env.onboard_compute_w * step_frac / env.battery_capacity_wh
+        # diff = (floor - base), not the full floor (max, not sum)
+        expected = (7.0 - 4.72) * step_frac / env.battery_capacity_wh
         assert abs((soc_ground - soc_onboard) - expected) < 1e-9
 
-    def test_no_overhead_when_ground(self):
+    def test_no_change_when_mode_above_floor(self):
         env = _make_env()
-        env.onboard_compute_active = False
+        env.consumption = {"payload_compress": {"eclipse_w": 12.77}}  # above 7 W floor
+        env.onboard_compute_w = 7.0
+        # Heavier per-mode load dominates → onboard floor adds nothing (no double-count)
+        soc_ground = self._soc_after(env, "payload_compress", False)
+        soc_onboard = self._soc_after(env, "payload_compress", True)
+        assert abs(soc_ground - soc_onboard) < 1e-12
+
+    def test_no_floor_when_ground(self):
+        env = _make_env()
+        env.consumption = {"charging": {"eclipse_w": 4.72}}
         env.battery_soc = 0.8
+        env.onboard_compute_active = False
         env._update_battery("charging", in_sun=False)
-        # Matches a manual computation with no overhead
-        base = env.consumption.get("charging", {}).get("eclipse_w", 5.0)
-        expected_soc = 0.8 - base * (env.step_duration_s / 3600.0) / env.battery_capacity_wh
+        expected_soc = 0.8 - 4.72 * (env.step_duration_s / 3600.0) / env.battery_capacity_wh
         assert abs(env.battery_soc - expected_soc) < 1e-9

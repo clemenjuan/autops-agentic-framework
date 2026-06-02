@@ -28,7 +28,7 @@ representation class is resolved from `representation × action_space × operati
 
 **Phase 5 complete** — 91 experiment configurations across the full morphological matrix:
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
-- **Operations paradigms**: Autonomous Onboard (onboard-only, per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a continuous Jetson compute draw (`power.onboard_compute_w`); symbolic onboard runs on the OBC with no overhead.
+- **Operations paradigms**: Autonomous Onboard (onboard-only, per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) impose a ~7 W Jetson-on power floor (`max(per_mode, power.onboard_compute_w)`); symbolic onboard runs on the OBC with no overhead.
 - **Representations** (3 substrates; concrete class resolved from substrate × action_space × ops):
   - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
   - *Hybrid — reactive* (single-shot LLM): `llm_eventsat` (Rodriguez-Fernandez et al. 2024)

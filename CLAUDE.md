@@ -135,5 +135,5 @@ uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single
 - Modes: `charging`, `communication`, `payload_observe`, `payload_compress`, `payload_detect`, `payload_send`, `safe`
 - Anomaly: environment-enforced safe mode; onboard paradigms (AO/AH) clear via onboard FDIR, AG/CG require ground pass resume command
 - Daily downlink budget: 27 MB (configurable in `eventsat.yaml`)
-- Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) keep the Jetson powered every step → extra `power.onboard_compute_w` (≈7 W, ~ Jetson-on payload modes) on top of per-mode consumption. Symbolic onboard rules run on the OBC (sub-watt) → no overhead; ground paradigms (AG/CG) → no overhead. Wired via `config.onboard_uses_jetson` → `env.onboard_compute_active` (a flat overhead — may double-count the Jetson during payload modes; calibrate later)
+- Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) keep the Jetson powered → a power **floor** `power.onboard_compute_w` (≈7 W) applied as `max(per_mode, floor)`, not added: idle/charging draws the floor, but compress/send/comms dominate (no double-count). Symbolic onboard runs on the OBC (sub-watt) → no floor; ground paradigms (AG/CG) → no floor. Wired via `config.onboard_uses_jetson` → `env.onboard_compute_active`
 - Jetson→OBC: RS-485 50 kbps one-way, requires explicit `payload_send` mode
