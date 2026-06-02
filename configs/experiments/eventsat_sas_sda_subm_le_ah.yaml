@@ -3,9 +3,9 @@
 # 5D Morphological Matrix: sas | sda | subm | le | ah
 #
 # PPO-trained RL policy with SDA reactive loop and autonomous onboard ops.
-# The ActorCritic network selects operational modes from a 25D observation
-# space. Symbolic grounding constraints prevent safety violations.
-# Use rl_mock: true for CI/local testing without torch or a trained checkpoint.
+# RLlib PPO selects operational modes from a 25D observation space. Symbolic
+# grounding constraints prevent safety violations. Use rl_mock: true for
+# CI/local testing without RLlib or a trained checkpoint.
 #
 # Papers:
 #   Oliver et al. EUCASS 2025 (8KDZ5Z53): PPO hyperparameters, obs/action space
@@ -15,8 +15,8 @@
 experiment_id: eventsat_sas_sda_subm_le_ah
 description: >
   EventSat RL subsymbolic representation with SDA loop and autonomous-hybrid ops.
-  PPO ActorCritic policy trained online via rollout buffers. 25D observation
-  space with orbital lookahead features; MultiDiscrete([7,2,2]) action space.
+  PPO policy trained separately through RLlib and evaluated from checkpoint.
+  25D observation space with orbital lookahead features; MultiDiscrete([7,2,2]) action space.
   Baseline for subsymbolic representation comparison across loops and paradigms.
 
 seed: 42
@@ -37,9 +37,9 @@ decision_loop_config:
 
 representation_config:
   type: subsymbolic_eventsat
-  rl_mock: false               # Set true for CI/local without torch
+  rl_mock: false               # Set true for CI/local without RLlib checkpoint
   deterministic: false         # Stochastic during training; set true for eval
-  checkpoint_path: ""          # Path to .pt checkpoint (empty = random init)
+  checkpoint_path: ""          # Path to RLlib checkpoint (empty = auto/random fallback)
   # Env constants for observation normalisation
   orbital_period_steps: 94     # 5676s / 60s ≈ 94 steps
   max_steps: 10080
@@ -64,6 +64,8 @@ emergence_config:
   value_coef: 1.0
   max_grad_norm: 0.5
   minibatch_size: 256          # EUCASS 2025: minibatch_size=256
+  policy_sharing:
+    mode: shared_all           # shared_all | shared_by_role | independent_per_agent
 
 # -- Environment -----------------------------------------------------------
 environment:

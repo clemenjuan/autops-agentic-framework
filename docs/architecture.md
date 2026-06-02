@@ -124,7 +124,8 @@ Two computation backends are supported:
 | `src/decision_loop/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
 | `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
-| `src/emergence/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/emergence/` | Emergence controller (`@register`), RLlib PPO training pipeline, `PromptOptimizer` |
+| `src/rl/` | RLlib `MultiAgentEnv`, observation/action space adapters, policy-sharing helpers |
 | `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |

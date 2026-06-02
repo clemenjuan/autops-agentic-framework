@@ -277,35 +277,20 @@ class ExperimentRunner:
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         emergence = EmergenceController(config=self.config.emergence_config)
-        repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
+        repr_config = dict(self.config.representation_config)
+        repr_config.setdefault("experiment_id", self.config.experiment_id)
+        repr_config.setdefault("emergence_config", self.config.emergence_config)
+        repr_config.setdefault("max_steps", self.config.max_steps)
+        repr_type = repr_config.get('type', 'rule_based_eventsat')
         representation = emergence.get_representation(
             repr_type=repr_type,
-            repr_config=self.config.representation_config,
+            repr_config=repr_config,
         )
         # Seed stochastic representations for reproducibility
         if hasattr(representation, "seed"):
             representation.seed(self.config.seed)
         # Store representation reference for RL training access
         self._representation = representation
-        # Set up PPO training components if learned mode
-        if (
-            self.config.emergence_mode == "learned"
-            and hasattr(representation, "set_trainer")
-            and not self.config.representation_config.get("rl_mock", False)
-        ):
-            try:
-                from src.emergence.rollout_buffer import RolloutBuffer
-                from src.emergence.training_pipeline import PPOTrainer
-                rollout_size = self.config.emergence_config.get("rollout_fragment", 128)
-                self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
-                trainer = PPOTrainer(
-                    policy=representation._policy,
-                    config=self.config.emergence_config,
-                )
-                representation.set_trainer(trainer)
-                logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
-            except ImportError as e:
-                logger.warning("Could not initialise PPO trainer: %s", e)
         loop_type = self.config.decision_loop
         if loop_type == 'sda':
             from src.decision_loop.sda_loop import SDALoop

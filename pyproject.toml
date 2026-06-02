@@ -38,6 +38,7 @@ llm = [
 rl = [
     "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
+    "ray[rllib]==2.44.0",  # Canonical PPO backend
 ]
 
 viz = [

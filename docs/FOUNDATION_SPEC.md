@@ -745,7 +745,7 @@ class MetricsCollector(ABC):
 **Completed:**
 
 1. Phase 4a: LLM hybrid representation — `llm_eventsat`, 9 configs, 48 tests (Rodriguez-Fernandez et al. 2024, Li 2025)
-2. Phase 4b: Subsymbolic/RL representation — `subsymbolic_eventsat` with PPO training pipeline, Gymnasium wrapper, 25D obs space, MultiDiscrete action space, 9 configs, 67 tests (Oliver et al. EUCASS 2025, Hamilton et al. 2025, BSK-RL)
+2. Phase 4b: Subsymbolic/RL representation — `subsymbolic_eventsat` with RLlib PPO training pipeline, registered AUTOPS ActorCritic model, RLlib `MultiAgentEnv` bridge, 25D obs space, MultiDiscrete action space, 9 configs, 67 tests (Oliver et al. EUCASS 2025, Hamilton et al. 2025, BSK-RL)
 
 3. Phase 4c: Agentic hybrid representation — `agentic_eventsat`, CoALA-style multi-step reasoning with 6 domain tools, 9 configs, 76 tests (Sumers et al. 2024, Sapkota et al. 2026, Li 2025)
 4. Phase 4d: Inference gating by operations paradigm — AG/CG skip LLM inference between passes (Rossi et al. 2023, Sellmaier et al. 2022). LLM cache stores prompts. Decision trace JSONL (DEBUG mode). Cross-cutting architecture documentation in `implementations.md`. 493 total tests.
@@ -782,7 +782,7 @@ class MetricsCollector(ABC):
 
 7. **LLMEventSat `prompt_optimized` wiring** — reads mechanism and loads trained prompt at `__init__`.
 
-8. **`autops train` CLI command** — dispatches: PPO → PPOTrainer; prompt_optimized → PromptOptimizer; writable_coala → prints guidance (online accretion, no pre-training).
+8. **`autops train` CLI command** — dispatches: PPO → `RLLibPPOTrainer`; prompt_optimized → PromptOptimizer; writable_coala → prints guidance (online accretion, no pre-training).
 
 9. **36 new learned-emergence configs**: 12 `*_agnt_lep_*`, 12 `*_agnt_lec_*`, 12 `*_hybr_lep_*`. Grand total: 84 experiment configs.
 
@@ -857,6 +857,7 @@ dev = [
 rl = [
     "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
+    "ray[rllib]==2.44.0",  # Canonical PPO backend
 ]
 
 [tool.pytest.ini_options]

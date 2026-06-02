@@ -290,20 +290,28 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Sub-action 0: Primary operational mode (7 modes)
   - Sub-action 1: data_priority {0=normal, 1=urgent} → 1.5x downlink in comms mode
   - Sub-action 2: pipeline_routing {0=compress_first, 1=detect_first} → redirects between compression and detection pipelines
-- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) → 3 actor heads + 1 critic head; ~70K parameters
-- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), factored joint log-prob over MultiDiscrete heads
+- **Architecture**: PPO policy trained by RLlib with the registered
+  `autops_actor_critic_v1` model in `src/rl/models/autops_actor_critic.py`.
+  This reproduces the original `ActorCritic`: shared trunk 25->256->256 with
+  Tanh activations, three independent actor heads (7, 2, 2 logits), one critic
+  head, and the same orthogonal initialisation gains.
+- **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-λ (λ=0.95), factored joint log-prob over MultiDiscrete heads
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
 - **Symbolic grounding** (same constraints as LLMEventSat):
   - Anomaly → forced safe (cannot be overridden)
   - SoC < 0.20 → forced charging
   - Communication without active pass → forced charging
-- **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
+- **Mock mode**: `rl_mock: true` uses `RandomPolicy` for CI/smoke tests without loading an RLlib checkpoint
 - **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
-- **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
+- **update()**: Backward-compatible no-op hook; PPO training is offline via `RLLibPPOTrainer`
 - **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 3 ops paradigms (AH/AG/CG)
 - **Training script**: `scripts/train_subsymbolic.py`
-- **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
-- **Supporting modules**: `src/emergence/rollout_buffer.py` (RolloutBuffer + GAE), `src/emergence/training_pipeline.py` (PPOTrainer)
+- **Canonical PPO backend update**: PPO is now trained through RLlib, not the in-repo
+  trainer. `src/emergence/rllib_training_pipeline.py` drives training, `src/rl/rllib_env.py`
+  exposes AUTOPS as an RLlib `MultiAgentEnv`, `src/rl/space_adapters.py` owns
+  scenario-specific vector/action conversion, and `src/rl/policy_mapping.py` controls
+  shared/role/independent policy assignment. The previous `training_pipeline.py`
+  remains as a legacy/reference implementation.
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
 - **Configs**: 9 YAML files `eventsat_sas_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
 
@@ -517,10 +525,15 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### PPO Training — `_le_` subsymbolic variants
 
-- **File**: `src/emergence/training_pipeline.py` (PPOTrainer)
+- **File**: `src/emergence/rllib_training_pipeline.py` (`RLLibPPOTrainer`)
 - **Mechanism**: `emergence_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml`
-- **Output**: `data/trained_models/<experiment_id>/policy.pt`
+- **Output**: RLlib checkpoint under `data/trained_models/<experiment_id>/` plus `manifest.json`
+- **Backend**: RLlib `MultiAgentEnv` bridge in `src/rl/rllib_env.py`; SAS has one
+  RLlib agent, MAS variants derive agents from the organization layer.
+- **Model architecture**: `autops_actor_critic_v1` is the default PPO model
+  architecture. Configs may name another `model_architecture` in the future, but
+  no low-level neural-layer details are exposed in the experiment YAML by default.
 
 ### PromptOptimizer — `_lep_` LLM/agentic variants
 

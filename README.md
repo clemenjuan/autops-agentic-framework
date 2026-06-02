@@ -35,6 +35,7 @@ identical scenario conditions.
   - `prompt_optimized` (`_lep_`): offline bootstrap few-shot prompt optimization (DSPy-style; 24 configs)
   - `writable_coala` (`_lec_`): online CoALA memory accretion with writable semantic + episodic stores (12 configs)
 - **`autops train` CLI**: dispatches PPO training, prompt optimization, or CoALA guidance by config
+- **RL model architecture**: PPO uses the registered `autops_actor_critic_v1` RLlib model, matching the original ActorCritic network
 - **Inference gating**: Ground-based paradigms (AG/CG) only run LLM/agentic inference during ground passes (Rossi et al. 2023)
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
@@ -130,7 +131,8 @@ autops-demo/
 |   +-- decision_loop/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
 |   +-- memory/               # FixedMemory (all variants) + WritableMemory (_lec_ only, CoALA §3)
-|   +-- emergence/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
+|   +-- emergence/            # controller.py, rllib_training_pipeline.py (PPO), prompt_optimizer.py
+|   +-- rl/                   # RLlib env, space adapters, policy mapping
 |   +-- operations/           # Operations paradigm (autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/

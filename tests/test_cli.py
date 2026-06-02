@@ -109,9 +109,12 @@ class TestCmdTrainPPO:
         from src.cli import cmd_train
 
         mock_trainer = MagicMock()
-        mock_trainer.train.return_value = "data/trained_models/subm_le_test/policy.pt"
+        mock_trainer.train.return_value = "data/trained_models/subm_le_test/checkpoint_000000"
 
-        with patch("src.emergence.training_pipeline.PPOTrainer", return_value=mock_trainer):
+        with patch(
+            "src.emergence.rllib_training_pipeline.RLLibPPOTrainer",
+            return_value=mock_trainer,
+        ):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = 1000
@@ -122,7 +125,7 @@ class TestCmdTrainPPO:
 
         mock_trainer.train.assert_called_once()
 
-    def test_train_ppo_missing_torch_exits(self, tmp_path: Path) -> None:
+    def test_train_ppo_missing_rllib_exits(self, tmp_path: Path) -> None:
         config_path = _write_config(
             tmp_path,
             "subm_le_notorch",
@@ -135,8 +138,8 @@ class TestCmdTrainPPO:
         )
         from src.cli import cmd_train
 
-        # Make the import of training_pipeline fail (simulates missing torch)
-        with patch.dict("sys.modules", {"src.emergence.training_pipeline": None}):
+        # Make the import of rllib_training_pipeline fail (simulates missing RLlib)
+        with patch.dict("sys.modules", {"src.emergence.rllib_training_pipeline": None}):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None

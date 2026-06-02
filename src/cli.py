@@ -118,7 +118,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 
     Dispatches based on ``representation`` × ``emergence_config.mechanism``:
 
-    - subsymbolic + ppo         → PPOTrainer (writes policy.pt)
+    - subsymbolic + ppo         → RLLibPPOTrainer (writes RLlib checkpoint)
     - hybrid    + prompt_optimized → PromptOptimizer (writes prompt.txt)
     - hybrid    + writable_coala   → no pre-training; memory accretes online
     """
@@ -160,12 +160,12 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
-    """Invoke PPOTrainer for subsymbolic representation."""
+    """Invoke RLlib PPO trainer for subsymbolic representation."""
     try:
-        from src.emergence.training_pipeline import PPOTrainer
+        from src.emergence.rllib_training_pipeline import RLLibPPOTrainer
     except ImportError as e:
         print(
-            f"ERROR: PPO training requires torch. Install with:\n"
+            f"ERROR: PPO training requires RLlib. Install with:\n"
             f"  uv sync --extra rl\n"
             f"Details: {e}"
         )
@@ -178,18 +178,13 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
     print(f"  timesteps      : {timesteps}")
     print(f"  checkpoint_dir : {checkpoint_dir}")
 
-    # Build a minimal training config dict
-    train_config = {
-        **training_cfg,
-        "timesteps": timesteps,
-        "checkpoint_dir": checkpoint_dir,
-        "experiment_id": cfg.experiment_id,
-        "seed": cfg.seed,
-        **cfg.representation_config,
-    }
-    trainer = PPOTrainer(train_config)
-    policy_path = trainer.train()
-    print(f"\nPPO training complete. Policy saved to: {policy_path}")
+    trainer = RLLibPPOTrainer(
+        cfg,
+        timesteps=timesteps,
+        checkpoint_dir=checkpoint_dir,
+    )
+    checkpoint_path = trainer.train()
+    print(f"\nPPO training complete. RLlib checkpoint saved to: {checkpoint_path}")
 
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
