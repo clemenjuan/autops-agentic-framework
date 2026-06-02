@@ -6,30 +6,33 @@ Part of the AUTOPS project at TUM Chair of Spacecraft Systems.
 
 ## Overview
 
-This framework implements a **morphological matrix** approach to systematically explore
-the design space of autonomous satellite constellation agents. The five independent
-dimensions are:
+This framework implements a **two-tier morphological matrix** to systematically explore
+the design space of autonomous satellite constellation agents. **Structural axes** describe
+what the agent *is*; a **Behaviour overlay** describes where its competence comes from.
 
-| Dimension              | Options                                                      |
+| Structural axis        | Options                                                      |
 |------------------------|--------------------------------------------------------------|
 | **Organization**       | SAS, Centralized MAS (instantiated); Decentralized / Independent / Hybrid MAS deferred to constellation scenarios (Kim et al. 2025) |
-| **Decision Loop**      | SDA, OODA, ReAct                                            |
-| **Representation**     | Symbolic, Subsymbolic, Hybrid                               |
-| **Emergence**          | Hand-designed, Learned (PPO / prompt-optimized / writable-CoALA) |
+| **Representation** (substrate) | Symbolic, Subsymbolic, Hybrid — hybrid split by **action space**: reactive vs agentic |
+| **Decision Procedure** | SDA, OODA, ReAct                                            |
 | **Operations Paradigm**| Autonomous Hybrid, Autonomous Ground, Conventional Ground   |
 
-Each combination defines a unique architecture that can be evaluated under
-identical scenario conditions.
+**Behaviour overlay**: Hand-designed vs Emergent — the learning mechanism (PPO / prompt-optimized /
+writable-CoALA) is derived from the substrate, not chosen separately.
+
+Each combination defines a unique architecture evaluated under identical conditions. The concrete
+representation class is resolved from `representation × action_space × operations_paradigm` (see
+[docs/FOUNDATION_SPEC.md §3](docs/FOUNDATION_SPEC.md#3-morphological-matrix-structure)).
 
 ### Current Status
 
 **Phase 5 complete** — 84 experiment configurations across the full morphological matrix:
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
 - **Operations paradigms**: Autonomous Hybrid (onboard real-time), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints)
-- **Representations** (4 types, 5 implementations):
+- **Representations** (3 substrates; concrete class resolved from substrate × action_space × ops):
   - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
-  - *Hybrid — LLM single-shot*: `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
-  - *Hybrid — Agentic*: `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
+  - *Hybrid — reactive* (single-shot LLM): `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
+  - *Hybrid — agentic* (tool-using): `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
   - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Oliver et al. 2025) — 25D obs, MultiDiscrete actions, trainable policy
 - **Learned-emergence for LLM representations** (Phase 5):
   - `prompt_optimized` (`_lep_`): offline bootstrap few-shot prompt optimization (DSPy-style; 24 configs)
@@ -39,8 +42,8 @@ identical scenario conditions.
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
-- DecisionContext interface decoupling loops from representations
-- 575 tests across 21 test modules
+- DecisionContext interface decoupling decision procedures from representations
+- 631 tests (608 passing; 23 RL tests skipped without the `rl` extra)
 
 ## Quick Start
 
@@ -59,10 +62,10 @@ uv run python -m pytest tests/ -v -o "addopts="
 
 ### Running an Experiment
 ```bash
-# Run EventSat experiments (naming: <scenario>_<org>_<loop>_<repr>_<emrg>_<ops>)
+# Run EventSat experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
 # org:  sas | cmas  (canonical YAML values: sas | centralized_mas; dmas/imas/hmas deferred)
-# loop: sda | ooda | react           repr: symb | hybr | subm | agnt
-# emrg: hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
+# proc: sda | ooda | react           repr: symb | hyre | subm | hyag
+# beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
 # ops:  ah | ag | cg
 # SDA loop (baseline)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
@@ -140,7 +143,7 @@ autops-demo/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 21 test modules, 575 tests
++-- tests/                    # 631 tests (608 pass; 23 RL skipped without --extra rl)
 +-- docs/
 |   +-- FOUNDATION_SPEC.md    # Foundation specification
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
@@ -175,7 +178,10 @@ num_episodes: 5
 max_steps: 10080
 ```
 
-See `configs/experiments/template.yaml` for the full schema.
+Hybrid experiments add `representation_config.action_space: reactive | agentic`; the concrete
+representation class is then resolved from `representation × action_space × operations_paradigm`
+(no `representation_config.type` needed — it remains only as an optional override). See
+`configs/experiments/template.yaml` for the full schema.
 
 ## Testing
 

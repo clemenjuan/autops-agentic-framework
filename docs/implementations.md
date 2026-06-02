@@ -680,7 +680,7 @@ explicit in §2.1 of FOUNDATION_SPEC.
 
 ## Cross-Cutting Design Decisions
 
-### Decision Loop × Representation Interaction Model
+### Decision Procedure × Representation Interaction Model
 
 All decision loops produce a `DecisionContext` containing `state`, `enrichments`, and
 `loop_metadata`. Representations consume this via their `select_action()` method. The

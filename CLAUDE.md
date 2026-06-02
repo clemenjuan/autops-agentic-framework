@@ -20,7 +20,7 @@ PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (575 tests)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (631 tests; 23 RL skipped without --extra rl)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
@@ -82,7 +82,7 @@ src/
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
 configs/experiments/  # 84 experiment configs + 1 template (48 hand-designed + 36 learned variants)
-tests/                # 21 test modules, 575 tests
+tests/                # 22 test modules, 631 tests (23 RL skipped without --extra rl)
 ```
 
 **Key interfaces:**

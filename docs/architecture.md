@@ -124,7 +124,7 @@ Two computation backends are supported:
 | `src/decision_procedure/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
 | `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
-| `src/behaviour/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
 | `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |

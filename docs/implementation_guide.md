@@ -14,9 +14,9 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ---
 
-## Adding a New Decision Loop
+## Adding a New Decision Procedure
 
-*(The "Decision Loop" code module is the **Decision Procedure** axis; see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).)*
+*(The `src/decision_procedure/` module implements the **Decision Procedure** axis — concrete loops SDA/OODA/ReAct; see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).)*
 
 ### Prerequisites
 - Read and understand the source paper thoroughly.
@@ -29,7 +29,7 @@ Step-by-step guide for implementing new components in the experimental framework
 2. **Cite the paper** in the module docstring:
    ```python
    """
-   <Loop Name> Decision Loop.
+   <Name> Decision Procedure.
 
    Implementation following:
        <Authors> (<Year>). "<Title>". <Venue>.
