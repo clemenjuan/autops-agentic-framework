@@ -25,7 +25,7 @@ decision_loop_config:
 representation_config:
   type: subsymbolic_eventsat
   rl_mock: false
-  deterministic: false
+  deterministic: true
   checkpoint_path: ""
   orbital_period_steps: 94
   max_steps: 10080

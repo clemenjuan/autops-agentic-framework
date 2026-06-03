@@ -19,6 +19,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import traceback
 from pathlib import Path
@@ -131,9 +132,9 @@ def cmd_train(args: argparse.Namespace) -> None:
     mechanism = cfg.emergence_config.get("mechanism", "")
     experiment_id = cfg.experiment_id
 
-    print(f"Training: {experiment_id}")
-    print(f"  representation : {representation}")
-    print(f"  mechanism      : {mechanism or '(none)'}")
+    print(f"Training: {experiment_id}", flush=True)
+    print(f"  representation : {representation}", flush=True)
+    print(f"  mechanism      : {mechanism or '(none)'}", flush=True)
 
     if representation == "subsymbolic" and mechanism in ("ppo", ""):
         _train_ppo(cfg, args)
@@ -171,12 +172,17 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    training_cfg = cfg.emergence_config.get("training_config", {})
+    _configure_train_logging()
+
+    training_cfg = dict(cfg.emergence_config)
+    nested_training_cfg = training_cfg.get("training_config")
+    if isinstance(nested_training_cfg, dict):
+        training_cfg.update(nested_training_cfg)
     timesteps = args.timesteps or training_cfg.get("timesteps", 50_000)
     checkpoint_dir = f"data/trained_models/{cfg.experiment_id}"
 
-    print(f"  timesteps      : {timesteps}")
-    print(f"  checkpoint_dir : {checkpoint_dir}")
+    print(f"  timesteps      : {timesteps}", flush=True)
+    print(f"  checkpoint_dir : {checkpoint_dir}", flush=True)
 
     trainer = RLLibPPOTrainer(
         cfg,
@@ -184,7 +190,20 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
         checkpoint_dir=checkpoint_dir,
     )
     checkpoint_path = trainer.train()
-    print(f"\nPPO training complete. RLlib checkpoint saved to: {checkpoint_path}")
+    print(f"\nPPO training complete. RLlib checkpoint saved to: {checkpoint_path}", flush=True)
+
+
+def _configure_train_logging() -> None:
+    """Show trainer progress logs in CLI training runs."""
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        root_logger.setLevel(logging.INFO)
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+        stream=sys.stdout,
+    )
 
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:

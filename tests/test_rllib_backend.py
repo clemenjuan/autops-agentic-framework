@@ -100,6 +100,21 @@ class TestRLLibEnv:
         if not terminateds["__all__"]:
             assert "central_agent" in next_obs
 
+    def test_terminal_step_infos_match_returned_observations(self) -> None:
+        pytest.importorskip("gymnasium")
+        from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv
+
+        env = AUTOPSRLLibMultiAgentEnv({"experiment_config": _minimal_config(max_steps=1)})
+        env.reset(seed=0)
+        action = {"central_agent": env.action_space.sample()}
+        next_obs, rewards, terminateds, truncateds, infos = env.step(action)
+
+        assert terminateds["__all__"] is True
+        assert rewards.keys() == {"central_agent"}
+        assert next_obs == {}
+        assert infos == {}
+        assert set(infos).issubset(next_obs)
+
 
 class TestRLLibTrainerImport:
     def test_trainer_can_be_constructed_without_importing_ray(self, tmp_path) -> None:
@@ -137,6 +152,26 @@ class TestRLLibTrainerImport:
 
         with pytest.raises(ValueError, match="model_architecture"):
             trainer._configure_model(PPOConfig())
+
+    def test_episode_reward_mean_reads_env_runner_metric(self, tmp_path) -> None:
+        from src.emergence.rllib_training_pipeline import RLLibPPOTrainer
+
+        trainer = RLLibPPOTrainer(_minimal_config(max_steps=2), timesteps=1, checkpoint_dir=tmp_path)
+
+        assert trainer._episode_reward_mean({"episode_reward_mean": 1.25}) == 1.25
+        assert (
+            trainer._episode_reward_mean(
+                {"env_runners": {"episode_reward_mean": -0.5}}
+            )
+            == -0.5
+        )
+        assert (
+            trainer._episode_reward_mean(
+                {"env_runners": {"episode_return_mean": -0.75}}
+            )
+            == -0.75
+        )
+        assert trainer._episode_reward_mean({}) is None
 
 
 class TestAUTOPSActorCriticModel:

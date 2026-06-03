@@ -116,7 +116,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         truncateds["__all__"] = False
         infos = {
             agent_id: {"agent_id": agent_id, **dict(step_result.info)}
-            for agent_id in active_agents
+            for agent_id in observations
         }
         return observations, rewards, terminateds, truncateds, infos
 

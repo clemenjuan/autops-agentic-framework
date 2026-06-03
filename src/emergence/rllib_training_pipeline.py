@@ -111,11 +111,20 @@ class RLLibPPOTrainer:
                 self._last_result = algo.train()
                 iterations += 1
                 sampled_steps = self._sampled_steps(self._last_result)
+                progress = (
+                    min(100.0, 100.0 * sampled_steps / target_timesteps)
+                    if target_timesteps > 0
+                    else 100.0
+                )
+                episode_reward = self._episode_reward_mean(self._last_result)
+                reward_text = "n/a" if episode_reward is None else f"{episode_reward:.3f}"
                 logger.info(
-                    "RLlib PPO iteration %d: sampled_steps=%d reward=%s",
+                    "RLlib PPO iteration %d: sampled_steps=%d/%d (%.1f%%) episode_reward=%s",
                     iterations,
                     sampled_steps,
-                    self._last_result.get("episode_reward_mean"),
+                    target_timesteps,
+                    progress,
+                    reward_text,
                 )
 
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -279,6 +288,16 @@ class RLLibPPOTrainer:
                 if key in env_runner:
                     return int(env_runner[key])
         return 0
+
+    def _episode_reward_mean(self, result: Dict[str, Any]) -> float | None:
+        value = result.get("episode_reward_mean")
+        if value is None:
+            env_runner = result.get("env_runners")
+            if isinstance(env_runner, dict):
+                value = env_runner.get("episode_reward_mean")
+                if value is None:
+                    value = env_runner.get("episode_return_mean")
+        return None if value is None else float(value)
 
     def _checkpoint_to_path(self, checkpoint: Any) -> str:
         if isinstance(checkpoint, str):

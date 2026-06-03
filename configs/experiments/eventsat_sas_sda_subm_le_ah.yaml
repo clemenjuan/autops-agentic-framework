@@ -38,7 +38,7 @@ decision_loop_config:
 representation_config:
   type: subsymbolic_eventsat
   rl_mock: false               # Set true for CI/local without RLlib checkpoint
-  deterministic: false         # Stochastic during training; set true for eval
+  deterministic: true          # Deterministic checkpoint evaluation; RLlib handles training exploration
   checkpoint_path: ""          # Path to RLlib checkpoint (empty = auto/random fallback)
   # Env constants for observation normalisation
   orbital_period_steps: 94     # 5676s / 60s ≈ 94 steps
