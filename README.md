@@ -60,7 +60,7 @@ representation class is resolved from `representation × action_space × operati
 
 ### Setup
 ```bash
-# Install dependencies (including dev tools and optional orbital mechanics)
+# Install dependencies (including dev tools and Orekit orbital mechanics)
 uv sync --extra dev --extra orbital
 
 # Run the test suite

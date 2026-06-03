@@ -40,8 +40,8 @@ interconnected sub-questions operationalize the fundamental RQ:
 
 **RQ1 — Cognitive Architecture**
 - How do **decision procedures** (SDA, OODA, ReAct), **knowledge representations** (symbolic,
-  subsymbolic, hybrid), and **degree of emergence** affect key performance metrics (utility,
-  latency, robustness, resource efficiency, operator load, and explainability)?
+  subsymbolic, hybrid), and **behaviour** (hand-designed vs emergent) affect key performance metrics
+  (utility, latency, robustness, resource efficiency, operator load, and explainability)?
 - Can Pareto frontiers between competing objectives (e.g., utility vs. resource efficiency vs.
   operator interventions) be characterised for different cognitive architecture configurations?
 - Which cognitive architecture patterns offer the most favourable trade-offs for which
