@@ -12,6 +12,9 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+from dataclasses import dataclass
+
 logger = logging.getLogger(__name__)
 
 OREKIT_AVAILABLE = False
@@ -194,3 +197,50 @@ def make_ground_station_frame(
         math.radians(lat_deg), math.radians(lon_deg), alt_m
     )
     return TopocentricFrame(earth, point, "ground_station")
+
+@dataclass
+class EnvironmentData:
+    """Orbital and environmental quantities at one instant, in the ECI frame.
+
+    Bundles everything the ADCS simulation needs from the propagator at a given
+    time: the orbital state plus the geomagnetic field, sun direction, eclipse
+    condition, and atmospheric density at the satellite's position.
+
+    Attributes:
+        r_eci: Position in the ECI frame [m], shape (3,).
+        v_eci: Velocity in the ECI frame [m/s], shape (3,).
+        b_field_eci: Geomagnetic field vector in the ECI frame [T], shape (3,).
+        sun_vector_eci: Unit vector from the satellite to the sun in the ECI
+            frame, shape (3,).
+        eclipse: True when the satellite is in Earth's shadow.
+        atmospheric_density: Local atmospheric mass density [kg/m^3].
+    """
+
+    r_eci: np.ndarray
+    v_eci: np.ndarray
+    b_field_eci: np.ndarray
+    sun_vector_eci: np.ndarray
+    eclipse: bool
+    atmospheric_density: float
+
+
+def get_environment(t: float) -> EnvironmentData:
+    """Return orbital and environmental data at time t.
+
+    Args:
+        t: Time since the simulation epoch [s].
+
+    Returns:
+        EnvironmentData at time t, in the ECI frame.
+
+    For now returns zeros so the ADCS simulation loop runs end-to-end before
+    Orekit is wired in.
+    """
+    return EnvironmentData(
+        r_eci=np.zeros(3),
+        v_eci=np.zeros(3),
+        b_field_eci=np.zeros(3),
+        sun_vector_eci=np.zeros(3),
+        eclipse=False,
+        atmospheric_density=0.0,
+    )
