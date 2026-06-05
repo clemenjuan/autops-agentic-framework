@@ -28,7 +28,13 @@ ENV/
 
 # uv package manager
 .uv/
+.uv-cache/
 uv.lock
+
+# Enroot / container artifacts
+.enroot/
+*.sqsh
+.container_autops_installed
 
 # IDEs
 .vscode/
@@ -46,6 +52,8 @@ Thumbs.db
 # Logs
 *.log
 logs/
+autops_*.out
+autops_*.err
 
 # Test / coverage artifacts
 .coverage
