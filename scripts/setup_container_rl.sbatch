@@ -4,11 +4,12 @@
 # Submit from the project root with:
 #   sbatch scripts/setup_container_rl.sbatch
 
-#SBATCH -p lrz-cpu
+#SBATCH -p lrz-hgx-h100-94x4
 #SBATCH --job-name=autops-setup
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
+#SBATCH --gres=gpu:1
 #SBATCH --mem=16G
 #SBATCH --time=04:00:00
 #SBATCH --output=logs/slurm/autops_setup_%j.out

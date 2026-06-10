@@ -13,14 +13,16 @@ set -e
 PROJECT_DIR="/dss/dsshome1/00/$USER/autops-agentic-framework"
 
 # NVIDIA image to import with Enroot.
-NVIDIA_IMAGE_URI="docker://nvcr.io#nvidia/pytorch:25.04-py3"
-NVIDIA_IMAGE="$PROJECT_DIR/.enroot/nvidia+pytorch+25.04-py3.sqsh"
+NVIDIA_IMAGE_TAG="25.02-py3"
+NVIDIA_IMAGE_URI="docker://nvcr.io#nvidia/pytorch:$NVIDIA_IMAGE_TAG"
+NVIDIA_IMAGE="$PROJECT_DIR/.enroot/nvidia+pytorch+$NVIDIA_IMAGE_TAG.sqsh"
 
-# Container name.
-CONTAINER_NAME="autops-agentic-framework"
+# Container name. Keep the image version in the name to avoid reusing a
+# container created from a different NVIDIA image.
+CONTAINER_NAME="autops-agentic-framework-pytorch-25-02"
 
 # Marker file used to avoid reinstalling dependencies every time.
-MARKER_FILE="$PROJECT_DIR/.container_autops_installed"
+MARKER_FILE="$PROJECT_DIR/.container_autops_pytorch_25_02_installed"
 
 container_exists() {
     enroot list 2>/dev/null | awk '{print $1}' | grep -qx "$CONTAINER_NAME"
@@ -50,18 +52,22 @@ else
 fi
 
 # Create the container if it does not exist.
+CREATED_CONTAINER=0
 if ! container_exists; then
     echo "Creating Enroot container..."
     enroot create --name "$CONTAINER_NAME" "$NVIDIA_IMAGE"
+    CREATED_CONTAINER=1
 else
     echo "Container already exists."
 fi
 
-# Install dependencies if the marker is missing.
-if [ ! -f "$MARKER_FILE" ]; then
+# Install dependencies if the marker is missing, or if this node just created
+# a fresh Enroot container that does not yet have container-local tools.
+if [ ! -f "$MARKER_FILE" ] || [ "$CREATED_CONTAINER" -eq 1 ]; then
     echo "Installing dependencies in the container..."
     enroot start --root --rw --mount "$PROJECT_DIR:/workspace" "$CONTAINER_NAME" bash -c "
         set -e
+        export DEBIAN_FRONTEND=noninteractive
 
         apt-get update -qq
         apt-get install -y -qq \
@@ -77,12 +83,25 @@ if [ ! -f "$MARKER_FILE" ]; then
 
         cd /workspace
         export UV_LINK_MODE=copy
-        uv sync --extra dev --extra rl --extra orbital --extra llm
+        export UV_PYTHON_DOWNLOADS=never
+
+        SYSTEM_PYTHON=\"\$(command -v python)\"
+        \"\$SYSTEM_PYTHON\" -c \"import sys, torch; print('system_python', sys.executable); print('system_torch', torch.__version__); print('system_torch_cuda', torch.version.cuda)\"
+
+        uv venv --clear --python \"\$SYSTEM_PYTHON\" --system-site-packages .venv
+        . .venv/bin/activate
+        export UV_PYTHON=\"\$SYSTEM_PYTHON\"
+        python -c \"import sys; print('venv_python', sys.executable)\"
+
+        # Do not sync the rl extra here: it contains torch, which must come
+        # from the NVIDIA container to match the container CUDA stack.
+        uv sync --active --no-managed-python --extra dev --extra orbital --extra llm
+        uv pip install --python .venv/bin/python 'numpy<2' gymnasium 'ray[rllib]==2.44.0'
 
         java -version 2>&1 | head -1
-        uv run python -c \"import torch, ray; print('torch', torch.__version__); print('torch_cuda', torch.version.cuda); print('cuda_available', torch.cuda.is_available()); print('ray', ray.__version__)\"
+        python -c \"import torch, ray; print('torch', torch.__version__); print('torch_file', torch.__file__); print('torch_cuda', torch.version.cuda); print('cuda_available', torch.cuda.is_available()); print('ray', ray.__version__); raise SystemExit(0 if torch.cuda.is_available() else 42)\"
 
-        touch /workspace/.container_autops_installed
+        touch /workspace/.container_autops_pytorch_25_02_installed
         echo 'Container setup complete with all dependencies installed!'
     "
 else

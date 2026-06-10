@@ -35,6 +35,7 @@ uv.lock
 .enroot/
 *.sqsh
 .container_autops_installed
+.container_autops_*_installed
 
 # IDEs
 .vscode/
