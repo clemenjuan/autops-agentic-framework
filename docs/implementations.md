@@ -3,12 +3,16 @@
 Persistent record of every implemented component in the morphological matrix,
 its paper basis, and key design decisions. Grows as new components are added.
 
-> **Terminology note** (per [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)):
-> the **Decision Procedure** axis lives in `src/decision_procedure/`; the **Behaviour** overlay
-> (`behaviour` / `behaviour_config`) in `src/behaviour/`; Representation = **substrate** only
-> (symbolic/subsymbolic/hybrid), with `llm_eventsat` = hybrid-**reactive** and `agentic_eventsat` =
-> hybrid-**agentic** (an *action-space* flavor, not a separate paradigm). The "Decision Loops" and
-> "Emergence" section headings below are kept as the components' common names.
+> **Terminology / alignment note.** The canonical conceptual framing is the M × O × T spec
+> ([`decision_matrix.md` §3](decision_matrix.md)): O is, per active core, **substrate**
+> (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic);
+> *learning is folded in* (offline per core + the agentic online-learning action) and *decision
+> procedure is held fixed* — neither is a peer axis. **This registry documents the current code**,
+> whose tokens are unchanged pending the planned code rename: `src/decision_procedure/`, the
+> `behaviour` / `behaviour_config` field (`src/behaviour/`), and `llm_eventsat` (= subsymbolic·LLM,
+> legacy token `hyre`) / `agentic_eventsat` (= hybrid·agentic, legacy token `hyag`). So the
+> "Decision Loops" and "Emergence" headings below keep their **implemented** names; map them to the
+> spec via the crosswalk in `decision_matrix.md` §3.
 
 ---
 
@@ -386,7 +390,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - `prompt_optimized` (`_hyre_lep_*`): loads offline-optimised system prompt. `FixedMemory`
     invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
     gated by the *agentic* action space (writing is an action), which the reactive single-shot
-    LLM lacks (see [FOUNDATION_SPEC §3.2/§3.4](FOUNDATION_SPEC.md#32-behaviour-overlay)).
+    LLM lacks (see [decision_matrix §3.2/§3.4](decision_matrix.md#32-behaviour-overlay)).
 - **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyre_hd_*`; 12 `*_hyre_lep_*`
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
@@ -593,7 +597,7 @@ paradigms carry no overhead.
 
 ## Emergence (Behaviour overlay)
 
-Maps to the **Behaviour** overlay ([FOUNDATION_SPEC §3.2](FOUNDATION_SPEC.md#32-behaviour-overlay)):
+Maps to the **Behaviour** overlay ([decision_matrix §3.2](decision_matrix.md#32-behaviour-overlay)):
 `ppo`/`prompt_optimized` = emergent·policy (gated by substrate); `writable_coala` = emergent·memory
 (gated by the agentic action space). Mechanism is derived from Behaviour × substrate, not chosen freely.
 
@@ -669,7 +673,7 @@ software engineering** systems. The autops framework is positioned as a parallel
 reference architecture in a **sibling domain** (autonomous satellite operations).
 The mapping below tags each component already documented above with its layer in
 Bhati's stack — it is illustrative, not a structural adoption. See
-[`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architecture-bhati-2026)
+[`decision_matrix.md` §2.1](decision_matrix.md#21-parallel-reference-architecture-bhati-2026)
 for the framing.
 
 | Component | File / module | Bhati layer | Existing paper basis | Cross-domain note |
@@ -703,7 +707,7 @@ for the framing.
 load-bearing for the fair-comparison invariant: holding L2–L5 fixed across the
 matrix, the variation in L0 (none / RL policy / LLM) isolates the cognitive-paradigm
 effect (Brooks 1991; Colelough & Regli 2025) that RQ1 targets. The asymmetry is
-explicit in §2.1 of FOUNDATION_SPEC.
+explicit in §2.1 of decision_matrix.
 
 ---
 

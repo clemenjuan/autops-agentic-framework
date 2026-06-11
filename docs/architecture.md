@@ -7,7 +7,7 @@
 
 ## Overview
 
-This framework enables systematic comparison of cognitive architectures for autonomous satellite constellation management. The design follows a **two-tier morphological matrix** (see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)): structural axes (Organization × Representation-substrate × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate) plus a **Behaviour** overlay (hand-designed vs emergent) over the cognitive modules.
+This framework is the **test engine** for the **M × O × T** decision/tradespace matrix. The architecture axis (O) is, per operational core, a cognitive substrate (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × action space (reactive / agentic), over the organization and operations-paradigm axes. Full definition and rationale: [`decision_matrix.md` §3](decision_matrix.md). This document covers only the *system* view — data flow, component interactions, and directory layout.
 
 ## Architecture Diagram
 
@@ -21,7 +21,7 @@ reference architecture** in a sibling domain (autonomous satellite operations), 
 a structural adoption. The layered view below is complementary to the
 morphological matrix (which remains canonical) and to the diagram above; it makes
 the autops architectural choices legible to the broader agentic-AI literature. For
-the framing see [`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architecture-bhati-2026);
+the framing see [`decision_matrix.md` §2.1](decision_matrix.md#21-parallel-reference-architecture-bhati-2026);
 for the per-component mapping see
 [`implementations.md` → Layer Mapping](implementations.md#layer-mapping-bhati-2026).
 
@@ -64,7 +64,7 @@ targets while keeping L2–L5 fixed across the matrix.
 
 ## Design Principles
 
-1. **Two-tier structure**: structural axes describe what the agent *is*; the Behaviour overlay describes which module is learned vs specified. Axes are not all mutually independent — action-space richness varies only under the hybrid substrate; Behaviour is an overlay, not a peer axis ([`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure)).
+1. **Orthogonal per-core axes**: O is (substrate × action) per active core; learning is folded in (per-core offline training + the agentic online-learning action), not a peer axis; decision procedure is held fixed, not a tradespace axis. Action-space richness (reactive vs agentic) varies only for LLM-bearing cores. Full rationale: [`decision_matrix.md` §3](decision_matrix.md).
 2. **Modularity**: Components can be swapped without affecting others.
 3. **Reproducibility**: Configuration-driven experiments with seed control.
 4. **Fair Comparison**: Same environment and metrics for all variants.

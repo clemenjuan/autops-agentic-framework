@@ -16,7 +16,7 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ## Adding a New Decision Procedure
 
-*(The `src/decision_procedure/` module implements the **Decision Procedure** axis — concrete loops SDA/OODA/ReAct; see [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).)*
+*(The `src/decision_procedure/` module implements the **Decision Procedure** axis — concrete loops SDA/OODA/ReAct; see [`decision_matrix.md` §3](decision_matrix.md#3-morphological-matrix-structure).)*
 
 ### Prerequisites
 - Read and understand the source paper thoroughly.
@@ -61,7 +61,7 @@ Step-by-step guide for implementing new components in the experimental framework
 *Representation = **substrate** only (symbolic/subsymbolic/hybrid). Two things are **not** new
 representations: (1) action-space richness — reactive vs agentic is a hybrid-only flavor; (2)
 learned behaviour — `ppo`/`prompt_optimized`/`writable_coala` are the **Behaviour** overlay, wired
-via `behaviour_config`, not separate classes. See [`FOUNDATION_SPEC.md` §3](FOUNDATION_SPEC.md#3-morphological-matrix-structure).*
+via `behaviour_config`, not separate classes. See [`decision_matrix.md` §3](decision_matrix.md#3-morphological-matrix-structure).*
 
 ### Steps
 

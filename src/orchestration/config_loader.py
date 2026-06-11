@@ -153,7 +153,7 @@ class ExperimentConfig(BaseModel):
                 raise ValueError(
                     f"Legacy config field(s) {sorted(present)} are no longer supported. "
                     f"Use decision_procedure / decision_procedure_config / behaviour / "
-                    f"behaviour_config (see FOUNDATION_SPEC.md §3)."
+                    f"behaviour_config (see decision_matrix.md §3)."
                 )
         return data
 

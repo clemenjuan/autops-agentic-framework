@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## What this is
-PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite constellation ops via a **two-tier morphological matrix** (see `docs/FOUNDATION_SPEC.md` §3): structural axes — Organization × Representation (substrate: symbolic/subsymbolic/hybrid) × Decision Procedure × Operations Paradigm, with a reactive/agentic action-space flavor under the hybrid substrate — plus a **Behaviour** overlay (hand-designed vs emergent). Each combination is a unique architecture evaluated under identical conditions.
+PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite ops via a three-axis **M × O × T** decision/tradespace matrix — canonical spec `docs/decision_matrix.md`. **M** mission profile (SSP) · **O** operations-system architecture · **T** CCSDS-520 tests; M×O coverage by a multi-fidelity surrogate. **O** = (per active core) **substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic), over **organization** (SAS/MAS) × **operations paradigm** (AO/AH/AG/CG). The conceptual axes crosswalk 1:1 to the **implemented config tokens** — the code still carries `decision_procedure` and `behaviour_config` (held/folded per decision_matrix §3), so the tokens, configs, and commands below are unchanged.
 
 ## Execution environment
 - **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.
@@ -55,16 +55,16 @@ uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml       
 - Trunk-based: commit small focused changes directly to `main`; tests must stay green per commit
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
 - Ask before changing morphological matrix dimensions or adding dependencies
-- **Before planning:** read `docs/FOUNDATION_SPEC.md` + Zotero library. Every implementation must cite specific papers.
-- **After implementation:** update `docs/implementations.md` + `docs/FOUNDATION_SPEC.md` if scientific grounding changed. Do NOT create new doc files.
+- **Before planning:** read `docs/decision_matrix.md` + Zotero library. Every implementation must cite specific papers.
+- **After implementation:** update `docs/implementations.md` + `docs/decision_matrix.md` if scientific grounding changed. Do NOT create new doc files.
 
 ## Doc map (single source per topic)
 | Topic | File |
 |---|---|
-| RQs, morphological matrix, cognitive paradigm taxonomy, phase roadmap | `docs/FOUNDATION_SPEC.md` |
+| **Canonical conceptual spec** — M×O×T matrix, axes, multi-fidelity, RQs pointer, phase roadmap, tests/metrics provenance | `docs/decision_matrix.md` |
 | Component registry, paper basis, design decisions | `docs/implementations.md` |
 | How to add new components (step-by-step) | `docs/implementation_guide.md` |
-| Metrics definitions | `docs/metrics.md` |
+| Metric definitions (M-01…M-14) + analysis protocol | `docs/decision_matrix.md` §5.2 / §5.6 (`metrics.md` retired) |
 | Scenario specifications | `docs/scenarios.md` |
 | System architecture diagram + data flow | `docs/architecture.md` |
 | EventSat physics parameters | This file (below) |

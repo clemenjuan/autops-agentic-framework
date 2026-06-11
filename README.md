@@ -6,23 +6,30 @@ Part of the AUTOPS project at TUM Chair of Spacecraft Systems.
 
 ## Overview
 
-This framework implements a **two-tier morphological matrix** to systematically explore
-the design space of autonomous satellite constellation agents. **Structural axes** describe
-what the agent *is*; a **Behaviour overlay** describes where its competence comes from.
+This framework is the **test engine** for a three-axis **M × O × T** decision/tradespace matrix
+(canonical spec: [docs/decision_matrix.md](docs/decision_matrix.md)): **M** mission profile (SSP),
+**O** operations-system architecture, **T** CCSDS-520-grounded tests, with M×O coverage by a
+multi-fidelity surrogate. Conceptually, **O** is — per active operational core — a cognitive
+**substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive /
+agentic), over the organization and operations-paradigm axes.
 
-| Structural axis        | Options                                                      |
+The table below is the **implemented axis layer** (the crosswalk the code uses; the conceptual
+mapping is decision_matrix §3):
+
+| Implemented axis        | Options                                                      |
 |------------------------|--------------------------------------------------------------|
 | **Organization**       | SAS, Centralized MAS (instantiated); Decentralized / Independent / Hybrid MAS deferred to constellation scenarios (Kim et al. 2025) |
 | **Representation** (substrate) | Symbolic, Subsymbolic, Hybrid — hybrid split by **action space**: reactive vs agentic |
-| **Decision Procedure** | SDA, OODA, ReAct                                            |
+| **Decision Procedure** | SDA, OODA, ReAct — *held at `sda` in the matrix; not a tradespace axis* |
 | **Operations Paradigm**| Autonomous Onboard, Autonomous Hybrid, Autonomous Ground, Conventional Ground |
 
-**Behaviour overlay**: Hand-designed vs Emergent — the learning mechanism (PPO / prompt-optimized /
-writable-CoALA) is derived from the substrate, not chosen separately.
+**Behaviour tokens** (`hd` / `le` / `lep` / `lec`) are retained in code but *conceptually folded*
+into per-core offline-training (RL trained-by-construction; LLM zero-shot vs prompt-optimised) plus
+the agentic online-learning action (writable-CoALA) — see decision_matrix §3.
 
 Each combination defines a unique architecture evaluated under identical conditions. The concrete
 representation class is resolved from `representation × action_space × operations_paradigm` (see
-[docs/FOUNDATION_SPEC.md §3](docs/FOUNDATION_SPEC.md#3-morphological-matrix-structure)).
+[docs/decision_matrix.md §3](docs/decision_matrix.md)).
 
 ### Current Status
 
@@ -152,10 +159,9 @@ autops-demo/
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
 +-- tests/                    # 660 tests (637 pass; 23 RL skipped without --extra rl)
 +-- docs/
-|   +-- FOUNDATION_SPEC.md    # Foundation specification
+|   +-- decision_matrix.md    # Canonical M×O×T spec (axes, metrics, tests, analysis protocol)
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
 |   +-- architecture.md       # Architecture overview
-|   +-- metrics.md            # Metrics definitions
 |   +-- scenarios.md          # Scenario descriptions
 +-- data/
 |   +-- results/              # Experiment outputs (git-ignored)
@@ -202,10 +208,9 @@ uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
 
 ## Documentation
 
-- [Foundation Specification](docs/FOUNDATION_SPEC.md) — the governing spec
+- [Decision/Tradespace Matrix (M×O×T)](docs/decision_matrix.md) — the governing spec, incl. metric definitions (§5.2) and analysis protocol (§5.6)
 - [Implementation Registry](docs/implementations.md) — all components, paper basis, design decisions
 - [Architecture Overview](docs/architecture.md)
-- [Metrics Definitions](docs/metrics.md)
 - [Scenario Descriptions](docs/scenarios.md)
 
 ## Contact

@@ -1,6 +1,6 @@
 """Autonomous Hybrid operations paradigm (dual-slot).
 
-Two distinct cores (FOUNDATION_SPEC §3.3):
+Two distinct cores (decision_matrix §3.1, Axis C — operations paradigm):
 - a **ground planner** that produces a whole-pass uplinked schedule (the *same*
   artifact AutonomousGround uses), refreshed during ground passes from stale
   telemetry, and
