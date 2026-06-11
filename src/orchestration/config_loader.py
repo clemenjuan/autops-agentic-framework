@@ -384,14 +384,23 @@ class ExperimentConfig(BaseModel):
     def resolved_onboard_type(self) -> Optional[str]:
         """Onboard per-step core, for paradigms with an onboard slot (AO, AH).
 
-        Symbolic→rule_based; subsymbolic→subsymbolic_eventsat; hybrid AH onboard is
-        the subsymbolic RL policy (+ its symbolic guardrails). None for AG/CG.
+        The onboard core follows the configured substrate (decision_matrix.md §3.1 —
+        the O-cell is substrate × action *per active core*): symbolic→rule_based,
+        subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive→llm_eventsat (per-step
+        constrained LLM), hybrid·agentic→agentic_eventsat. None for AG/CG.
+        Feasibility against the platform tier is handled by the R-COMPUTE warnings,
+        never by silently substituting a different substrate.
         """
         if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
             return None
         if self.representation == "symbolic":
             return "rule_based_eventsat"
-        return "subsymbolic_eventsat"
+        if self.representation == "subsymbolic":
+            return "subsymbolic_eventsat"
+        # hybrid: reactive -> per-step constrained LLM; agentic -> LLM + tool loop
+        if self.representation_config.get("action_space") == "agentic":
+            return "agentic_eventsat"
+        return "llm_eventsat"
 
     @property
     def resolved_ground_planner_type(self) -> Optional[str]:

@@ -627,8 +627,10 @@ class TestTwoCoreResolution:
             # AH: both; ground = AG-equivalent (algorithmic), onboard = per-step
             ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat", "schedule_based_eventsat"),
             ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat", "subsymbolic_scheduler_eventsat"),
-            ("hybrid", "reactive", "autonomous_hybrid", "subsymbolic_eventsat", "llm_scheduler_eventsat"),
-            ("hybrid", "agentic", "autonomous_hybrid", "subsymbolic_eventsat", "agentic_scheduler_eventsat"),
+            # Onboard slot follows the configured substrate (decision_matrix §3.1) —
+            # never silently substituted by RL (user decision 2026-06-11).
+            ("hybrid", "reactive", "autonomous_hybrid", "llm_eventsat", "llm_scheduler_eventsat"),
+            ("hybrid", "agentic", "autonomous_hybrid", "agentic_eventsat", "agentic_scheduler_eventsat"),
         ],
     )
     def test_two_core_resolution(self, rep, action_space, ops, onboard, ground) -> None:

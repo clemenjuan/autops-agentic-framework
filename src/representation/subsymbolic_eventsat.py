@@ -83,7 +83,14 @@ class SubsymbolicEventSat(Representation):
         mock_mode = self.config.get("rl_mock", False)
         self._deterministic: bool = self.config.get("deterministic", True)
 
-        if mock_mode or not TORCH_AVAILABLE:
+        if not mock_mode and not TORCH_AVAILABLE:
+            # Never silently degrade an RL cell to a random policy: that produces
+            # plausible-looking garbage results (caught 2026-06-11). CI must opt in.
+            raise RuntimeError(
+                "subsymbolic representation requires torch (`uv sync --extra rl`); "
+                "set representation_config.rl_mock: true explicitly for CI/mock runs."
+            )
+        if mock_mode:
             self._policy = RandomPolicy()
             self._mock = True
         else:
