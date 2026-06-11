@@ -33,7 +33,7 @@ representation class is resolved from `representation × action_space × operati
 
 ### Current Status
 
-**Phase 5 complete** — 91 experiment configurations across the full morphological matrix:
+**Phase 5 complete** — 70 experiment configurations across the valid morphological matrix (21 cmas N=1 duplicates pruned per R-ORG1):
 - **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
 - **Operations paradigms**: Autonomous Onboard (onboard-only, per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to non-Jetson modes (not to compress/detect/send, which already include the Jetson); symbolic onboard runs on the OBC with no overhead.
 - **Representations** (3 substrates; concrete class resolved from substrate × action_space × ops):
@@ -57,7 +57,7 @@ representation class is resolved from `representation × action_space × operati
 - Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
 - 7 research metrics + loop-specific + representation-specific metrics
 - DecisionContext interface decoupling decision procedures from representations
-- 660 tests (637 passing; 23 RL tests skipped without the `rl` extra)
+- 692 tests (669 passing; 23 RL tests skipped without the `rl` extra)
 
 ## Quick Start
 
@@ -77,7 +77,7 @@ uv run python -m pytest tests/ -v -o "addopts="
 ### Running an Experiment
 ```bash
 # Run EventSat experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
-# org:  sas | cmas  (canonical YAML values: sas | centralized_mas; dmas/imas/hmas deferred)
+# org:  sas  (cmas valid at N>=2 only — Flamingo; dmas/imas/hmas need N>=10, R-ORG2/3)
 # proc: sda | ooda | react           repr: symb | hyre | subm | hyag
 # beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
 # ops:  ao (autonomous_onboard) | ah | ag | cg
@@ -116,8 +116,7 @@ uv run autops generate --template configs/experiments/template.yaml
 uv run autops batch configs/experiments --episodes 1 --steps 200
 
 # Run batch of specific configurations
-uv run autops batch configs/experiments/eventsat_cmas_*.yaml --episodes 1 --steps 200  # all CentralizedMAS configs
-uv run autops batch configs/experiments/eventsat_cmas_*_symb_*.yaml --episodes 1 --steps 200  # all CentralizedMAS symbolic configs
+uv run autops batch configs/experiments/eventsat_sas_sda_*.yaml --episodes 1 --steps 200  # all SAS·SDA configs
 
 # Run all generated configs or all experiments in a folder
 uv run autops batch configs/experiments/generated/
@@ -151,13 +150,13 @@ autops-demo/
 |   +-- operations/           # Operations paradigm (autonomous_onboard, autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
-|   +-- experiments/          # 91 experiment configs + 1 template
+|   +-- experiments/          # 70 experiment configs + 1 template
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 660 tests (637 pass; 23 RL skipped without --extra rl)
++-- tests/                    # 692 tests (669 pass; 23 RL skipped without --extra rl)
 +-- docs/
 |   +-- decision_matrix.md    # Canonical M×O×T spec (axes, metrics, tests, analysis protocol)
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)

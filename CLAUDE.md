@@ -20,18 +20,18 @@ PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (660 tests: 637 pass, 23 RL skipped without --extra rl)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (692 tests: 669 pass, 23 RL skipped without --extra rl)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
-# org:  sas | cmas (instantiated)                proc: sda | ooda | react
+# org:  sas (cmas valid at N>=2 only — Flamingo)   proc: sda | ooda | react
 # repr: symb | hyre | subm | hyag                ops:  ao | ah | ag | cg
 # beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
 #
 # Canonical config values (as accepted by config_loader.py):
 #   agent_organization: sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
 #   behaviour_config.mechanism: hand_designed | ppo | prompt_optimized | writable_coala
-# (dmas/imas/hmas are registered but deferred to Flamingo N>=3 scenarios — see Architecture.)
+# (dmas/imas/hmas require N>=10 + ISL for dmas (R-ORG2/3); deferred to Flamingo — see Architecture.)
 uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
 uv run autops run configs/experiments/eventsat_sas_sda_hyre_hd_ah.yaml  # LLM hybrid
 uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
@@ -81,8 +81,8 @@ src/
   operations/         # autonomous_onboard / autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
-configs/experiments/  # 91 experiment configs + 1 template
-tests/                # 22 test modules, 660 tests (637 pass, 23 RL skipped without --extra rl)
+configs/experiments/  # 70 experiment configs + 1 template (21 cmas N=1 duplicates pruned per R-ORG1)
+tests/                # 23 test modules, 692 tests (669 pass, 23 RL skipped without --extra rl)
 ```
 
 **Key interfaces:**
