@@ -110,7 +110,19 @@ class SubsymbolicEventSat(Representation):
                         self._policy.load_state_dict(state)
                     logger.info("Loaded checkpoint from %s", checkpoint_path)
                 else:
-                    logger.warning("Checkpoint not found at %s — using random init", checkpoint_path)
+                    raise RuntimeError(
+                        f"RL cell integrity violation: checkpoint_path set but not found "
+                        f"at '{checkpoint_path}' — refusing to evaluate an untrained policy."
+                    )
+            elif not self.config.get("allow_untrained", False):
+                # Evaluating an untrained policy yields plausible-looking garbage
+                # (caught 2026-06-11). Training entry points set allow_untrained.
+                raise RuntimeError(
+                    "RL cell integrity violation: no checkpoint_path configured — an "
+                    "evaluation run would measure an untrained policy. Provide "
+                    "representation_config.checkpoint_path, or set allow_untrained: true "
+                    "(training) / rl_mock: true (CI)."
+                )
 
         # Env constants used for normalisation (configurable so they can be set
         # from experiment YAML without requiring access to the live env object)

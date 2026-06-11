@@ -216,12 +216,15 @@ class LLMEventSat(Representation):
 
         self._last_parse_retries = retries
 
-        # Fallback if LLM failed entirely
+        # Substrate integrity (decision_matrix §7): an LLM cell whose calls fail
+        # must FAIL the episode — substituting a symbolic decision silently turns
+        # the run into a mixed-substrate measurement (user decision 2026-06-11).
         if mode is None:
-            mode = self._symbolic_fallback(state)
-            rationale = f"LLM failed after {retries} retries; symbolic fallback selected '{mode}'."
-            self._grounding_overrides += 1
-            logger.warning("LLM fallback to symbolic: %s", rationale)
+            raise RuntimeError(
+                f"LLM cell integrity violation: LLM produced no valid mode after "
+                f"{retries} retries — failing the episode instead of substituting "
+                f"a symbolic decision. Check OLLAMA_HOST / model availability."
+            )
 
         # Additional symbolic grounding checks
         mode = self._apply_grounding(mode, state)

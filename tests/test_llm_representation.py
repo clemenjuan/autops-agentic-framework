@@ -441,14 +441,15 @@ class TestLLMWithPatchedResponses(unittest.TestCase):
         self.assertEqual(action["eventsat_0"]["mode"], "charging")
         self.assertEqual(rep._last_parse_retries, 1)
 
-    def test_llm_all_retries_fail_uses_fallback(self):
+    def test_llm_all_retries_fail_raises_integrity_error(self):
+        # Substrate integrity (decision_matrix §7): an LLM cell whose calls fail
+        # must fail the episode, never substitute a symbolic decision.
         rep = LLMEventSat(_mock_config())
         rep._client.generate = MagicMock(side_effect=RuntimeError("LLM down"))
         ctx = _make_context(_make_state(battery_soc=0.7))
-        action = rep.select_action(ctx)
-        # Fallback should return a valid mode
-        self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
-        self.assertGreater(rep._grounding_overrides, 0)
+        with self.assertRaises(RuntimeError) as caught:
+            rep.select_action(ctx)
+        self.assertIn("integrity", str(caught.exception))
 
     def test_grounding_overrides_communication_without_pass(self):
         rep = self._make_rep_with_response(
