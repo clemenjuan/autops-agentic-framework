@@ -142,7 +142,11 @@ class ExperimentConfig(BaseModel):
     VALID_ORGANIZATIONS: ClassVar[Set[str]] = {
         "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
     }
-    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
+    # Bible substrates (decision_matrix §3.1): symbolic | rl | llm | hybrid.
+    # "subsymbolic" is the legacy alias of "rl". Legacy "hybrid"+reactive still
+    # resolves to the per-step LLM until the bulk config rename lands; new
+    # configs use "llm" for the subsymbolic-LLM substrate.
+    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "rl", "llm", "hybrid"}
     VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent"}
     VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
@@ -265,7 +269,7 @@ class ExperimentConfig(BaseModel):
         # R-COMPUTE1/2 — warnings, not errors (see _SCENARIO_ENGINEERING_TIER note).
         tier = self._SCENARIO_ENGINEERING_TIER.get(self.environment.scenario)
         onboard_active = ops in ("autonomous_onboard", "autonomous_hybrid")
-        if tier is not None and onboard_active and self.representation == "hybrid":
+        if tier is not None and onboard_active and self.representation in ("llm", "hybrid"):
             action_space = self.representation_config.get("action_space")
             if tier < 2:
                 warnings.warn(
@@ -294,8 +298,8 @@ class ExperimentConfig(BaseModel):
 
     # Which representations support which mechanisms
     _MECHANISM_REPRESENTATION_RULES: ClassVar[Dict[str, Set[str]]] = {
-        "ppo": {"subsymbolic"},
-        "prompt_optimized": {"hybrid"},
+        "ppo": {"subsymbolic", "rl"},
+        "prompt_optimized": {"hybrid", "llm"},
         "writable_coala": {"hybrid"},
     }
     # writable_coala additionally requires an agentic representation type — either
@@ -352,11 +356,19 @@ class ExperimentConfig(BaseModel):
                 "autonomous_ground": "schedule_based_eventsat",
                 "conventional_ground": "conventional_schedule_eventsat",
             }[ops]
-        if representation == "subsymbolic":
+        if representation in ("subsymbolic", "rl"):
             return (
                 "subsymbolic_eventsat" if ops in _ONBOARD_OPS
                 else "subsymbolic_scheduler_eventsat"
             )
+        if representation == "llm":
+            if action_space == "agentic":
+                raise ValueError(
+                    "llm·agentic (pure reasoning loop, no tools) is expressible in the "
+                    "matrix but not yet instantiated (decision_matrix §3.1) — use "
+                    "representation 'hybrid' + agentic for the tool-using loop."
+                )
+            return "llm_eventsat" if ops == "autonomous_hybrid" else "llm_scheduler_eventsat"
         if representation == "hybrid":
             if action_space not in ("reactive", "agentic"):
                 raise ValueError(
@@ -395,8 +407,10 @@ class ExperimentConfig(BaseModel):
             return None
         if self.representation == "symbolic":
             return "rule_based_eventsat"
-        if self.representation == "subsymbolic":
+        if self.representation in ("subsymbolic", "rl"):
             return "subsymbolic_eventsat"
+        if self.representation == "llm":
+            return "llm_eventsat"
         # hybrid: reactive -> per-step constrained LLM; agentic -> LLM + tool loop
         if self.representation_config.get("action_space") == "agentic":
             return "agentic_eventsat"
@@ -448,10 +462,10 @@ class ExperimentConfig(BaseModel):
                     f"representation_config.action_space must be one of "
                     f"{self.VALID_ACTION_SPACES}, got '{action_space}'"
                 )
-            if action_space == "agentic" and self.representation != "hybrid":
+            if action_space == "agentic" and self.representation not in ("hybrid", "llm"):
                 raise ValueError(
-                    f"action_space='agentic' requires representation='hybrid', "
-                    f"got '{self.representation}'"
+                    f"action_space='agentic' requires an LLM-bearing representation "
+                    f"('hybrid' or 'llm'), got '{self.representation}'"
                 )
 
         # autonomous_onboard is onboard-only; a hybrid has no onboard core of its
