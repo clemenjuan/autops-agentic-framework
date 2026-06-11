@@ -210,6 +210,8 @@ class TestConfigLoaderSaveLoad:
             experiment_id="test_round_trip",
             seed=123,
             agent_organization="decentralized_mas",
+            # R-ORG2/R-ORG3 gates: dmas needs N >= 10 and an ISL
+            environment={"constellation_size": 12, "isl_topology": "E1"},
         )
         yaml_path = tmp_path / "test.yaml"
         save_config(original, yaml_path)
@@ -394,10 +396,81 @@ class TestDeferredOrganizationGuard:
             max_steps=2,
             output_dir=str(tmp_path),
             agent_organization=org,
+            # satisfy the R-ORG2/R-ORG3 config gates so the runner-level guard is reached
+            environment={"constellation_size": 12, "isl_topology": "E1"},
         )
         runner = ExperimentRunner(config=cfg)
         with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
             runner._create_organization()
+
+
+class TestTradespaceGates:
+    """Hard organisation gates + compute warnings (decision_matrix.md §3.2)."""
+
+    def test_r_org1_cmas_requires_ah(self) -> None:
+        with pytest.raises(ValueError, match="R-ORG1"):
+            ExperimentConfig(
+                agent_organization="centralized_mas",
+                operations_paradigm="autonomous_ground",
+                representation="symbolic",
+                representation_config={"type": "schedule_based_eventsat"},
+                environment={"constellation_size": 3},
+            )
+
+    def test_r_org1_cmas_at_n1_is_sas_duplicate(self) -> None:
+        with pytest.raises(ValueError, match="identified with"):
+            ExperimentConfig(
+                agent_organization="centralized_mas",
+                operations_paradigm="autonomous_hybrid",
+                environment={"constellation_size": 1},
+            )
+
+    def test_cmas_ah_valid_at_n2(self) -> None:
+        cfg = ExperimentConfig(
+            agent_organization="centralized_mas",
+            operations_paradigm="autonomous_hybrid",
+            environment={"constellation_size": 2},
+        )
+        assert cfg.agent_organization == "centralized_mas"
+
+    @pytest.mark.parametrize("org", ["decentralized_mas", "independent_mas", "hybrid_mas"])
+    def test_r_org2_distributed_require_n10(self, org: str) -> None:
+        with pytest.raises(ValueError, match="R-ORG2"):
+            ExperimentConfig(
+                agent_organization=org,
+                environment={"constellation_size": 5, "isl_topology": "E1"},
+            )
+
+    def test_r_org3_dmas_requires_isl(self) -> None:
+        with pytest.raises(ValueError, match="R-ORG3"):
+            ExperimentConfig(
+                agent_organization="decentralized_mas",
+                environment={"constellation_size": 12, "isl_topology": "E0"},
+            )
+
+    def test_r_compute1_warns_for_onboard_llm_on_b1(self) -> None:
+        with pytest.warns(UserWarning, match="R-COMPUTE1"):
+            ExperimentConfig(
+                representation="hybrid",
+                representation_config={"action_space": "reactive"},
+                operations_paradigm="autonomous_hybrid",
+                environment={"scenario": "eventsat", "constellation_size": 1},
+            )
+
+    def test_symbolic_onboard_on_b1_does_not_warn(self) -> None:
+        import warnings as _w
+
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            ExperimentConfig(
+                representation="symbolic",
+                operations_paradigm="autonomous_hybrid",
+                environment={"scenario": "eventsat", "constellation_size": 1},
+            )
+
+    def test_invalid_isl_topology_rejected(self) -> None:
+        with pytest.raises(ValueError, match="isl_topology"):
+            ExperimentConfig(environment={"isl_topology": "E9"})
 
 
 class TestMatrixRestructureNaming:

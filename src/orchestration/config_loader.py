@@ -72,6 +72,17 @@ class EnvironmentConfig(BaseModel):
     max_steps: int = Field(default=1440, gt=0)
     scenario: str = Field(default="to_be_defined")
     scenario_config: Dict[str, Any] = Field(default_factory=dict)
+    # SS-E inter-satellite-link topology (decision_matrix.md §2): E0 none ·
+    # E1 intra-plane · E2 planned · E3 full-mesh. Gates dmas via R-ORG3.
+    isl_topology: str = Field(default="E0")
+
+    @field_validator("isl_topology")
+    @classmethod
+    def _validate_isl(cls, v: str) -> str:
+        allowed = {"E0", "E1", "E2", "E3"}
+        if v not in allowed:
+            raise ValueError(f"isl_topology must be one of {allowed}, got '{v}'")
+        return v
 
 
 class ExperimentConfig(BaseModel):
@@ -201,6 +212,79 @@ class ExperimentConfig(BaseModel):
         if v_upper not in allowed:
             raise ValueError(f"log_level must be one of {allowed}, got '{v}'")
         return v_upper
+
+    # ------------------------------------------------------------------
+    # Tradespace validity gates (decision_matrix.md §3.2)
+    # ------------------------------------------------------------------
+
+    # Engineering tier (SS-B ordinal: B1=1 … B4=4) per scenario. Used by the
+    # R-COMPUTE gates, which *warn* rather than error: an onboard-LLM cell
+    # simulated on a B1 scenario stays valid evidence — it informs the B2+
+    # neighbourhood of the surrogate, not the B1 SSP (§3.2).
+    _SCENARIO_ENGINEERING_TIER: ClassVar[Dict[str, int]] = {"eventsat": 1}
+
+    @model_validator(mode="after")
+    def _enforce_tradespace_gates(self) -> "ExperimentConfig":
+        """Hard organisation gates (R-ORG1/2/3) + compute-feasibility warnings (R-COMPUTE1/2)."""
+        org = self.agent_organization
+        ops = self.operations_paradigm
+        n = self.environment.constellation_size
+        isl = self.environment.isl_topology
+
+        # R-ORG1: cmas exists only as AH, at N >= 2.
+        if org == "centralized_mas":
+            if ops != "autonomous_hybrid":
+                raise ValueError(
+                    f"R-ORG1: agent_organization='centralized_mas' is valid only with "
+                    f"operations_paradigm='autonomous_hybrid' (got '{ops}') — for CG/AG/AO "
+                    f"there is no coordination structure (decision_matrix.md §3.2)."
+                )
+            if n < 2:
+                raise ValueError(
+                    "R-ORG1: 'centralized_mas' at constellation_size=1 is identified with "
+                    "SAS·AH — the orchestrator with a single managed agent reduces to the "
+                    "AH ground planner. Run the 'sas' sibling config instead "
+                    "(decision_matrix.md §3.2)."
+                )
+
+        # R-ORG2: distributed organisations require fleet scale (SS-C >= C3, N >= 10).
+        if org in ("decentralized_mas", "independent_mas", "hybrid_mas") and n < 10:
+            raise ValueError(
+                f"R-ORG2: '{org}' requires constellation_size >= 10 (SS-C >= C3), "
+                f"got {n} (decision_matrix.md §3.2)."
+            )
+
+        # R-ORG3: decentralised peer coordination needs an inter-satellite channel.
+        if org == "decentralized_mas" and isl == "E0":
+            raise ValueError(
+                "R-ORG3: 'decentralized_mas' requires environment.isl_topology >= E1 — "
+                "peer coordination without an ISL is structurally impossible "
+                "(decision_matrix.md §3.2)."
+            )
+
+        # R-COMPUTE1/2 — warnings, not errors (see _SCENARIO_ENGINEERING_TIER note).
+        tier = self._SCENARIO_ENGINEERING_TIER.get(self.environment.scenario)
+        onboard_active = ops in ("autonomous_onboard", "autonomous_hybrid")
+        if tier is not None and onboard_active and self.representation == "hybrid":
+            action_space = self.representation_config.get("action_space")
+            if tier < 2:
+                warnings.warn(
+                    f"R-COMPUTE1: onboard LLM core on a B{tier} scenario "
+                    f"('{self.environment.scenario}') — a 1-20 W platform cannot sustain "
+                    f"per-step LLM inference. The run stays valid evidence but informs the "
+                    f"B2+ neighbourhood of the surrogate, not the B{tier} SSP "
+                    f"(decision_matrix.md §3.2).",
+                    stacklevel=2,
+                )
+            elif tier < 3 and action_space == "agentic":
+                warnings.warn(
+                    f"R-COMPUTE2: onboard agentic loop on a B{tier} scenario "
+                    f"('{self.environment.scenario}') — multi-call loops per decision "
+                    f"require B3+. The run informs the B3+ neighbourhood of the surrogate "
+                    f"(decision_matrix.md §3.2).",
+                    stacklevel=2,
+                )
+        return self
 
     # ------------------------------------------------------------------
     # Learned-emergence mechanism
