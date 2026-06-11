@@ -59,27 +59,32 @@ class TestOrgGates:
         assert "dmas" in et.org_counts("B3", "C3", "E0", r_org3=False)
 
     def test_org_table_at_full_tier(self):
-        # §3.4 per-organisation table (B3+)
+        # §3.4 per-organisation table (B3+), total / llm-bearing / rl-bearing
         counts = et.org_counts("B3", "C3", "E1")
-        assert (counts["sas"].total, counts["sas"].llm) == (54, 44)
-        assert (counts["cmas"].total, counts["cmas"].llm) == (36, 32)
-        assert (counts["dmas"].total, counts["dmas"].llm) == (54, 44)
+        assert (counts["sas"].total, counts["sas"].llm, counts["sas"].rl) == (54, 44, 14)
+        assert (counts["cmas"].total, counts["cmas"].llm, counts["cmas"].rl) == (36, 32, 11)
+        assert (counts["dmas"].total, counts["dmas"].llm, counts["dmas"].rl) == (54, 44, 14)
 
 
 class TestSpecNumbers:
     def test_adopted_totals(self):
         oc = et.total_mxo(r_org3=True)
-        assert (oc.total, oc.llm) == (364980, 286020)
+        assert (oc.total, oc.llm, oc.rl) == (364980, 286020, 108780)
 
     def test_comparison_totals_without_r_org3(self):
         oc = et.total_mxo(r_org3=False)
-        assert (oc.total, oc.llm) == (383250, 300090)
+        assert (oc.total, oc.llm, oc.rl) == (383250, 300090, 114030)
+
+    def test_partition_identity(self):
+        # llm and rl overlap on mixed AH pairs: total = llm + rl - both + symbolic-only
+        oc = et.total_mxo(r_org3=True)
+        assert oc.total - oc.llm - oc.rl + oc.both == et.SPEC["symbolic_only"] == 30240
 
     @pytest.mark.parametrize("name,expected", sorted(et.SPEC["ssp"].items()))
     def test_reference_ssp_counts(self, name, expected):
         a, b, c, d, e = et.REFERENCE_SSPS[name]
         oc = et.o_cells(b, c, e)
-        assert (oc.total, oc.llm) == expected
+        assert (oc.total, oc.llm, oc.rl) == expected
 
     def test_check_runs_clean(self):
         et.check()

@@ -75,7 +75,9 @@ GROUND_LLM = 4
 @dataclass(frozen=True)
 class OrgCount:
     total: int
-    llm: int
+    llm: int          # contains an LLM-bearing core in >=1 active slot
+    rl: int           # contains a subsymbolic-RL core in >=1 active slot
+    both: int         # mixed AH pairs needing BOTH ladders (llm and rl overlap)
 
 
 def org_counts(b: str, c: str, e: str, r_org3: bool = True) -> dict[str, OrgCount]:
@@ -83,22 +85,29 @@ def org_counts(b: str, c: str, e: str, r_org3: bool = True) -> dict[str, OrgCoun
     ob = onboard_cells(b)
     ob_llm = onboard_llm_cells(b)
 
-    # single-core paradigms: CG, AG (ground core) + AO (onboard core); AH = pair
-    sas_total = GROUND_CELLS + GROUND_CELLS + ob + ob * GROUND_CELLS
-    # AH pair is LLM-bearing unless BOTH slots are non-LLM (2 non-LLM onboard x 2 ground)
-    sas_llm = GROUND_LLM + GROUND_LLM + ob_llm + (ob * GROUND_CELLS - 2 * 2)
+    # AH pair block: ob onboard cells x 6 ground cells
+    ah_total = ob * GROUND_CELLS
+    ah_llm = ah_total - 2 * 2                      # minus pairs with no LLM in either slot
+    ah_rl = ah_total - (ob - 1) * (GROUND_CELLS - 1)  # minus pairs with no RL in either slot
+    ah_both = 1 * GROUND_LLM + ob_llm * 1          # RL onboard x LLM ground + LLM onboard x RL ground
 
-    out = {"sas": OrgCount(sas_total, sas_llm)}
+    # single-core paradigms: CG, AG (ground core) + AO (onboard core); AH = pair
+    sas_total = GROUND_CELLS + GROUND_CELLS + ob + ah_total
+    sas_llm = GROUND_LLM + GROUND_LLM + ob_llm + ah_llm
+    sas_rl = 1 + 1 + 1 + ah_rl                     # one RL·re cell per single-core paradigm
+
+    sas_oc = OrgCount(sas_total, sas_llm, sas_rl, ah_both)
+    out = {"sas": sas_oc}
 
     # R-ORG1: cmas = AH only, C >= C2 (identified with SAS·AH at C1 -> counted once)
     if C_NUM[c] >= 2:
-        out["cmas"] = OrgCount(ob * GROUND_CELLS, ob * GROUND_CELLS - 4)
+        out["cmas"] = OrgCount(ah_total, ah_llm, ah_rl, ah_both)
     # R-ORG2 (+ R-ORG3 for dmas)
     if C_NUM[c] >= 3:
-        out["imas"] = OrgCount(sas_total, sas_llm)
-        out["hmas"] = OrgCount(sas_total, sas_llm)   # soft flag at E0, still valid
+        out["imas"] = sas_oc
+        out["hmas"] = sas_oc                        # soft flag at E0, still valid
         if not r_org3 or E_NUM[e] >= 1:
-            out["dmas"] = OrgCount(sas_total, sas_llm)
+            out["dmas"] = sas_oc
     return out
 
 
@@ -107,11 +116,13 @@ def o_cells(b: str, c: str, e: str, r_org3: bool = True) -> OrgCount:
     return OrgCount(
         sum(v.total for v in counts.values()),
         sum(v.llm for v in counts.values()),
+        sum(v.rl for v in counts.values()),
+        sum(v.both for v in counts.values()),
     )
 
 
 def total_mxo(r_org3: bool = True) -> OrgCount:
-    total = llm = 0
+    total = llm = rl = both = 0
     for a in SS_A:
         for b in SS_B:
             for c in SS_C:
@@ -122,7 +133,9 @@ def total_mxo(r_org3: bool = True) -> OrgCount:
                         oc = o_cells(b, c, e, r_org3)
                         total += oc.total
                         llm += oc.llm
-    return OrgCount(total, llm)
+                        rl += oc.rl
+                        both += oc.both
+    return OrgCount(total, llm, rl, both)
 
 
 # ---------------------------------------------------------------- reference SSPs (§2.2)
@@ -142,19 +155,21 @@ REFERENCE_SSPS = {
 # Published numbers (decision_matrix.md §2.1 / §3.4) — what --check asserts.
 SPEC = {
     "valid_ssps": 2380,
-    "total": (364980, 286020),          # adopted rule set (with R-ORG3)
-    "total_no_r_org3": (383250, 300090),
+    # (total, llm-bearing, rl-bearing) — llm/rl overlap on mixed AH pairs
+    "total": (364980, 286020, 108780),  # adopted rule set (with R-ORG3)
+    "total_no_r_org3": (383250, 300090, 114030),
+    "symbolic_only": 30240,             # adopted rule set: total - llm - rl + both
     "ssp": {
-        "SSP-04 EventSat": (26, 16),
-        "SSP-15 TechDemo": (38, 24),
-        "SSP-05 Agile 1-sat": (40, 30),
-        "SSP-01 GEO telecomms": (54, 44),
-        "SSP-12 Mars orbiter": (54, 44),
-        "SSP-09 SSA small const.": (64, 50),
-        "SSP-11 Formation flying": (90, 76),
-        "SSP-06 Agile med. const.": (144, 110),
-        "SSP-03 Mega-constellation": (184, 140),
-        "SSP-10 SSA large const.": (184, 140),
+        "SSP-04 EventSat": (26, 16, 10),
+        "SSP-15 TechDemo": (38, 24, 17),
+        "SSP-05 Agile 1-sat": (40, 30, 12),
+        "SSP-01 GEO telecomms": (54, 44, 14),
+        "SSP-12 Mars orbiter": (54, 44, 14),
+        "SSP-09 SSA small const.": (64, 50, 21),
+        "SSP-11 Formation flying": (90, 76, 25),
+        "SSP-06 Agile med. const.": (144, 110, 45),
+        "SSP-03 Mega-constellation": (184, 140, 57),
+        "SSP-10 SSA large const.": (184, 140, 57),
     },
 }
 
@@ -163,28 +178,32 @@ def report() -> None:
     print(f"valid SSPs (R-ISL): {count_valid_ssps()}  (of {7*4*5*5*4} unconstrained)")
     adopted = total_mxo(r_org3=True)
     legacy = total_mxo(r_org3=False)
+    sym_only = adopted.total - adopted.llm - adopted.rl + adopted.both
     print(f"M×O cells, adopted rule set : {adopted.total:>7,}  ({adopted.llm:,} LLM-bearing,"
-          f" {adopted.total - adopted.llm:,} non-LLM)")
-    print(f"M×O cells, without R-ORG3   : {legacy.total:>7,}  ({legacy.llm:,} LLM-bearing)")
-    print("\nPer reference SSP (O-cells / LLM-bearing):")
+          f" {adopted.rl:,} RL-bearing, {sym_only:,} symbolic-only;"
+          f" {adopted.both:,} mixed AH pairs need both ladders)")
+    print(f"M×O cells, without R-ORG3   : {legacy.total:>7,}  ({legacy.llm:,} LLM-bearing,"
+          f" {legacy.rl:,} RL-bearing)")
+    print("\nPer reference SSP (O-cells / LLM-bearing / RL-bearing):")
     for name, (a, b, c, d, e) in REFERENCE_SSPS.items():
         oc = o_cells(b, c, e)
-        print(f"  {name:<28} {a}/{b}/{c}/{d}/{e}   {oc.total:>3} / {oc.llm}")
-    print("\nPer organisation at B3+/C3+/E1+ (unique O configs):")
+        print(f"  {name:<28} {a}/{b}/{c}/{d}/{e}   {oc.total:>3} / {oc.llm} / {oc.rl}")
+    print("\nPer organisation at B3+/C3+/E1+ (unique O configs, total/llm/rl):")
     for org, oc in org_counts("B3", "C3", "E1").items():
-        print(f"  {org:<5} {oc.total:>3} / {oc.llm}")
+        print(f"  {org:<5} {oc.total:>3} / {oc.llm} / {oc.rl}")
 
 
 def check() -> None:
     assert count_valid_ssps() == SPEC["valid_ssps"]
     adopted = total_mxo(r_org3=True)
-    assert (adopted.total, adopted.llm) == SPEC["total"], (adopted, SPEC["total"])
+    assert (adopted.total, adopted.llm, adopted.rl) == SPEC["total"], (adopted, SPEC["total"])
+    assert adopted.total - adopted.llm - adopted.rl + adopted.both == SPEC["symbolic_only"]
     legacy = total_mxo(r_org3=False)
-    assert (legacy.total, legacy.llm) == SPEC["total_no_r_org3"]
+    assert (legacy.total, legacy.llm, legacy.rl) == SPEC["total_no_r_org3"]
     for name, expected in SPEC["ssp"].items():
         a, b, c, d, e = REFERENCE_SSPS[name]
         oc = o_cells(b, c, e)
-        assert (oc.total, oc.llm) == expected, (name, oc, expected)
+        assert (oc.total, oc.llm, oc.rl) == expected, (name, oc, expected)
     print("OK — all spec numbers regenerate from the rule set")
 
 

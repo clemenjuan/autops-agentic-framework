@@ -278,38 +278,42 @@ R-COMPUTE1/2 gate the **onboard slot of the architecture against the SSP**, not 
 
 With 6 per-core cells, CG/AG/AO carrying one core and AH carrying an ⟨onboard | ground⟩ pair, and onboard cells gated by SS-B — ob(B1)=2, ob(B2)=4, ob(B3)=ob(B4)=6 — the O-space per organisation:
 
-| Org | Unique O configs (B3+) | LLM-bearing | Scope |
-|-----|----------------------|-------------|-------|
-| sas | 54 | 44 | always valid |
-| cmas | 36 | 32 | AH only, SS-C ≥ C2 (identified with SAS·AH at C1) |
-| dmas | 54 | 44 | SS-C ≥ C3 ∧ SS-E ≥ E1 (R-ORG3) |
-| imas | 54 | 44 | SS-C ≥ C3 |
-| hmas | 54 | 44 | SS-C ≥ C3 (soft flag at E0: hierarchy routed via ground) |
-| **Total** | **252** | **208** | |
+| Org | Unique O configs (B3+) | LLM-bearing | RL-bearing | Scope |
+|-----|----------------------|-------------|------------|-------|
+| sas | 54 | 44 | 14 | always valid |
+| cmas | 36 | 32 | 11 | AH only, SS-C ≥ C2 (identified with SAS·AH at C1) |
+| dmas | 54 | 44 | 14 | SS-C ≥ C3 ∧ SS-E ≥ E1 (R-ORG3) |
+| imas | 54 | 44 | 14 | SS-C ≥ C3 |
+| hmas | 54 | 44 | 14 | SS-C ≥ C3 (soft flag at E0: hierarchy routed via ground) |
+| **Total** | **252** | **208** | **67** | |
+
+LLM- and RL-bearing **overlap**: a mixed AH pair ⟨RL onboard | LLM ground⟩ (or vice versa) carries both cores and needs **both fidelity ladders** (§4.2) — the columns do not sum to the total.
 
 Per-SSP O-cell counts vary by (SS-B, SS-C), the two gating dimensions:
 
-| SSP | Profile | O-cells | LLM-bearing | non-LLM |
+| SSP | Profile | O-cells | LLM-bearing | RL-bearing |
 |-----|---------|---------|-----|---------|
 | 04 EventSat | A1/B1/C1/D1/E0 | **26** | 16 | 10 |
-| 15 TechDemo | A7/B1/C2/D1/E0 | **38** | 24 | 14 |
-| 05 Agile 1-sat | A1/B2/C1/D1/E0 | **40** | 30 | 10 |
-| 01 GEO telecomms | A2/B4/C1/D2/E0 | **54** | 44 | 10 |
-| 12 Mars orbiter | A6/B3/C1/D4/E0 | **54** | 44 | 10 |
-| 09 SSA small const. | A5/B2/C2/D1/E2 | **64** | 50 | 14 |
-| 11 Formation flying | A4/B3/C2/D1/E1 | **90** | 76 | 14 |
-| 06 Agile med. const. | A1/B2/C3/D1/E0 | **144** | 110 | 34 |
-| 03 Mega-constellation | A2/B2/C5/D1/E3 | **184** | 140 | 44 |
-| 10 SSA large const. | A5/B2/C3/D1/E3 | **184** | 140 | 44 |
+| 15 TechDemo | A7/B1/C2/D1/E0 | **38** | 24 | 17 |
+| 05 Agile 1-sat | A1/B2/C1/D1/E0 | **40** | 30 | 12 |
+| 01 GEO telecomms | A2/B4/C1/D2/E0 | **54** | 44 | 14 |
+| 12 Mars orbiter | A6/B3/C1/D4/E0 | **54** | 44 | 14 |
+| 09 SSA small const. | A5/B2/C2/D1/E2 | **64** | 50 | 21 |
+| 11 Formation flying | A4/B3/C2/D1/E1 | **90** | 76 | 25 |
+| 06 Agile med. const. | A1/B2/C3/D1/E0 | **144** | 110 | 45 |
+| 03 Mega-constellation | A2/B2/C5/D1/E3 | **184** | 140 | 57 |
+| 10 SSA large const. | A5/B2/C3/D1/E3 | **184** | 140 | 57 |
 
 EventSat (B1/C1) has the **smallest O-space (26 cells)** — favourable for the primary high-fidelity anchor. The C1→C3 jump is large: the distributed organisations unlock with their full AH cross-products (dmas only where ISL exists, per R-ORG3).
 
 **Full M×O size** (2,380 SSPs × per-SSP O-cells), verified by enumeration:
 
-| Rule set | Total M×O cells | LLM-bearing | non-LLM |
-|---|---|---|---|
-| **adopted:** {R-ISL, R-ORG1/2/3, R-COMPUTE1/2} | **364,980** | **286,020** | 78,960 |
-| without R-ORG3 (comparison only) | 383,250 | 300,090 | 83,160 |
+| Rule set | Total M×O cells | LLM-bearing | RL-bearing | symbolic-only |
+|---|---|---|---|---|
+| **adopted:** {R-ISL, R-ORG1/2/3, R-COMPUTE1/2} | **364,980** | **286,020** | **108,780** | 30,240 |
+| without R-ORG3 (comparison only) | 383,250 | 300,090 | 114,030 | 31,920 |
+
+(60,060 mixed AH pairs are counted in both the LLM- and RL-bearing columns — they need both ladders; total = LLM + RL − mixed + symbolic-only.)
 
 These numbers exist to size the coverage problem (§4), not to be run: the LLM-bearing **and RL-bearing** blocks are both surrogate-covered, each on its own fidelity ladder (§4.2); only the symbolic cells are directly computable at negligible cost.
 
