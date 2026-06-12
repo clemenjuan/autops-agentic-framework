@@ -1,13 +1,24 @@
 """Refresh extract.json with any results.json newer than it, then rebuild the board.
 Numbers auto-refresh; validity STATUS is never auto-promoted — it flips only after
 the substrate-integrity verification (deliberate)."""
-import json, subprocess, sys
+import json, statistics, subprocess, sys
 from pathlib import Path
 
 EXTRACT = Path("data/figures/extract.json")
 KEYS = ["utility","data_downlink_efficiency","observation_hours","downlinked_mb",
         "operator_load","explainability_score","mean_latency_s","final_battery_soc",
         "anomaly_events","safety_overrides","resource_efficiency"]
+
+# Episodes excluded by substrate-integrity screening (run_id -> episode indices).
+# Append-only, manual, evidence required — same policy as MEASURED status flips.
+# Excluded episodes are nulled in per_ep (preserving index alignment for paired
+# seeds) and the means are recomputed over the surviving episodes only.
+EXCLUDED_EPISODES = {
+    # ep1: 14 "symbolic fallback" decisions during the 2026-06-12 Ollama 504 storm.
+    # The run process launched 18:38 Jun 11, 24 min before the fallback-removal
+    # commit ec1b83b — pre-fix code ran all 3 episodes. ep0/ep2 full-trace clean.
+    "eventsat_sas_sda_hyre_hd_ah": {1},
+}
 ex_mtime = EXTRACT.stat().st_mtime
 data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
 changed = 0
@@ -27,6 +38,21 @@ for rj in Path("data/results").glob("*/results.json"):
                    for k in KEYS},
         "flag": "", "desc": r.get("description", "")}
     changed += 1
+for rid, bad in EXCLUDED_EPISODES.items():
+    d = data.get(rid)
+    if not d:
+        continue
+    before = json.dumps(d, sort_keys=True)
+    per = d["per_ep"]
+    for k, vals in per.items():
+        per[k] = [None if i in bad else v for i, v in enumerate(vals)]
+    n_total = max((len(v) for v in per.values()), default=0)
+    d["n"] = sum(1 for i in range(n_total) if i not in bad)
+    d["mean"] = {k: (statistics.mean(vs) if (vs := [v for v in per[k] if v is not None]) else None)
+                 for k in per}
+    d["flag"] = f"episodes {sorted(bad)} excluded by substrate screening"
+    if json.dumps(d, sort_keys=True) != before:
+        changed += 1
 if changed:
     EXTRACT.write_text(json.dumps(list(data.values())))
 subprocess.run([sys.executable, "scripts/extract_telemetry.py"], check=True)

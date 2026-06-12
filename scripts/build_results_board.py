@@ -23,7 +23,7 @@ MEASURED = {
     "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes"),
     "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "valid",   "100 episodes — after the planner re-plan fix (was U≈0 pre-fix)"),
     "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "invalid", "re-plans correctly post-fix, but the human-constraint parameterization yields observation-free schedules — under investigation"),
-    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "1 episode verified clean (ep0: 1440 steps, real 122B, zero fallbacks); ep1 excluded (7 fallback decisions in server outage); more episodes in flight. Informs B2+ per R-COMPUTE1."),
+    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 of 3 episodes verified clean (ep0+ep2: 1440 steps each, real 122B, full-trace screen, zero fallbacks). ep1 excluded: 14 symbolic-fallback decisions during the 2026-06-12 Ollama 504 storm — the run process predated fallback-removal commit ec1b83b, so the silent-fallback path was still live. Informs B2+ per R-COMPUTE1."),
     "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "running", "gated at B1 (R-COMPUTE2) — informs B3+; rerun in flight"),
     "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
     "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
