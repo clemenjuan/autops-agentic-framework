@@ -654,13 +654,12 @@ class TestAgenticLoopWithPatchedLLM(unittest.TestCase):
             metrics = repr_obj.get_metrics()
             self.assertEqual(metrics["agentic_total_tool_calls"], 1.0)
 
-    def test_budget_exhaustion_fallback(self):
-        """LLM keeps requesting tools until budget runs out → fallback."""
+    def test_budget_exhaustion_triggers_forced_decide(self):
+        """Tool requests until budget runs out → one decision-only call closes the loop."""
         repr_obj = AgenticEventSat({
             "llm_mock": False, "llm_provider": "auto", "max_agentic_steps": 2,
         })
 
-        # Both calls request tools, no decision
         plan_response = json.dumps({
             "plan": "Check battery.",
             "tool_call": {"name": "check_battery", "args": {}},
@@ -669,31 +668,56 @@ class TestAgenticLoopWithPatchedLLM(unittest.TestCase):
             "reflection": "Need more info.",
             "tool_call": {"name": "check_data_pipeline", "args": {}},
         })
+        forced_response = json.dumps({
+            "decision": {"mode": "charging", "rationale": "Battery first."},
+        })
 
         call_count = [0]
         def mock_generate(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
                 return plan_response
-            return reflect_response
+            if call_count[0] == 2:
+                return reflect_response
+            return forced_response
 
         with patch.object(repr_obj._client, "generate", side_effect=mock_generate):
             repr_obj._client.mock_mode = False
             ctx = _make_context()
             action = repr_obj.select_action(ctx)
-            # Should fallback to symbolic
-            self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
+            self.assertEqual(action["eventsat_0"]["mode"], "charging")
+            # plan + 1 reflect (budget 2) + 1 forced decide
+            self.assertEqual(call_count[0], 3)
+            self.assertIn("Decide:", repr_obj.get_rationale())
 
-    def test_malformed_response_fallback(self):
-        """LLM returns garbage → symbolic fallback."""
+    def test_no_decision_after_forced_decide_fails_episode(self):
+        """Even the forced decide returns no decision → substrate-integrity RuntimeError."""
+        repr_obj = AgenticEventSat({
+            "llm_mock": False, "llm_provider": "auto", "max_agentic_steps": 2,
+        })
+
+        tool_only = json.dumps({
+            "reflection": "Still exploring.",
+            "tool_call": {"name": "check_battery", "args": {}},
+        })
+
+        with patch.object(repr_obj._client, "generate", return_value=tool_only):
+            repr_obj._client.mock_mode = False
+            ctx = _make_context()
+            with self.assertRaises(RuntimeError) as cm:
+                repr_obj.select_action(ctx)
+            self.assertIn("integrity violation", str(cm.exception))
+
+    def test_malformed_response_fails_episode(self):
+        """LLM returns garbage on every call (incl. forced decide) → RuntimeError, no fallback."""
         repr_obj = AgenticEventSat({"llm_mock": False, "llm_provider": "auto"})
 
         with patch.object(repr_obj._client, "generate", return_value="not json at all"):
             repr_obj._client.mock_mode = False
             ctx = _make_context()
-            action = repr_obj.select_action(ctx)
-            # Should fallback gracefully
-            self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
+            with self.assertRaises(RuntimeError) as cm:
+                repr_obj.select_action(ctx)
+            self.assertIn("integrity violation", str(cm.exception))
 
     def test_grounding_applied_after_llm_decision(self):
         """LLM says 'communication' but no pass → grounding overrides."""

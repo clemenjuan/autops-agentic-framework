@@ -367,7 +367,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Structure**:
   - `encode_observation()`: Same feature extraction as rule-based (for comparability).
   - `select_action(context)`: Formats state into structured prompt → LLM call → JSON
-    parse → symbolic grounding validates mode → retry on invalid → fallback to symbolic.
+    parse → symbolic grounding validates mode → retry on invalid → **fails the episode**
+    if no valid mode (substrate-integrity invariant, `ec1b83b`; no symbolic substitution).
   - `reason()`: LLM-based structured reasoning for ReAct thought step.
   - `get_rationale()`: LLM's natural language rationale.
 - **Symbolic grounding checks**:
@@ -412,9 +413,16 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   1. PLAN: LLM analyzes state and selects a tool to query.
   2. TOOL: Domain tool executes (pure Python, no LLM), returns structured result.
   3. REFLECT: LLM incorporates tool result, optionally calls another tool or decides.
-  4. DECIDE: LLM selects final mode after sufficient information gathering.
+  4. DECIDE: LLM selects final mode after sufficient information gathering. If the
+     tool budget exhausts (or the loop stalls) without a decision, one **forced
+     decision-only call** closes the cycle (`format_forced_decision_prompt`, no tool
+     option — bounded-loop answer extraction per ReAct, Yao et al. 2023). First live
+     122B run showed 66 % of steps riding the budget to exhaustion without it.
+     If even that yields no valid mode, the episode **fails** (substrate-integrity
+     invariant — agentic sibling of `ec1b83b`; no symbolic substitution).
   5. GROUND: Same symbolic safety constraints as llm_eventsat.
-- **Max LLM calls per decision**: `max_agentic_steps` (default 3, configurable in YAML).
+- **Max LLM calls per decision**: `max_agentic_steps` (default 3, configurable in YAML)
+  + at most 1 forced-decide call.
 - **Domain tools** (6):
   - `check_battery`: SoC, charging rate, feasible modes.
   - `check_ground_pass`: Pass active, time to next, remaining duration, OBC data.
@@ -826,8 +834,8 @@ is a separate research question on optimal uplink timing.
 | rule_based | Rules every step | Rules between passes → uplinked plan | Rules between passes → schedule | Rules between passes → delayed schedule |
 | schedule_based | N/A | N/A | Greedy planner between passes → schedule | N/A |
 | conventional_schedule | N/A | N/A | N/A | Human-modeled planner between passes → delayed schedule |
-| llm_eventsat | Symbolic fallback (rules) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
-| agentic_eventsat | Symbolic fallback (rules) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
+| llm_eventsat | LLM every step (a3768bf; Jetson-class, R-COMPUTE1) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
+| agentic_eventsat | Agentic loop every step (a3768bf; Jetson-class, R-COMPUTE2) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
 | subsymbolic | DNN every step | DNN between passes → uplinked plan | DNN between passes → schedule | DNN between passes → delayed schedule |
 
 | Repr Type | Typical Inference Time | Onboard Feasible? |

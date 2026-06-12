@@ -46,6 +46,7 @@ from src.representation.llm_client import LLMClient
 from src.representation.agentic_prompts import (
     AGENTIC_SYSTEM_PROMPT,
     format_agentic_reasoning_prompt,
+    format_forced_decision_prompt,
     format_planning_prompt,
     format_tool_result_prompt,
 )
@@ -475,14 +476,39 @@ class AgenticEventSat(Representation):
                 "content": str(e),
             })
 
-        # Fallback if no decision was made
+        # DECIDE (forced terminal step): the loop above can exhaust its tool
+        # budget, or stall when a reflection carries neither a decision nor a
+        # tool_call, without ever reaching the Decide phase (observed at 66 %
+        # of steps in the first live 122B run). Close the cycle with one
+        # decision-only call — no tool option offered.
         if mode is None or mode not in VALID_MODES:
-            mode = self._symbolic_fallback(state)
-            rationale = (
-                f"Agentic loop ended without valid decision after {steps_taken} steps; "
-                f"symbolic fallback selected '{mode}'."
+            try:
+                raw = self._client.generate(
+                    system_prompt=self._system_prompt,
+                    user_prompt=format_forced_decision_prompt(accumulated_context),
+                    json_mode=True,
+                )
+                raw_responses.append(raw)
+                parsed = self._parse_agentic_response(raw)
+                steps_taken += 1
+                decision = parsed.get("decision") or {}
+                mode = decision.get("mode")
+                rationale = decision.get("rationale", "")
+                accumulated_context.append({"step": "forced_decide", "content": rationale})
+            except Exception as e:
+                logger.warning("Agentic forced-decide step failed: %s", e)
+
+        # Substrate integrity (decision_matrix §7): an agentic cell that cannot
+        # produce a valid decision must FAIL the episode — substituting a
+        # symbolic decision silently turns the run into a mixed-substrate
+        # measurement (user decision 2026-06-11; ec1b83b covered the llm/rl
+        # cells, this is the agentic sibling).
+        if mode is None or mode not in VALID_MODES:
+            raise RuntimeError(
+                f"Agentic cell integrity violation: no valid mode after "
+                f"{steps_taken} LLM calls (last mode={mode!r}) — failing the "
+                f"episode instead of substituting a symbolic decision."
             )
-            self._grounding_overrides += 1
 
         # Apply grounding
         mode = self._apply_grounding(mode, state)
@@ -497,6 +523,8 @@ class AgenticEventSat(Representation):
                 chain_parts.append(f"Tool({entry.get('name', '?')})")
             elif step_type == "reflect":
                 chain_parts.append(f"Reflect: {entry.get('content', '')[:100]}")
+            elif step_type == "forced_decide":
+                chain_parts.append(f"Decide: {entry.get('content', '')[:100]}")
 
         chain_summary = " → ".join(chain_parts) if chain_parts else "direct"
         self._last_rationale = f"Agentic [{chain_summary}] → {mode}: {rationale or ''}"
@@ -533,9 +561,11 @@ class AgenticEventSat(Representation):
         return json.loads(text)
 
     def _symbolic_fallback(self, state: Dict[str, Any]) -> str:
-        """Minimal symbolic fallback when LLM is unavailable.
+        """Minimal symbolic policy for the llm_mock short-circuit ONLY.
 
-        Same logic as llm_eventsat for fair comparison.
+        Mock runs never score (CLAUDE.md). The live path must never call
+        this — substrate integrity requires the episode to fail instead
+        (see _run_agentic_loop).
         """
         soc = state.get("battery_soc", 0.5)
         if soc < 0.35:
