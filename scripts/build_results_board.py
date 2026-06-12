@@ -20,16 +20,16 @@ OUT = Path("data/figures/results_board.html")
 # run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
 MEASURED = {
     "eventsat_sas_sda_symb_hd_ao":  ("A1|B1|C1|D1|E0", "AO|sym",         "valid",   "100 episodes"),
-    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes"),
-    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "valid",   "100 episodes — after the planner re-plan fix (was U≈0 pre-fix)"),
-    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "invalid", "Investigation complete (2026-06-12): NOT observation-free — 100 ep, U=3.02, ~2 obs/gap (its own max_observations cap, matching the documented 1-3/gap for real LEO ops). The cognitive parameterization never engages (planning-time SoC is always 0.96-0.99). Two construct defects found, shared decision pending: (1) estimated_gap_steps hardcoded to one orbit (93) makes ALL ground paradigms myopic — with the true gap AG would triple scheduled observations; (2) CG uplinks schedules at passes where comm was never established (ADCS settling swallows short passes). Exclusion rationale superseded — flip to valid or fix constructs first: user call."),
+    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "running", "100-ep rerun in flight under the corrected ground-segment information model (787857f: true pass-table gaps for the AH ground planner)"),
+    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "running", "100-ep rerun in flight under the corrected ground-segment information model (787857f: planner gets the true inter-pass gap; was capped at one orbit)"),
+    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "running", "100-ep rerun in flight under the corrected model (787857f: plans the true FOLLOWING gap given its one-pass delay; uplink link-gated). The earlier 'observation-free' exclusion was falsified 2026-06-12 — pre-fix CG measured U=3.02, ~2 obs/gap (its own cap)."),
     "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 of 3 episodes verified clean (ep0+ep2: 1440 steps each, real 122B, full-trace screen, zero fallbacks). ep1 excluded: 14 symbolic-fallback decisions during the 2026-06-12 Ollama 504 storm — the run process predated fallback-removal commit ec1b83b, so the silent-fallback path was still live. Informs B2+ per R-COMPUTE1."),
     "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "invalid", "queue3 rerun EXCLUDED: 474/720 decisions (66%) were silent symbolic fallbacks — the agentic loop rode its 3-call budget without ever deciding (fixed in 6866ab5: forced Decide step + loud failure). Rerun on fixed code queued (queue4). Informs B3+ per R-COMPUTE2."),
     "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
     "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
-    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes"),
+    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "running", "30-ep rerun in flight (787857f ground-model fix affects the AH ground planner)"),
     "nbr_b3_symb_ao":               ("A1|B3|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×20)"),
-    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes"),
+    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "running", "30-ep rerun in flight (787857f ground-model fix affects the AH ground planner)"),
     "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "running", "onboard LLM at its gate-legal tier; rerun in flight"),
 }
 
