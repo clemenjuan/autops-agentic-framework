@@ -155,7 +155,12 @@ class ScheduleBasedEventSat(Representation):
 
         # During a ground pass
         if staleness > self._staleness_threshold:
-            # Telemetry still stale — need to downlink housekeeping first
+            # Stale telemetry at a pass implies a NEW contact: under AG/AH the
+            # planner is only invoked during passes, so the pass-transition reset
+            # above never fires (it needs a between-pass call). Without this
+            # reset the planner generated exactly one schedule per episode and
+            # idled thereafter (full-length trace, 2026-06-11).
+            self._schedule_generated_this_pass = False
             self._last_rationale = (
                 f"Pass active but telemetry stale ({staleness} steps); "
                 f"communicating to receive fresh HK."
