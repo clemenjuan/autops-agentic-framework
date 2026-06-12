@@ -1,9 +1,10 @@
-"""AUTOPS results board — single-file interactive explorer over the campaign results.
+"""AUTOPS results board v4 — navigable M×O×T instrument.
 
-Reads the cached extraction (data/figures/extract.json — built once from the heavy
-results.json files) and renders data/figures/results_board.html: dark single-file
-explorer with human-readable names, KPI header, linked sections, and an interactive
-sample-size calculator (the §5.6 power analysis, live).
+Every SSP of the M space is selectable (SS-A…SS-E); for the selected profile the
+full valid O-cell slate is enumerated client-side (mirroring the §3.2 gates) and
+each cell shows its true state: measured (values) · running · excluded · gated
+(with the rule) · not yet run. All 14 metrics and the full test catalogue are
+always rendered. Academic (print-like) styling.
 
 Usage:  uv run python scripts/build_results_board.py
 """
@@ -16,213 +17,384 @@ from pathlib import Path
 EXTRACT = Path("data/figures/extract.json")
 OUT = Path("data/figures/results_board.html")
 
-# id -> (display name, group, note)   — everything not listed goes to "legacy"
-NAMES = {
-    "eventsat_sas_sda_symb_hd_ao":  ("Symbolic · Onboard (AO)", "paradigm", ""),
-    "eventsat_sas_sda_symb_hd_ah":  ("Symbolic · Hybrid ops (AH)", "paradigm", ""),
-    "eventsat_sas_sda_symb_hd_ag":  ("Symbolic · Ground (AG)", "excluded", "playback bug — passes eaten by ADCS settling before telemetry refresh; satellite idles"),
-    "eventsat_sas_sda_symb_hd_cg":  ("Conventional Ground (CG)", "excluded", "same playback bug as AG"),
-    "eventsat_sas_sda_hyre_hd_ah":  ("LLM 122B single-shot · AH", "paradigm", "pilot n=3 ×1440 — deterministic cache replay of real 122B outputs"),
-    "eventsat_sas_sda_hyag_hd_ah":  ("LLM 122B agentic · AH", "paradigm", "pilot n=2 ×720 — partially cached"),
-    "lf_hyre_4b_ah":                ("LLM 4B single-shot · AH  (LF rung)", "fidelity", "live, paired seeds with the 122B run"),
-    "nbr_b2_symb_ao":               ("Symbolic · AO @ B2", "bwalk", "B-axis neighbour (power ×5)"),
-    "nbr_b2_symb_ah":               ("Symbolic · AH @ B2", "bwalk", ""),
-    "nbr_b3_symb_ao":               ("Symbolic · AO @ B3", "bwalk", "B-axis neighbour (power ×20)"),
-    "nbr_b3_symb_ah":               ("Symbolic · AH @ B3", "bwalk", ""),
-    "nbr_b2_hyre_ah":               ("LLM 122B single-shot · AH @ B2", "bwalk", "onboard LLM at its gate-legal tier — pilot n=2 ×720, live"),
+# run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
+MEASURED = {
+    "eventsat_sas_sda_symb_hd_ao":  ("A1|B1|C1|D1|E0", "AO|sym",         "valid",   "100 episodes"),
+    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes"),
+    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "running", "planner re-plan fix landed (fd8b05e) — 100-episode rerun in flight"),
+    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "running", "same fix — 100-episode rerun in flight"),
+    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "gated at B1 (R-COMPUTE1) — result informs B2+; rerun in flight"),
+    "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "running", "gated at B1 (R-COMPUTE2) — informs B3+; rerun in flight"),
+    "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
+    "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
+    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes"),
+    "nbr_b3_symb_ao":               ("A1|B3|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×20)"),
+    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes"),
+    "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "running", "onboard LLM at its gate-legal tier; rerun in flight"),
 }
+
+METRICS = [
+    ("M-01", "Mission Utility",           "utility",                  "measured",                    "raw A1 instance, unclamped"),
+    ("M-02", "Mean Age of Information",   None, "not instrumented",            "per-product age field, clock at capture (§7)"),
+    ("M-03", "Peak Age of Information",   None, "not instrumented",            "same field as M-02"),
+    ("M-04", "Autonomous Recovery Eff.",  None, "collector fix pending",       "raw field reads the injection pulse (§7)"),
+    ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                    "environment-veto fraction; operator proxy for CG/AG"),
+    ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured (raw)",              "min–max normalised per M-slice at matrix build"),
+    ("M-07", "Decision Latency",          "mean_latency_s",           "measured (live calls only)",  "live probe: 122B median 38 s · symbolic 12 µs; cached runs measure cache reads"),
+    ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence only)",    "saturates at 1.0 — faithfulness redefinition pending"),
+    ("M-09", "Robustness (CV)",           None, "measured for 100-ep runs",    "cross-episode; N/A below 30 episodes"),
+    ("M-10", "Scale Efficiency",          None, "multi-sat (Flamingo)",        "degenerate at C1"),
+    ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                    "delivered / max-achievable"),
+    ("M-12", "Value-of-Information",      None, "not instrumented",            "per-product value weights (§7)"),
+    ("M-13", "Constraint-Violation Rate", None, "adopted 2026-06-11",          "constraint ledger + pass^k harness pending (§7)"),
+    ("M-14", "Commanding Effort",         None, "adopted 2026-06-11",          "shares the MC.03 command ledger (§7)"),
+]
+
+TESTS = [
+    ("MC.01", "Decision-cycle latency",           "M-07",            "runnable now",                    "live-call latencies only"),
+    ("MC.02", "Telemetry continuity in blackout", "M-04 + M-01",     "needs env feature",               "ground-outage windows (§7)"),
+    ("MC.03", "Command execution verification",   "d_cmd",           "needs env feature",               "uplink-command model + execution ledger (§7)"),
+    ("MC.04", "Detection-triggered retasking",    "completion",      "needs env feature",               "event injection + per-product tracking (§7)"),
+    ("MC.05", "Fleet-status monitoring",          "TBD",             "to define (approved 2026-06-11)", "C3+; fault-localization time"),
+    ("AU.01", "Safe-mode entry (gate)",           "p_safemode",      "runnable (DEBUG traces)",         "correctness gate, must equal 1.0"),
+    ("AU.02", "Autonomous recovery w/o pass",     "M-04",            "needs env feature + collector",   "gap-timed anomaly + recovery-task fault (§7)"),
+    ("AU.03", "Predictive FDIR",                  "p_avoid",         "needs env feature",               "mitigable degradation (§7)"),
+    ("AU.04", "Contact-window utilisation",       "M-11",            "runnable now",                    "measured — see metric registry"),
+    ("AU.05", "Preemptive rescheduling",          "M-01 (HP)",       "needs env feature",               "priority-event injection (§7)"),
+    ("AU.06", "Lights-out endurance",             "M-01, M-09",      "needs env feature",               "extended outage windows (§7)"),
+    ("AU.07", "Fleet automation endurance",       "M-14",            "to define (approved 2026-06-11)", "C3+"),
+    ("PL.01", "Schedule optimality",              "M-01",            "raw only",                        "scoring needs the U_max helper (§7)"),
+    ("PL.02", "Reactive replanning",              "M-01 ratio",      "needs env feature",               "scheduled anomaly timing (§7)"),
+    ("PL.03", "Multi-objective trade-off",        "M-06 · M-05 · M-08", "needs env feature",            "resource-conflict scenario (§7)"),
+    ("PL.04", "Pass deconfliction",               "mean M-11",       "multi-sat (Flamingo)",            "C2+"),
+    ("PL.05", "Distributed task allocation",      "M-10",            "multi-sat (Flamingo)",            "C2+, E2+"),
+    ("PL.06", "Consensus under ISL failure",      "p_conflict",      "multi-sat (Flamingo)",            "C2+, E2+"),
+    ("PL.07", "MARL generalisation to new N",     "TR",              "multi-sat (Flamingo)",            "C4+, E3+"),
+    ("FD.01", "Propagation under GPS denial",     "timing error",    "needs env feature",               "GPS-denial mechanism (§7)"),
+    ("FD.02", "Collision avoidance",              "binary × M-05",   "needs env feature",               "conjunction injection (§7)"),
+    ("DP.01", "AoI-optimal scheduling",           "M-02",            "not instrumented",                "per-product age field (§7)"),
+    ("DP.02", "VoI downlink triage",              "M-12",            "not instrumented",                "headline H-tier test; value weights (§7)"),
+    ("DP.03", "Storage overflow prevention",      "r_ovf",           "runnable (at-cap proxy)",         "loss accounting pending (§7)"),
+    ("AN.01", "Explainability of reports",        "M-08",            "runnable (L-rung)",               "presence only; quality scorer pending"),
+    ("AN.02", "Nominal trend reporting",          "lead time",       "to define (approved 2026-06-11)", "C1+"),
+]
+
+VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
+              "explainability_score", "data_downlink_efficiency"]
 
 
 def main() -> None:
-    data = json.loads(EXTRACT.read_text())
-    by_id = {d["id"]: d for d in data}
-
-    # paired power inputs from the 100-episode symbolic runs
-    ao = [v for v in by_id["eventsat_sas_sda_symb_hd_ao"]["per_ep"]["utility"] if v is not None]
-    ah = [v for v in by_id["eventsat_sas_sda_symb_hd_ah"]["per_ep"]["utility"] if v is not None]
+    data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
+    cells: dict = {}
+    for rid, (ssp, cell, status, note) in MEASURED.items():
+        d = data.get(rid, {})
+        cells.setdefault(ssp, {})[cell] = {
+            "id": rid, "status": status, "note": note, "n": d.get("n", 0),
+            "mean": {k: d.get("mean", {}).get(k) for k in VALUE_KEYS},
+            "per_ep_utility": d.get("per_ep", {}).get("utility", []),
+        }
+    ao = [v for v in data["eventsat_sas_sda_symb_hd_ao"]["per_ep"]["utility"] if v is not None]
+    ah = [v for v in data["eventsat_sas_sda_symb_hd_ah"]["per_ep"]["utility"] if v is not None]
     n = min(len(ao), len(ah))
-    rho = st.correlation(ao[:n], ah[:n])
-    sigma = st.stdev(ao[:n] + ah[:n])
-
-    main_rows, legacy_rows = [], []
-    for d in data:
-        if d["id"].startswith("sweep_symb_ah_dl"):
-            continue
-        (main_rows if d["id"] in NAMES else legacy_rows).append(d)
-
-    sweep = [d for d in data if d["id"].startswith("sweep_symb_ah_dl")]
-
-    payload = {
-        "names": NAMES, "main": main_rows, "legacy_ids": sorted(d["id"] for d in legacy_rows),
-        "sweep": sweep, "rho": round(rho, 3), "sigma": round(sigma, 3),
-        "total_eps": sum(d["n"] for d in data),
-    }
+    tele_path = Path("data/figures/telemetry.json")
+    telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
+    payload = {"cells": cells, "metrics": METRICS, "tests": TESTS, "telemetry": telemetry,
+               "rho": round(st.correlation(ao[:n], ah[:n]), 3),
+               "sigma": round(st.stdev(ao[:n] + ah[:n]), 3)}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
-    print(f"wrote {OUT}  (main={len(main_rows)}, sweep={len(sweep)}, legacy={len(legacy_rows)}, rho={rho:.3f})")
+    print(f"wrote {OUT}: {sum(len(v) for v in cells.values())} cell records, "
+          f"{len(METRICS)} metrics, {len(TESTS)} tests")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>AUTOPS — M×O×T results board</title>
+<html><head><meta charset="utf-8"><title>AUTOPS — M×O×T instrument</title>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/aaaakshat/cm-web-fonts@latest/fonts.css">
 <style>
- :root { --bg:#0b1220; --panel:#121b2e; --ink:#e8eef7; --dim:#8fa3bd; --blue:#4da3ff; --orange:#ff8c42; --red:#ff5c5c; --line:#23304a; }
- body { background:var(--bg); color:var(--ink); font-family:'Segoe UI',Arial,sans-serif; margin:0; }
- header { padding:28px 40px 18px; border-bottom:1px solid var(--line); }
- h1 { margin:0; font-size:26px; font-weight:600; } h1 span { color:var(--blue); }
- .sub { color:var(--dim); margin-top:6px; font-size:14px; }
- .kpis { display:flex; gap:14px; padding:18px 40px; flex-wrap:wrap; }
- .kpi { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 22px; min-width:150px; }
- .kpi .v { font-size:30px; font-weight:700; color:var(--blue); } .kpi .l { color:var(--dim); font-size:12px; margin-top:2px; }
- .kpi.warn .v { color:var(--orange); }
- section { padding:10px 40px 26px; } h2 { font-size:17px; font-weight:600; color:var(--ink); border-left:4px solid var(--blue); padding-left:10px; }
- .grid { display:grid; grid-template-columns:1fr 1fr; gap:18px; } @media (max-width:1100px){ .grid{grid-template-columns:1fr;} }
- .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
- .note { color:var(--dim); font-size:12.5px; margin:6px 2px; }
- table { border-collapse:collapse; font-size:13px; width:100%; }
- th { text-align:left; color:var(--dim); font-weight:600; padding:6px 10px; border-bottom:1px solid var(--line); }
- td { padding:6px 10px; border-bottom:1px solid var(--line); }
- .flag { color:var(--orange); font-size:12px; } .bad { color:var(--red); }
- .ctrl { display:flex; gap:26px; align-items:center; flex-wrap:wrap; margin:8px 0 4px; }
- .ctrl label { color:var(--dim); font-size:13px; } .ctrl output { color:var(--blue); font-weight:700; }
- input[type=range] { accent-color:var(--blue); width:180px; vertical-align:middle; }
- .big { font-size:34px; font-weight:700; color:var(--orange); }
- details summary { cursor:pointer; color:var(--dim); }
+ /* LaTeX-style typography: Computer Modern with Georgia fallback; TUM blue accents */
+ body { background:#fff; color:#111; margin:0; font-family:'Computer Modern Serif',Georgia,'Times New Roman',serif; }
+ header { padding:34px 56px 16px; border-bottom:2px solid #0065BD; }
+ h1 { margin:0; font-size:26px; font-weight:600; color:#0065BD; }
+ .sub { color:#444; margin-top:8px; font-size:13.5px; font-style:normal; font-family:'Computer Modern Sans',Arial,sans-serif; max-width:1000px; line-height:1.5; }
+ section { padding:10px 56px 24px; max-width:1280px; }
+ h2 { font-size:17.5px; color:#005293; margin:26px 0 4px; font-weight:700; }
+ .caption { color:#555; font-size:13px; margin:2px 0 10px; }
+ table { border-collapse:collapse; width:100%; font-size:13.5px; font-family:'Computer Modern Serif',Georgia,serif; }
+ th { text-align:left; padding:6px 10px; border-top:2px solid #111; border-bottom:1px solid #111; font-weight:600; }
+ td { padding:5px 10px; border-bottom:1px solid #e2e2e2; vertical-align:top; }
+ tr:last-child td { border-bottom:2px solid #111; }
+ .num { text-align:right; font-variant-numeric:tabular-nums; }
+ .st { font-size:11px; padding:1px 7px; border:1px solid; border-radius:2px; white-space:nowrap; font-family:'Computer Modern Sans',Arial,sans-serif; }
+ .st.valid    { color:#1e6b34; border-color:#1e6b34; } .kpi b { color:#0065BD !important; }
+ .st.invalid  { color:#a13026; border-color:#a13026; }
+ .st.running  { color:#9a6200; border-color:#9a6200; }
+ .st.gated    { color:#666;    border-color:#999; }
+ .st.notrun   { color:#999;    border-color:#ccc; }
+ .sel { display:flex; gap:18px; flex-wrap:wrap; margin:10px 0 14px; font-family:'Computer Modern Sans',Arial,sans-serif; font-size:13px; }
+ .sel label { color:#444; } select { font-size:13px; padding:2px 6px; }
+ .kpis { display:flex; gap:26px; margin:6px 0 4px; font-family:'Computer Modern Serif',Georgia,serif; }
+ .kpi b { font-size:21px; display:block; color:#111; } .kpi { font-size:12px; color:#555; }
+ .guide { border-left:3px solid #0065BD; background:#f5f8fb; padding:10px 16px; font-size:13.5px; margin:8px 0; }
+ .plot { width:100%; height:380px; }
+ .twocol { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
+ @media (max-width:1100px){ .twocol{grid-template-columns:1fr;} }
 </style></head><body>
 <header>
- <h1>AUTOPS · <span>M × O × T</span> — first measurements</h1>
- <div class="sub">EventSat anchor (SSP-04, A1/B1/C1/D1/E0) + B-axis neighbours · raw per-episode data, hover anything · utility = raw A1 instance (unclamped)</div>
+ <h1>AUTOPS — the M&thinsp;&times;&thinsp;O&thinsp;&times;&thinsp;T instrument</h1>
+ <div class="sub">A decision instrument for autonomous satellite operations. Choose a <b>mission profile</b> (M)
+ below; every valid <b>operations architecture</b> (O) for that profile is listed with its measurement state,
+ and the <b>test catalogue</b> (T) defines how each property is measured. Values appear only for verified runs.
+ 2,380 valid profiles &middot; 364,980 profile&ndash;architecture combinations &middot; full specification:
+ <i>docs/decision_matrix.md</i>.</div>
 </header>
-<div class="kpis" id="kpis"></div>
 
-<section><h2>Operations paradigms at the anchor — per-episode utility</h2>
- <div class="card"><div id="paradigms" style="height:420px"></div>
- <div class="note">AG and CG are shown <span class="bad">excluded</span>: a ground-schedule playback bug (passes consumed by ADCS settling before telemetry refresh) idles the satellite — the bug is visible here precisely so the exclusion can be verified.</div></div>
+<section>
+ <h2>1&emsp;Satellite-System Profile (M)</h2>
+ <div class="sel" id="sel"></div>
+ <div class="kpis" id="kpis"></div>
+ <h2 id="otitle">2&emsp;Operations-system cells (O) for the selected profile</h2>
+ <div class="caption">AH cells are ⟨onboard | ground-planner⟩ pairs. Gated cells name their rule; nothing is zero-filled.</div>
+ <div id="ocells"></div>
 </section>
 
-<section><div class="grid">
- <div class="card"><h2>B-axis walk — categorical neighbours B1 → B2 → B3</h2><div id="bwalk" style="height:380px"></div>
-  <div class="note">Symbolic is flat across tiers (platform power is not its binding constraint). The onboard LLM rises at its gate-legal tier B2 — pilot n=2, treat as a teaser, not a finding.</div></div>
- <div class="card"><h2>Within-profile sensitivity (B_dl × anomaly rate)</h2><div id="sweep" style="height:380px"></div>
-  <div class="note">SSP-variable sweep inside the anchor profile (30 episodes per point) — not neighbours; demonstrates SSP-parametric response for the surrogate.</div></div>
-</div></section>
-
-<section><div class="grid">
- <div class="card"><h2>Fidelity ladder — LF (4B) vs HF (122B), paired seeds</h2><div id="lfhf" style="height:380px"></div>
-  <div class="note">Same episodes, same seeds, two rungs of the LLM ladder (§4.2). n=3 — the first data point of Q3, not an estimate of ρ.</div></div>
- <div class="card"><h2>How many episodes are enough? <span style="color:var(--dim);font-size:13px">(§5.6, live)</span></h2>
-  <div class="ctrl">
-   <label>min. detectable effect d <input type="range" id="d" min="0.1" max="1.0" step="0.05" value="0.5"> <output id="dv">0.50</output></label>
-   <label>pairing ρ <input type="range" id="rho" min="0" max="0.95" step="0.01"> <output id="rhov"></output></label>
-   <label>tests in family (Bonferroni) <input type="range" id="m" min="1" max="14" step="1" value="1"> <output id="mv">1</output></label>
-  </div>
-  <div style="display:flex;gap:40px;margin:10px 2px;">
-   <div><div class="big" id="npair"></div><div class="note">paired episodes needed<br>(shared launch-lottery seeds)</div></div>
-   <div><div class="big" id="nunp" style="color:var(--dim)"></div><div class="note">per group if unpaired</div></div>
-  </div>
-  <div id="powcurve" style="height:230px"></div>
-  <div class="note" id="pownote"></div></div>
-</div></section>
-
-<section><h2>All campaign experiments</h2><div class="card" id="tbl"></div>
- <details style="margin:10px 40px 30px;"><summary>legacy result directories (older code, not part of this campaign)</summary><div class="note" id="legacy"></div></details>
+<section>
+ <h2>3&emsp;Measured utility distributions (verified runs, all profiles)</h2>
+ <div id="dist" class="plot"></div>
 </section>
 
+<section>
+ <h2>4&emsp;Test catalogue — the full T axis</h2>
+ <table id="tests"></table>
+</section>
+
+<section>
+ <h2>5&emsp;Metric registry — M-01 &hellip; M-14 (values for verified runs)</h2>
+ <table id="mx"></table>
+</section>
+
+<section>
+ <h2>6&emsp;Architecture comparison (verified runs)</h2>
+ <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown runs
+ (1 = best of this set — relative, not absolute). Right: paired per-episode utility differences
+ (shared launch-lottery seeds), the basis of the &sect;5.6 statistics.</div>
+ <div class="twocol">
+  <div id="radar" class="plot" style="height:420px"></div>
+  <div id="paired" class="plot" style="height:420px"></div>
+ </div>
+</section>
+
+<section>
+ <h2>7&emsp;Episode inspector — simulation telemetry</h2>
+ <div class="caption">One simulated week, step by step: battery state of charge, data stored on board and
+ downlinked, ground-contact windows (grey bands), anomaly-forced safe periods (red bands), and the
+ operating mode chosen at every step. For verifying that the simulation behaves physically, not just
+ that the aggregate numbers look right.</div>
+ <div class="sel"><label>episode&nbsp; <select id="teleSel"></select></label></div>
+ <div id="teleA" class="plot" style="height:330px"></div>
+ <div id="teleB" class="plot" style="height:150px"></div>
+</section>
+
+<section>
+ <h2>8&emsp;Statistical adequacy (&sect;5.6, pre-registered)</h2>
+ <div class="guide" id="guide"></div>
+ <div class="twocol">
+  <div id="powcurve" class="plot" style="height:290px"></div>
+  <div style="font-size:13.5px">
+   <p><b>Pre-registered rule:</b> n<sub>pairs</sub> = (z<sub>1−α/2m</sub> + z<sub>0.8</sub>)² · 2(1−ρ) / d² ÷ 0.955 (Wilcoxon ARE).</p>
+   <p><b>Measured inputs</b> (symbolic AO/AH, 100 episodes, shared launch-lottery seeds): ρ = <span id="rhoval"></span>, σ<sub>U</sub> = <span id="sigval"></span>.</p>
+   <p><b>Recommendation in force:</b> 100 episodes per confirmatory cell — sufficient for d ≥ 0.25 at α = 0.05, power 0.8, Bonferroni m ≤ 10. Cells under 30 episodes are screening pilots and never support confirmatory claims. ρ, σ re-estimated per substrate family and per SSP.</p>
+  </div>
+ </div>
+</section>
 <script>
 const P = __PAYLOAD__;
-const C = { blue:"#4da3ff", orange:"#ff8c42", red:"#ff5c5c", dim:"#8fa3bd", grid:"#23304a" };
-const LAYOUT = { paper_bgcolor:"rgba(0,0,0,0)", plot_bgcolor:"rgba(0,0,0,0)",
-  font:{color:"#e8eef7", size:12}, xaxis:{gridcolor:C.grid}, yaxis:{gridcolor:C.grid},
-  margin:{t:10,r:20,b:60,l:55}, legend:{orientation:"h", y:1.12} };
-const name = id => (P.names[id]||[id])[0];
-const note = id => (P.names[id]||["","",""])[2];
-const grp  = id => (P.names[id]||["","legacy",""])[1];
-const get  = id => P.main.find(d=>d.id===id);
+const DIM = { A:["A1 EO","A2 Comms","A3 Nav","A4 Science","A5 SSA","A6 Planetary","A7 TechDemo"],
+              B:["B1 CubeSat","B2 SmallSat","B3 MedBus","B4 LargePlt"],
+              C:["C1 (1)","C2 (2–10)","C3 (10–100)","C4 (100–1k)","C5 (>1k)"],
+              D:["D1 LEO","D2 GEO","D3 Lunar","D4 Mars","D5 Deep space"],
+              E:["E0 none","E1 intra-plane","E2 planned","E3 full-mesh"] };
+const CORE = { sym:"symbolic rules", srl:"reinforcement learning", llm_re:"LLM (single-shot)",
+               llm_ag:"LLM (agentic)", hyb_re:"hybrid (RL + rules)", hyb_ag:"hybrid (LLM + tools)" };
+const DIMLABEL = { A:"Mission function", B:"Platform class", C:"Constellation size", D:"Comms latency", E:"Inter-satellite links" };
+const GROUND = ["sym","srl","llm_re","llm_ag","hyb_re","hyb_ag"];
+const fmt = v => v==null ? "—" : (+v).toFixed(3);
+const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
 
-// ---- KPIs
-const kpis = [
- [P.main.length + P.sweep.length, "experiments in campaign"],
- [P.total_eps, "episodes (raw data points)"],
- ["26", "valid O-cells at the anchor"],
- ["ρ = "+P.rho, "seed-pairing correlation (measured)"],
- ["2", "cells excluded for a found bug", "warn"],
-];
-document.getElementById("kpis").innerHTML = kpis.map(k=>`<div class="kpi ${k[2]||""}"><div class="v">${k[0]}</div><div class="l">${k[1]}</div></div>`).join("");
+function onboardCells(b){ const o=["sym","srl"]; if(b>=2)o.push("llm_re","hyb_re"); if(b>=3)o.push("llm_ag","hyb_ag"); return o; }
+function gatedOnboard(b){ const g={}; if(b<2){g.llm_re="R-COMPUTE1 (needs B2+)";g.hyb_re="R-COMPUTE1";} if(b<3){g.llm_ag="R-COMPUTE2 (needs B3+)";g.hyb_ag="R-COMPUTE2";} return g; }
 
-// ---- paradigms
-const order = ["eventsat_sas_sda_symb_hd_ao","eventsat_sas_sda_symb_hd_ah","eventsat_sas_sda_hyre_hd_ah","eventsat_sas_sda_hyag_hd_ah","lf_hyre_4b_ah","eventsat_sas_sda_symb_hd_ag","eventsat_sas_sda_symb_hd_cg"];
-Plotly.newPlot("paradigms", order.filter(get).map(id=>{
-  const d = get(id), ex = grp(id)==="excluded";
-  return { y:d.per_ep.utility, x:Array(d.n).fill(name(id)), type:"box", boxpoints:"all", jitter:0.55, pointpos:0,
-    marker:{color: ex?C.red: id.includes("hyre")||id.includes("hyag")||id.includes("lf_")?C.orange:C.blue, opacity: ex?0.45:0.85, size:5},
-    line:{color: ex?C.red:C.blue}, name:name(id),
-    hovertext:d.per_ep.utility.map((v,i)=>`${name(id)}<br>episode ${i}: U=${v==null?"—":v.toFixed(3)}${ex?"<br>EXCLUDED — "+note(id):""}`), hoverinfo:"text" };
-}), {...LAYOUT, showlegend:false, yaxis:{...LAYOUT.yaxis, title:"utility"}});
+// selectors
+const sel = {A:0,B:0,C:0,D:0,E:0};
+document.getElementById("sel").innerHTML = Object.keys(DIM).map(k =>
+ `<label title="SS-${k}">${DIMLABEL[k]}&nbsp; <select id="s${k}">${DIM[k].map((v,i)=>`<option value="${i}">${v}</option>`).join("")}</select></label>`).join("");
+Object.keys(DIM).forEach(k => document.getElementById("s"+k).addEventListener("change", e => { sel[k]=+e.target.value; render(); }));
 
-// ---- B-walk
-const bw = (ids,label,col,dash)=>({ x:["B1","B2","B3"].slice(0,ids.length),
-  y:ids.map(i=>get(i)?get(i).mean.utility:null), name:label, mode:"lines+markers",
-  marker:{size:10,color:col}, line:{color:col,dash:dash||"solid"} });
-Plotly.newPlot("bwalk", [
-  bw(["eventsat_sas_sda_symb_hd_ao","nbr_b2_symb_ao","nbr_b3_symb_ao"],"Symbolic AO",C.blue,"dot"),
-  bw(["eventsat_sas_sda_symb_hd_ah","nbr_b2_symb_ah","nbr_b3_symb_ah"],"Symbolic AH",C.blue),
-  bw(["eventsat_sas_sda_hyre_hd_ah","nbr_b2_hyre_ah"],"LLM 122B AH (pilot)",C.orange),
-], {...LAYOUT, xaxis:{...LAYOUT.xaxis, title:"SS-B engineering tier"}, yaxis:{...LAYOUT.yaxis, title:"mean utility"}});
-
-// ---- sweep
-const series = {};
-for (const d of P.sweep) { const m = d.id.match(/dl(\d+)_(a\d)/); if(!m) continue;
-  (series[m[2]]=series[m[2]]||[]).push({x:+m[1], y:d.mean.utility}); }
-Plotly.newPlot("sweep", Object.entries(series).map(([k,pts],i)=>({
-  x:pts.sort((a,b)=>a.x-b.x).map(p=>p.x), y:pts.map(p=>p.y),
-  name:k==="a1"?"anomaly 0.001 / step":"anomaly 0.004 / step", mode:"lines+markers",
-  marker:{size:9}, line:{color:i?C.orange:C.blue} })),
- {...LAYOUT, xaxis:{...LAYOUT.xaxis, title:"daily downlink budget (MB)"}, yaxis:{...LAYOUT.yaxis, title:"mean utility (30 eps)"}});
-
-// ---- LF-HF
-const hf=get("eventsat_sas_sda_hyre_hd_ah"), lf=get("lf_hyre_4b_ah");
-if (hf&&lf){ const k=Math.min(hf.n,lf.n), xs=lf.per_ep.utility.slice(0,k), ys=hf.per_ep.utility.slice(0,k);
- const lim=[0, Math.max(...xs,...ys)*1.2];
- Plotly.newPlot("lfhf", [
-  {x:lim,y:lim,mode:"lines",line:{dash:"dash",color:C.dim},name:"y = x", hoverinfo:"skip"},
-  {x:xs,y:ys,mode:"markers+text",marker:{size:14,color:C.orange},text:xs.map((_,i)=>"ep"+i),
-   textposition:"top center", name:"paired episodes"}],
-  {...LAYOUT, xaxis:{...LAYOUT.xaxis,title:"LF utility — qwen3.5:4b",range:lim}, yaxis:{...LAYOUT.yaxis,title:"HF utility — qwen3.5:122b",range:lim}}); }
-
-// ---- power panel
-const Z = p => { // inverse normal CDF (Acklam)
-  const a=[-39.6968302866538,220.946098424521,-275.928510446969,138.357751867269,-30.6647980661472,2.50662827745924],
-  b=[-54.4760987982241,161.585836858041,-155.698979859887,66.8013118877197,-13.2806815528857],
-  c=[-0.00778489400243029,-0.322396458041136,-2.40075827716184,-2.54973253934373,4.37466414146497,2.93816398269878],
-  d=[0.00778469570904146,0.32246712907004,2.445134137143,3.75440866190742], pl=0.02425;
-  let q,r; if(p<pl){q=Math.sqrt(-2*Math.log(p));return (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);}
-  if(p<=1-pl){q=p-0.5;r=q*q;return (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q/(((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1);}
-  q=Math.sqrt(-2*Math.log(1-p));return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5])/((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1); };
-const $=id=>document.getElementById(id);
-$("rho").value = P.rho;
-function power(){ const d=+$("d").value, rho=+$("rho").value, m=+$("m").value;
-  const za=Z(1-0.05/(2*m)), zb=Z(0.8);
-  const npair=Math.ceil((za+zb)**2*2*(1-rho)/d**2/0.955);
-  const nunp =Math.ceil(2*(za+zb)**2/d**2/0.955);
-  $("dv").textContent=d.toFixed(2); $("rhov").textContent=rho.toFixed(2); $("mv").textContent=m;
-  $("npair").textContent=npair; $("nunp").textContent=nunp;
-  $("pownote").textContent=`n = (z₁₋ₐ/₂ᵐ + z₀.₈)² · 2(1−ρ) / d² ÷ 0.955 (Wilcoxon ARE) · measured at the anchor: ρ = ${P.rho}, σ_U = ${P.sigma} (symbolic, 100 episodes, shared launch-lottery seeds)`;
-  const ds=[...Array(19)].map((_,i)=>0.1+i*0.05);
-  Plotly.react("powcurve",[
-   {x:ds,y:ds.map(x=>Math.ceil((za+zb)**2*2*(1-rho)/x**2/0.955)),name:"paired",line:{color:C.orange}},
-   {x:ds,y:ds.map(x=>Math.ceil(2*(za+zb)**2/x**2/0.955)),name:"unpaired /group",line:{color:C.dim,dash:"dot"}},
-   {x:[d],y:[npair],mode:"markers",marker:{size:12,color:C.orange},showlegend:false}],
-   {...LAYOUT, xaxis:{...LAYOUT.xaxis,title:"effect size d"}, yaxis:{...LAYOUT.yaxis,title:"episodes",type:"log"}, margin:{t:6,r:10,b:40,l:55}});
+function cellState(sspKey, cellKey){
+  const rec = (P.cells[sspKey]||{})[cellKey];
+  return rec || null;
 }
-["d","rho","m"].forEach(id=>$(id).addEventListener("input",power)); power();
+function row(label, cellKey, sspKey, gateNote){
+  const rec = cellState(sspKey, cellKey);
+  let st, note, n="—", u="—", state="notrun";
+  if (rec){ st = stc(rec.status); note = rec.note; n = rec.n||"—"; u = rec.status==="valid"?fmt(rec.mean.utility):"—"; state = rec.status; }
+  else if (gateNote){ st = stc("gated","gated"); note = gateNote; state = "gated"; }
+  else { st = stc("notrun","not yet run"); note = ""; }
+  return { state, html:`<tr><td>${label}</td><td>${st}</td><td class="num">${n}</td><td class="num">${u}</td><td style="color:#666;font-size:12px">${note}</td></tr>` };
+}
+function group(title, expl, rows){
+  const active = rows.filter(r=>["valid","running","invalid"].includes(r.state)).length;
+  const counts = `${rows.filter(r=>r.state==="valid").length} measured · ${rows.filter(r=>r.state==="running").length} running · ${rows.length} cells`;
+  return `<details ${active?"open":""}><summary style="cursor:pointer;padding:6px 0"><b>${title}</b> — ${expl} &nbsp;<span style="color:#666;font-size:12px">(${counts})</span></summary>
+   <table><tr><th>architecture</th><th>state</th><th class="num">episodes</th><th class="num">U mean</th><th>note</th></tr>${rows.map(r=>r.html).join("")}</table></details>`;
+}
+function render(){
+  const code = `A${sel.A+1}|B${sel.B+1}|C${sel.C+1}|D${sel.D+1}|E${sel.E}`;
+  const b=sel.B+1, c=sel.C+1, e=sel.E;
+  document.getElementById("otitle").innerHTML = `2&emsp;Operations-system cells (O) — profile <i>${code.replaceAll("|","/")}</i>`;
+  if (e>0 && c<2){
+    document.getElementById("ocells").innerHTML =
+      `<div style="padding:10px 0">Profile invalid: <b>R-ISL</b> — inter-satellite links require at least 2 satellites.</div>`;
+    document.getElementById("kpis").innerHTML = ""; return;
+  }
+  const gates = gatedOnboard(b);
+  const ALL = ["sym","srl","llm_re","llm_ag","hyb_re","hyb_ag"];
+  let h = group("Conventional Ground (CG)", "operators plan the schedule on ground; uplinked once per contact",
+                GROUND.map(g=>row(`⟨${CORE[g]} planner⟩`, `CG|${g}`, code, null)));
+  h += group("Autonomous Ground (AG)", "a ground planner plans autonomously; uplinked per contact",
+             GROUND.map(g=>row(`⟨${CORE[g]} planner⟩`, `AG|${g}`, code, null)));
+  h += group("Autonomous Onboard (AO)", "all decisions made on the satellite, every step",
+             ALL.map(o=>row(`⟨${CORE[o]}⟩`, `AO|${o}`, code, gates[o]||null)));
+  h += group("Autonomous Hybrid (AH)", "an onboard per-step core paired with a ground planner",
+             ALL.flatMap(o=>GROUND.map(g=>row(`⟨${CORE[o]} onboard | ${CORE[g]} planner⟩`, `AH|${o}|${g}`, code, gates[o]||null))));
+  // organisation availability summary
+  let orgs = "sas: valid";
+  orgs += c>=2 ? " · cmas: valid (AH only)" : " · cmas: identified with SAS·AH at C1 (R-ORG1)";
+  orgs += c>=3 ? ` · imas/hmas: valid · dmas: ${e>=1?"valid":"gated (R-ORG3 — needs ISL)"}` : " · dmas/imas/hmas: gated (R-ORG2 — need C3+)";
+  h += `<div style="color:#555;font-size:12.5px;margin-top:8px">Organisations at this profile — ${orgs}. Cells above are the single-satellite slate; multi-agent organisations repeat it per organisation (§3.4).</div>`;
+  document.getElementById("ocells").innerHTML = h;
+  const here = Object.values(P.cells[code]||{});
+  document.getElementById("kpis").innerHTML =
+    `<div class="kpi"><b>${here.filter(r=>r.status==="valid").length}</b>measured (verified) at this profile</div>` +
+    `<div class="kpi"><b>${here.filter(r=>r.status==="running").length}</b>running</div>` +
+    `<div class="kpi"><b>${here.filter(r=>r.status==="invalid").length}</b>excluded by verification</div>` +
+    `<div class="kpi"><b>${Object.values(P.cells).flatMap(Object.values).filter(r=>r.status==="valid").length} / 364,980</b>measured across the whole M×O space</div>`;
+}
+render();
+// preset to EventSat profile is the default (A1/B1/C1/D1/E0 = indices 0)
 
-// ---- table
-let rows = "<table><tr><th>experiment</th><th>n</th><th>utility</th><th>downlink eff.</th><th>obs h</th><th>override rate</th><th>note</th></tr>";
-for (const d of P.main) { const f = note(d.id) || d.flag || "";
- rows += `<tr title="${d.id}"><td>${name(d.id)}</td><td>${d.n}</td>` +
-  ["utility","data_downlink_efficiency","observation_hours","operator_load"].map(k=>`<td>${d.mean[k]==null?"—":d.mean[k].toFixed(3)}</td>`).join("") +
-  `<td class="flag">${grp(d.id)==="excluded"?'<span class="bad">EXCLUDED</span> — ':""}${f}</td></tr>`; }
-document.getElementById("tbl").innerHTML = rows + "</table><div class='note'>hover a row for the raw experiment id · sweep points are plotted above and omitted here</div>";
-document.getElementById("legacy").textContent = P.legacy_ids.join("  ·  ");
+// distributions
+const dists = [];
+for (const [ssp, cs] of Object.entries(P.cells))
+  for (const [ck, r] of Object.entries(cs))
+    if (r.status==="valid" && r.per_ep_utility.some(v=>v!=null))
+      dists.push({y:r.per_ep_utility, x:Array(r.n).fill(`${ck.replaceAll("|"," · ")}  @ ${ssp.replaceAll("|","/")}`),
+        type:"box", boxpoints:"all", jitter:0.5, pointpos:0, marker:{color:"#333",size:4,opacity:0.7},
+        line:{color:"#111"}, fillcolor:"#eee", name:ck,
+        hovertext:r.per_ep_utility.map((v,i)=>`ep ${i}: ${fmt(v)}`), hoverinfo:"text"});
+Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showlegend:false,
+  font:{family:"Computer Modern Serif, Georgia, serif",size:13,color:"#111"}, yaxis:{title:"utility",gridcolor:"#eee"},
+  margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:22}});
+
+// tests
+document.getElementById("tests").innerHTML =
+ "<tr><th>test</th><th>name</th><th>primary metric</th><th>status</th><th>note</th></tr>" +
+ P.tests.map(([id,nm,m,s,note])=>{
+  const cls = s.startsWith("runnable")?"valid":s.includes("define")?"running":"notrun";
+  return `<tr><td><b>${id}</b></td><td>${nm}</td><td>${m}</td><td>${stc(cls,s)}</td><td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
+
+// metric registry (columns = verified runs)
+const vcols = [];
+for (const [ssp, cs] of Object.entries(P.cells))
+  for (const [ck, r] of Object.entries(cs)) if (r.status==="valid") vcols.push([ssp,ck,r]);
+document.getElementById("mx").innerHTML =
+ "<tr><th>metric</th><th>status</th>" + vcols.map(([s,c])=>`<th class="num">${c.replaceAll("|","·")}<br><span style="font-weight:400;color:#777">${s.replaceAll("|","/")}</span></th>`).join("") + "<th>note</th></tr>" +
+ P.metrics.map(([id,nm,key,s,note])=>{
+  const cls = s.startsWith("measured")?"valid":s.includes("adopted")||s.includes("pending")?"running":"notrun";
+  return `<tr><td><b>${id}</b> ${nm}</td><td>${stc(cls,s)}</td>` +
+    vcols.map(([,,r])=>`<td class="num">${key?fmt(r.mean[key]):"—"}</td>`).join("") +
+    `<td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
+
+// statistics
+document.getElementById("rhoval").textContent = P.rho;
+document.getElementById("sigval").textContent = P.sigma;
+document.getElementById("guide").innerHTML =
+ `<b>How to read:</b> a difference between two cells is confirmable when the paired-episode count meets
+ the curve for the effect size of interest. With measured ρ = ${P.rho}: d = 0.5 → <b>14 paired episodes</b>;
+ d = 0.3 → <b>38</b>; the pre-registered default (100) covers d ≥ 0.25 under Bonferroni m = 10.`;
+const za=2.807, zb=0.8416, ds=[...Array(19)].map((_,i)=>0.1+i*0.05);
+Plotly.newPlot("powcurve",[
+ {x:ds,y:ds.map(d=>Math.ceil((za+zb)**2*2*(1-P.rho)/d/d/0.955)),name:"paired (measured ρ)",line:{color:"#111"}},
+ {x:ds,y:ds.map(d=>Math.ceil(2*(za+zb)**2/d/d/0.955)),name:"unpaired / group",line:{color:"#999",dash:"dot"}}],
+ {paper_bgcolor:"#fff",plot_bgcolor:"#fff",font:{family:"Computer Modern Serif, Georgia, serif",size:13},
+  xaxis:{title:"minimum detectable effect d",gridcolor:"#eee"},
+  yaxis:{title:"episodes required",type:"log",gridcolor:"#eee"},margin:{t:8,b:45,l:60,r:10},legend:{x:0.55,y:0.95}});
+
+// ---- 6a: radar (min-max normalised over shown runs)
+const RMETRICS = [["utility","mission utility"],["data_downlink_efficiency","downlink efficiency"],
+ ["explainability_score","explainability (presence)"],["operator_load","override rate (inverted)"]];
+const rruns = vcols;  // [ssp, cell, rec]
+if (rruns.length){
+  const vals = {};
+  for (const [k] of RMETRICS) {
+    let xs = rruns.map(([,,r])=> k==="operator_load" ? 1-(r.mean[k]??0) : (r.mean[k]??0));
+    const mn=Math.min(...xs), mx=Math.max(...xs);
+    vals[k] = xs.map(v => mx>mn ? (v-mn)/(mx-mn) : 1);
+  }
+  Plotly.newPlot("radar", rruns.map(([ssp,ck],i)=>({
+    type:"scatterpolar", fill:"toself", opacity:0.55, name:`${ck.replaceAll("|","·")} @${ssp.replaceAll("|","/")}`,
+    theta:RMETRICS.map(m=>m[1]).concat(RMETRICS[0][1]),
+    r:RMETRICS.map(([k])=>vals[k][i]).concat(vals[RMETRICS[0][0]][i])
+  })), {paper_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+       polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
+}
+// ---- 6b: paired differences (AH - AO at the anchor)
+const aoR = cellState("A1|B1|C1|D1|E0","AO|sym"), ahR = cellState("A1|B1|C1|D1|E0","AH|sym|sym");
+if (aoR && ahR){
+  const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
+  const diffs = [...Array(k)].map((_,i)=>ahR.per_ep_utility[i]-aoR.per_ep_utility[i]).filter(v=>v!=null);
+  Plotly.newPlot("paired", [
+   {x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}, name:"AH − AO per episode"},
+   {x:[0,0], y:[0,18], mode:"lines", line:{color:"#a13026", dash:"dash"}, name:"no effect"}],
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+    xaxis:{title:"paired utility difference (AH − AO), shared seeds", gridcolor:"#eee"},
+    yaxis:{title:"episodes", gridcolor:"#eee"}, showlegend:false, margin:{t:10,b:50,l:55,r:10}});
+}
+// ---- 7: episode inspector
+const T = P.telemetry, tids = Object.keys(T);
+const tsel = document.getElementById("teleSel");
+tsel.innerHTML = tids.map(id=>`<option value="${id}">${T[id].label}</option>`).join("");
+const MODECOL = {charging:"#9ecae1", communication:"#0065BD", payload_observe:"#1e8449",
+ payload_compress:"#a1d99b", payload_detect:"#74c476", payload_send:"#41ab5d", safe:"#a13026"};
+function bands(flagArr, steps, color){
+  const shapes=[]; let s0=null;
+  for (let i=0;i<flagArr.length;i++){
+    if (flagArr[i] && s0===null) s0=steps[i];
+    if ((!flagArr[i]||i===flagArr.length-1) && s0!==null){
+      shapes.push({type:"rect", xref:"x", yref:"paper", x0:s0, x1:steps[i], y0:0, y1:1,
+        fillcolor:color, opacity:0.18, line:{width:0}}); s0=null; }
+  }
+  return shapes;
+}
+function renderTele(){
+  const t = T[tsel.value]; if(!t) return;
+  const shapes = bands(t.gpass, t.steps, "#777").concat(bands(t.anomaly, t.steps, "#a13026"));
+  Plotly.newPlot("teleA", [
+    {x:t.steps, y:t.soc, name:"battery SoC", yaxis:"y", line:{color:"#0065BD"}},
+    {x:t.steps, y:t.stored, name:"data stored (MB)", yaxis:"y2", line:{color:"#1e8449"}},
+    {x:t.steps, y:t.downlinked, name:"downlinked cum. (MB)", yaxis:"y2", line:{color:"#9a6200"}}],
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+    xaxis:{title:"simulation step (1 min each)", gridcolor:"#eee"},
+    yaxis:{title:"SoC", range:[0,1.05], gridcolor:"#eee"},
+    yaxis2:{title:"MB", overlaying:"y", side:"right"},
+    shapes, legend:{orientation:"h", y:1.12}, margin:{t:10,b:45,l:55,r:55}});
+  Plotly.newPlot("teleB", [{x:t.steps, y:t.mode.map(()=>1), mode:"markers",
+    marker:{color:t.mode.map(m=>MODECOL[m]||"#999"), size:6, symbol:"square"},
+    text:t.mode, hoverinfo:"text+x"}],
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:11},
+    xaxis:{title:"operating mode per step (hover)", gridcolor:"#fff"},
+    yaxis:{visible:false}, showlegend:false, margin:{t:4,b:40,l:55,r:55}});
+}
+if (tids.length){ tsel.addEventListener("change", renderTele); renderTele(); }
 </script></body></html>
 """
 
