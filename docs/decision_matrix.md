@@ -114,6 +114,8 @@ Key SSP variables derived from SS-D (used in test thresholds):
 | E2 | ISL planned / under validation |
 | E3 | Full-mesh ISL |
 
+**ISL simulation model (adopted 2026-06-11).** ISL is modelled at the **graph level** — adjacency plus per-edge bandwidth and latency; the physical link layer is abstracted exactly as ground passes are contact windows, not RF models. **E1 = static ring** (fore/aft in-plane neighbours, near-constant geometry — the flown-heritage topology and the *cheapest* model, which is why real constellations fly it first), **E3 = complete graph** (ideal bus), **E2 = time-windowed pairwise contact schedule** (the most expensive: needs a link-schedule model). Implementation order: E1 → E3 → E2.
+
 ### 2.1 M-level validity rules
 
 Two kinds of rule, kept distinct: **hard gates** remove combinations that are structurally impossible; **soft flags** mark combinations with no mission-realistic counterpart today — they stay in the tradespace (future missions may populate them) but receive no high-fidelity sampling budget (§4).
@@ -147,6 +149,8 @@ Two kinds of rule, kept distinct: **hard gates** remove combinations that are st
 | 13 | Lunar lander/rover | A6 | B3 | C1 | D3 | E0 |
 | 14 | Mega-constellation (large scale, **planned**) | TBD | B3 | C5 | D1 | E3 |
 | 15 | Autonomy tech demo (OPS-SAT class) | A7 | B1 | C2 | D1 | E0 |
+
+**SSP realization sheets (precondition, adopted 2026-06-11).** No run on a reference SSP counts until that SSP has a one-page *simulation realization sheet*: orbit and **propagator validity** (the current Eckstein–Hechler J2 model is LEO-only — D2+ profiles need their own propagation *and* contact models), contact model, **per-tier engineering power/compute baseline** (the interim ×5/×20 scaling of the EventSat baseline is a placeholder), and a **Walker (i: t/p/f) constellation specification** wherever SS-C ≥ C2 — required for SS-E to be meaningful at all. Semantically shifting A×D combinations (e.g. A1 at D4 is planetary imaging, not Earth observation) carry validator soft flags until explicitly realized. Every new M-combination is reviewed against this rule **before** implementation or running.
 
 ---
 
@@ -429,14 +433,14 @@ S1 nominal load · S2 fault/anomaly · S3 resource scarcity & degradation · S4 
 
 | | S1 nominal | S2 fault | S3 resource | S4 comms denial | S5 transient | S6 scale |
 |---|---|---|---|---|---|---|
-| **MC** | MC.01 | →AU.01/02 ⁽ᵃ⁾ | →PL.03 ⁽ᵃ⁾ | MC.02 · MC.03 | MC.04 | **gap** ⁽ᶜ⁾ |
-| **AU** | AU.04 | AU.01 · AU.02 | AU.03 | AU.06 | AU.05 | →PL.04–07 ⁽ᵃ⁾ |
+| **MC** | MC.01 | →AU.01/02 ⁽ᵃ⁾ | →PL.03 ⁽ᵃ⁾ | MC.02 · MC.03 | MC.04 | MC.05 ⁽ᶜ⁾ |
+| **AU** | AU.04 | AU.01 · AU.02 | AU.03 | AU.06 | AU.05 | AU.07 ⁽ᶜ⁾ |
 | **PL** | PL.01 | PL.02 | PL.03 | PL.06 | →AU.05 ⁽ᵃ⁾ | PL.04 · PL.05 · PL.07 |
 | **FD** | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | FD.01 | FD.02 | — ⁽ᵇ⁾ |
 | **DP** | DP.01 | — ⁽ᵇ⁾ | DP.02 · DP.03 | →MC.02/AU.06 ⁽ᵃ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ |
-| **AN** | **gap** ⁽ᶜ⁾ | AN.01 | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ |
+| **AN** | AN.02 ⁽ᶜ⁾ | AN.01 | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ | — ⁽ᵇ⁾ |
 
-Empty cells carry one of three justifications — **(a) covered by a sibling-MOF test** (the CCSDS split puts fault *detection* under MC but recovery under AU; data-management-through-outage is exercised by MC.02/AU.06); **(b) void by design** — no architecture contrast exists in the cell (nominal orbit determination is identical across O-cells; FD under resource stress adds nothing FD.01/02 don't measure); **(c) open gap, named**: *MC × S6* (fleet-level monitoring) and *AU × S6* (fleet-level automation beyond allocation) are deferred to the multi-sat anchors; *AN × S1* (nominal trend analysis & reporting) is a candidate test pending a discriminating stimulus. Missing tests are found mechanically from this table, not by intuition.
+Empty cells carry one of three justifications — **(a) covered by a sibling-MOF test** (the CCSDS split puts fault *detection* under MC but recovery under AU; data-management-through-outage is exercised by MC.02/AU.06); **(b) void by design** — no architecture contrast exists in the cell (nominal orbit determination is identical across O-cells; FD under resource stress adds nothing FD.01/02 don't measure); **(c) former gaps, closed 2026-06-11** by defining MC.05 (fleet-status monitoring), AU.07 (fleet automation endurance) — both C3+, implementation with the multi-sat anchors — and AN.02 (nominal trend reporting, C1+). Missing tests are found mechanically from this table, not by intuition; when a gap is found, it gets a definition, never an indefinite deferral.
 
 **Why the count is uneven (7 Planning, 1 Analysis).** Weighting is by *discrimination density*, not equal allocation per MOF: Planning is where substrate and agentic reasoning are most load-bearing (RQ1/RQ3); Analysis collapses to one interpretability axis (M-08). §6 aggregates *per MOF group*, so the imbalance does not inflate Planning's contribution.
 
@@ -507,6 +511,8 @@ The metric set is structured as a value hierarchy (Keeney & Raiffa 1976/1993: at
 
 **M-07 — caveat.** Wall-clock latency is a property of the test-harness host, not the flight computer — reported as a *relative substrate ordering* (symbolic ≪ RL ≪ LLM), never an absolute flight figure; the AI-FDIR <1 s requirement (Gallon et al. 2024) and SS-B feasibility are the standards-side counterparts.
 
+**M-08 — redefinition adopted (2026-06-11), scorer pending.** The presence ratio saturates trivially — every core emits *some* rationale, and an invalid run has scored 1.000 (the audit's own evidence). Redefined: \(\xi\) = fraction of sampled decisions whose rationale passes an automated **faithfulness check** — *counterfactual probing* (perturb the factor the rationale cites; the decision must change accordingly) plus *completeness* (cited factors ⊆ actual state drivers from the trace) — with presence demoted to a floor gate. Anchor: Doshi-Velez & Kim 2017. Symbolic passes by construction (a true control ceiling); post-hoc LLM rationalisation can fail. Until the scorer lands (§7), reported values are presence-only and labelled as such. Part of the **metric-by-metric literature re-audit** (V2/V3 program; M-08 first) addressing weakly-anchored formulas.
+
 **M-09 — scoring guard.** \(CV_U\) is undefined for \(\mu_U\le0\); a degenerate cell must be reported N/A, never given a default that scores as "perfectly robust".
 
 **M-12 — distinct from AoI.** AoI is freshness of *any* update; M-12 is the fraction of total information *value* delivered under a bandwidth constraint, each product carrying \(V_j\) (e.g. detection confidence × target priority). Anchor: decision-theoretic Value of Information (Howard 1966); the value/semantics-of-information line (Yates et al. 2021) and data-prioritisation rationale (Boden & Larson 2006) carry it into the satellite context. This is the metric the headline VoI-triage test (DP.02) discriminates on.
@@ -570,6 +576,12 @@ Each test carries: SSP-parametric **stimulus** · **metric / threshold / score**
 - *Fidelity:* L→H (reactive trigger at L; agentic re-prioritisation quality at H). *Discriminates:* reactive-vs-agentic retasking + onboard-vs-ground. *Applic.:* C1+.
 - *Requires:* transient-event injection with value weights \(V_j\) (shared with DP.02); per-product pipeline tracking (per-trigger completion is undefined over aggregate-only storage pools).
 
+**MC.05 — Fleet-status monitoring** *(defined 2026-06-11, closes the MC × S6 gap)*
+- *Stimulus:* simultaneous faults injected on \(k\) of \(N\) satellites (default \(k=\lceil 0.1N\rceil\)).
+- *Metric / threshold / score:* test-local fault-localization time \(t_{loc}\) — steps from fault onset to correct per-satellite identification at the coordinating node; pass \(\bar t_{loc}\le\theta\); \(s=\max(0,1-\bar t_{loc}/\theta)\). Fleet-level M-08 co-reported.
+- *Fidelity:* L→H. *Discriminates:* centralized vs distributed observability (the organisation axis). *Applic.:* **C3+**.
+- *Requires:* multi-satellite scenario; per-satellite fault injection; coordinator-state tracking.
+
 #### AU — Automation
 
 **AU.01 — Safe-mode entry (correctness gate)**
@@ -607,6 +619,12 @@ Each test carries: SSP-parametric **stimulus** · **metric / threshold / score**
 - *Metric:* M-01, M-09; pass \(U_{blackout}/U_{nom}\ge\theta\); \(s=\min(1,U_{blackout}/U_{nom})\).
 - *Fidelity:* L→H. *Discriminates:* onboard autonomy — ground cells degrade across the blackout (structural-zero in the limit). *Applic.:* C1+.
 - *Requires:* extended-outage window (generalises MC.02).
+
+**AU.07 — Fleet automation endurance** *(defined 2026-06-11, closes the AU × S6 gap)*
+- *Stimulus:* lights-out over \(k\,T_{orb}\) at fleet scale \(N\) — the per-satellite operator-attention claim (Nag et al. 2020) made testable.
+- *Metric / threshold / score:* M-14 per satellite-day + fleet-mean M-01 retention; pass \(U_{fleet}/U_{nom}\ge\theta\) with \(E_{cmd}/N\) below the operator-capacity line; \(s=\min(1,U_{fleet}/U_{nom})\).
+- *Fidelity:* L→H. *Discriminates:* organisation × paradigm at scale. *Applic.:* **C3+**.
+- *Requires:* multi-satellite scenario; the MC.03 command ledger.
 
 #### PL — Planning
 
@@ -688,7 +706,13 @@ Each test carries: SSP-parametric **stimulus** · **metric / threshold / score**
 - *Stimulus:* anomaly events; fraction with an operator-readable, causally-complete rationale.
 - *Metric:* M-08; pass \(\xi\ge\theta\); \(s=\xi\).
 - *Fidelity:* L→H (rationale *presence* at L; rationale *quality* at H). *Discriminates:* substrate explainability — symbolic = control-ceiling (\(\xi\equiv1.0\)), subsymbolic·RL ≈ floor (post-hoc only), LLM/agentic generate narrative rationale. *Applic.:* C1+.
-- *Requires:* rationale capture per decision; rationale-quality scorer for the H-rung (rubric or LLM-judge).
+- *Requires:* rationale capture per decision; the M-08 faithfulness scorer for the H-rung.
+
+**AN.02 — Nominal trend reporting** *(defined 2026-06-11, closes the AN × S1 gap)*
+- *Stimulus:* slow **sub-threshold** drift in a resource trend (e.g. battery charge-rate −0.2 %/cycle) that never crosses an alarm threshold within the episode.
+- *Metric / threshold / score:* test-local detection-and-report lead time \(t_{lead}\) — steps between the drift becoming statistically detectable and the architecture *reporting* it; pass = reported before episode end with \(t_{lead}\ge\theta\); \(s=\min(1,t_{lead}/\theta)\).
+- *Fidelity:* H (trend narration requires a live LLM). *Discriminates:* substrate trending/reporting — symbolic threshold rules **structurally cannot report what has not crossed a threshold** (floor); the *reporting* sibling of AU.03's *acting*. *Applic.:* C1+.
+- *Requires:* sub-threshold drift injection (AU.03's degradation mechanism at a gentler slope); report-event capture in traces.
 
 ### 5.5 Why this instrument is correct — and where it is incomplete (assumptions)
 
@@ -743,7 +767,7 @@ Each test carries: SSP-parametric **stimulus** · **metric / threshold / score**
 7. Metric-set minimality is provisional until the V3 pilot correlation check.
 8. SAL 0 (fully teleoperated) is not exercised (no such cell exists; CG is SAL 1); *Location* is only partially covered (FD.01).
 
-**Validation loop** (benchmarks are iterated, never derived correct): (1) design-time — V1 table, V3 hierarchy, V2 chains (this document); (2) external anchoring — crosswalk to flight-autonomy heritage: EO-1 Autonomous Sciencecraft (Chien 2005), CASPER continuous planning (Knight et al. 2001), JPL operations-for-autonomous-spacecraft (Castano et al. 2022); a flight-demonstrated capability with no test = gap, a test with no precedent = flagged novel; (3) expert content review by operations engineers (TUM chair / supervisor network); (4) post-pilot — V4 forward check, V3 correlation check, qualitative trace review for differences no metric registered. Changes follow the amendment rule (§5.6).
+**Validation loop** (benchmarks are iterated, never derived correct): (1) design-time — V1 table, V3 hierarchy, V2 chains, and a metric-by-metric literature re-audit (one primary anchor or redefinition per formula; M-08 first) (this document); (2) external anchoring — crosswalk to flight-autonomy heritage: EO-1 Autonomous Sciencecraft (Chien 2005), CASPER continuous planning (Knight et al. 2001), JPL operations-for-autonomous-spacecraft (Castano et al. 2022); a flight-demonstrated capability with no test = gap, a test with no precedent = flagged novel; (3) expert content review by operations engineers (TUM chair / supervisor network); (4) post-pilot — V4 forward check, V3 correlation check, qualitative trace review for differences no metric registered. Changes follow the amendment rule (§5.6).
 
 ### 5.6 Analysis protocol (pre-registered)
 
@@ -815,13 +839,14 @@ CG and AG score exactly zero on tests requiring onboard per-step response (AU.02
 | Collector | per-product value delivered/total | DP.02, M-12 |
 | Collector | requested-vs-resolved action per step | M-05 |
 | Collector | M-09 N/A guard (\(\mu_U\le\varepsilon\)) | M-09 |
+| Runner | **substrate-integrity invariant — no silent fallbacks**: an LLM cell whose call fails must fail the episode (no symbolic-fallback substitution); an RL cell evaluated without a trained checkpoint must refuse to run (training runs excepted); per-episode metadata records substrate authenticity (fallback count ≡ 0 for a valid episode) and the validity gate enforces it | V2 chain; all substrate contrasts |
 | Collector | proposed-action constraint evaluation (violation flag) + repeated-trial harness for \(pass^k\) | M-13 |
 | Collector | command / manual-intervention counts per mission-day (shares the MC.03 ledger) | M-14 |
 | Analysis | \(U_{max,theoretical}\) from orbital context | PL.01 |
-| Analysis | rationale-quality scorer (rubric / LLM-judge) | AN.01 H |
+| Analysis | M-08 faithfulness scorer: counterfactual probing + completeness check | M-08, AN.01 H |
 | Analysis | tradespace enumeration script (regenerates §2.1/§3.4 counts from the rule set) | §2, §3 |
 | Training | checkpoint saves at fixed fractions of the convergence budget (R2 rungs) + checkpoint library for warm-starts + learning-curve logging | §4.2–§4.3, Q6 |
-| Scenario | multi-satellite (Flamingo, N≤12) + ISL model + failure injection + cross-\(N\) harness | PL.04–07 |
+| Scenario | multi-satellite (Flamingo, N≤12) + ISL graph layer (E1 static ring · E2 link schedule · E3 complete graph; per-edge bandwidth/latency) + failure injection + cross-\(N\) harness | PL.04–07, MC.05, AU.07, R-ORG3 |
 
 **Anchors.** EventSat (SSP-04) first; Vyoma Flamingo (N≤12; activates the MAS organisations) and the large-scale (100+) RQ3 study widen surrogate coverage (§4).
 
@@ -883,4 +908,5 @@ Metric definitions live in **§5.2 of this document** (`docs/metrics.md` retired
 | Knight, Rabideau, Chien et al. (2001) — CASPER, IEEE Intelligent Systems (flight-heritage anchor) [Zotero `EMHWUCYG`] | — |
 | Castano et al. (2022) — Operations for Autonomous Spacecraft, IEEE Aerospace (flight-heritage anchor) [Zotero `2IJJ7ILS`] | https://doi.org/10.1109/AERO53065.2022.9843352 |
 | Yao et al. (2024) — τ-bench (M-13 anchor: domain-rule violation, pass^k) [Zotero `H98GZVYR`] | https://arxiv.org/abs/2406.12045 |
+| Doshi-Velez & Kim (2017) — Towards a Rigorous Science of Interpretable ML (M-08 faithfulness anchor) | https://arxiv.org/abs/1702.08608 |
 | autops-agentic-framework (branch: migrate/matrix-restructure) | https://github.com/clemenjuan/autops-agentic-framework |
