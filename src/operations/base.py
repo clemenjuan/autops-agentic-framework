@@ -127,11 +127,17 @@ class OperationsParadigm(ABC):
 
         real_ground_pass_active = False
         real_in_sunlight = False
+        real_lookahead: Dict[str, Any] = {}
         for sat in full_observation.constellation_state.satellites.values():
             if sat.metadata.get("ground_pass_active", False):
                 real_ground_pass_active = True
             if sat.metadata.get("in_sunlight", False):
                 real_in_sunlight = True
+            real_lookahead = {
+                k: sat.metadata.get(k)
+                for k in ("time_to_next_pass", "remaining_pass_duration",
+                          "following_gap_steps")
+            }
 
         self._ground_knowledge.staleness_steps = (
             step - self._ground_knowledge.last_update_step
@@ -154,7 +160,7 @@ class OperationsParadigm(ABC):
         }
 
         if real_ground_pass_active:
-            metadata["estimated_gap_steps"] = self._orbital_period_steps
+            metadata["estimated_gap_steps"] = self._estimated_gap_steps(real_lookahead)
 
         stale_sat = SatelliteState(
             satellite_id="eventsat_0",
@@ -203,6 +209,25 @@ class OperationsParadigm(ABC):
                 return {"eventsat_0": {"mode": mode}}, idx
             idx += 1
         return {"eventsat_0": {"mode": self._default_mode}}, idx
+
+    def _estimated_gap_steps(self, real_lookahead: Dict[str, Any]) -> int:
+        """Steps the next generated schedule must cover.
+
+        Pass prediction is deterministic ground-segment capability (orbit
+        propagation × station geometry; Sellmaier et al. 2022 §16.4) — the
+        contact plan is known days ahead, so the planner gets the TRUE gap,
+        not one orbital period. Pre-fix, the one-orbit default capped every
+        ground schedule at 93 steps inside 92–764-step real gaps.
+
+        Default (AG / AH ground slot): the schedule executes from the end of
+        the current pass to the start of the next one. ConventionalGround
+        overrides this (its schedule executes one pass later).
+        """
+        ttnp = real_lookahead.get("time_to_next_pass")
+        if ttnp is None:
+            return self._orbital_period_steps
+        remaining = real_lookahead.get("remaining_pass_duration") or 0
+        return max(1, int(ttnp) - int(remaining))
 
     def update_ground_knowledge(
         self,

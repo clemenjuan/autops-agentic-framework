@@ -697,7 +697,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         Gymnasium wrapper normalizes them to [0, 1].
 
         Returns dict with keys: orbital_phase, time_to_next_eclipse,
-        time_to_next_pass, remaining_pass_duration.
+        time_to_next_pass, remaining_pass_duration, following_gap_steps.
         """
         step = self.current_step
         orbital_period_steps = self.orbital_period_steps
@@ -705,24 +705,35 @@ class EventSatEnvironment(SatelliteEnvironment):
         # Orbital phase ∈ [0, 1): position within current orbit
         orbital_phase = (step % orbital_period_steps) / orbital_period_steps
 
+        following_gap_steps = orbital_period_steps
         if self._orbital_ctx is not None:
             # Eclipse lookahead
             # If currently in eclipse, next eclipse = next eclipse entry after current one
             time_to_next_eclipse = self._compute_time_to_next_event(step, self._orbital_ctx.eclipses)
 
             # Ground pass lookahead
+            future_passes = sorted(
+                (p for p in self._orbital_ctx.ground_passes if p.start_step > step),
+                key=lambda p: p.start_step,
+            )
             current_pass = self._orbital_ctx.get_current_pass(step)
             if current_pass is not None:
                 remaining_pass_duration = max(0, current_pass.end_step - step)
-                # Next pass starts after current pass ends
-                future_passes = [p for p in self._orbital_ctx.ground_passes if p.start_step > step]
                 time_to_next_pass = (
-                    min(p.start_step - step for p in future_passes)
+                    future_passes[0].start_step - step
                     if future_passes else orbital_period_steps
                 )
             else:
                 remaining_pass_duration = 0
                 time_to_next_pass = self._compute_time_to_next_event(step, self._orbital_ctx.ground_passes)
+            # Gap AFTER the next contact (next-pass end → subsequent-pass start):
+            # the window a schedule uploaded at the next pass actually covers.
+            # Pass prediction is deterministic ground-segment capability, so
+            # ConventionalGround's one-pass-delayed planner may know it.
+            if len(future_passes) >= 2:
+                following_gap_steps = max(
+                    1, future_passes[1].start_step - future_passes[0].end_step
+                )
         else:
             # _orbital_ctx is None only before the first reset(); return safe defaults
             time_to_next_eclipse = orbital_period_steps
@@ -734,6 +745,7 @@ class EventSatEnvironment(SatelliteEnvironment):
             "time_to_next_eclipse": time_to_next_eclipse,
             "time_to_next_pass": time_to_next_pass,
             "remaining_pass_duration": remaining_pass_duration,
+            "following_gap_steps": following_gap_steps,
         }
 
     def _generate_tasks(self, in_sun, pass_active):

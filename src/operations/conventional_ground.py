@@ -43,11 +43,14 @@ class ConventionalGround(OperationsParadigm):
     On cold start (first pass), no prior schedule exists — the satellite
     remains in default_mode until the second pass.
 
-    Two internal schedule buffers:
-        _active_schedule:  Currently being executed by the satellite.
-                           Loaded from _planned_schedule at each pass start.
-        _planned_schedule: Prepared by the representation from the latest
-                           telemetry. Promoted to active at the next pass.
+    Three internal schedule buffers:
+        _active_schedule:   Currently being executed by the satellite.
+        _planned_schedule:  Prepared by the representation from the latest
+                            telemetry; staged for uplink at the next pass.
+        _upload_candidate:  Staged during the current pass; promoted to active
+                            only once the comm link is established
+                            (update_ground_knowledge), returned to planned if
+                            the pass ends without a link.
 
     Config options:
         default_mode: Mode when no active schedule exists (default: "charging")
@@ -64,9 +67,28 @@ class ConventionalGround(OperationsParadigm):
         # Planned schedule: prepared by representation, waiting for next pass
         self._planned_schedule: Optional[List[List]] = None
 
+        # Schedule staged for uplink during the current pass. Promotion to
+        # active happens only once the comm link is actually established
+        # (update_ground_knowledge fires) — a pass too short for the ADCS to
+        # settle into communication mode transfers nothing in either direction.
+        self._upload_candidate: Optional[List[List]] = None
+
         # Track pass transitions to detect pass start
         self._last_pass_active: bool = False
         self._pass_upload_done: bool = False
+
+    def _estimated_gap_steps(self, real_lookahead: Dict[str, Any]) -> int:
+        """CG plans for the gap its schedule will ACTUALLY cover.
+
+        The schedule generated at pass N uplinks at pass N+1 and executes from
+        the end of pass N+1 to the start of pass N+2 — the *following* gap,
+        which the contact plan predicts deterministically (Sellmaier et al.
+        2022 §16.4). Falls back to one orbital period when unavailable.
+        """
+        following = real_lookahead.get("following_gap_steps")
+        if following is None:
+            return super()._estimated_gap_steps(real_lookahead)
+        return max(1, int(following))
 
     def filter_observation(self, full_observation: Any, step: int) -> Any:
         return self._stale_ground_observation(full_observation, step)
@@ -108,10 +130,12 @@ class ConventionalGround(OperationsParadigm):
         if ground_pass_active:
             # Detect pass start (transition from no-pass → pass)
             if not self._last_pass_active:
-                # Pass just started: promote planned → active (upload to satellite)
+                # Pass just started: stage planned schedule for uplink. Actual
+                # promotion waits for the comm link (update_ground_knowledge) —
+                # uplinking over a link that was never established is the bug
+                # observed at step 3441 of the 2026-06-12 CG probe trace.
                 if self._planned_schedule is not None:
-                    self._active_schedule = self._planned_schedule
-                    self._active_index = 0
+                    self._upload_candidate = self._planned_schedule
                     self._planned_schedule = None
                 # else: cold start, no schedule to upload; active remains as-is
                 self._pass_upload_done = False
@@ -133,8 +157,27 @@ class ConventionalGround(OperationsParadigm):
             return {"eventsat_0": {"mode": "communication"}}
 
         # Between passes
+        if self._last_pass_active and self._upload_candidate is not None:
+            # Pass ended without the link ever being established (e.g. ADCS
+            # settling swallowed a 1–2-step pass): nothing was transferred.
+            # The ops team still holds the schedule — retry at the next contact.
+            self._planned_schedule = self._upload_candidate
+            self._upload_candidate = None
         self._last_pass_active = False
         return self._consume_active_schedule()
+
+    def update_ground_knowledge(self, full_observation: Any, step: int) -> None:
+        """Telemetry downlink — which also proves the uplink path is up.
+
+        The runner calls this only when the satellite actually reached
+        communication mode during a pass, so this is the moment the staged
+        schedule is genuinely transferred to the spacecraft.
+        """
+        super().update_ground_knowledge(full_observation, step)
+        if self._upload_candidate is not None:
+            self._active_schedule = self._upload_candidate
+            self._active_index = 0
+            self._upload_candidate = None
 
     def _consume_active_schedule(self) -> Dict[str, Any]:
         action, self._active_index = self._consume_schedule_list(
@@ -147,5 +190,6 @@ class ConventionalGround(OperationsParadigm):
         self._active_schedule = []
         self._active_index = 0
         self._planned_schedule = None
+        self._upload_candidate = None
         self._last_pass_active = False
         self._pass_upload_done = False

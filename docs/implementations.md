@@ -545,10 +545,20 @@ paradigms carry no overhead.
 - **Key consequence — ONE-PASS DELAY**: The schedule executing between passes N and
   N+1 was planned based on telemetry from pass N-1 (two states ago). This is a
   fundamental constraint of conventional ground operations, not a tunable parameter.
-- **Two-buffer model**:
-  - `_active_schedule`: Currently being executed by the satellite (uploaded at last pass).
+- **Three-buffer model** (link-gated uplink, 2026-06-12):
+  - `_active_schedule`: Currently being executed by the satellite (uplinked at last pass).
   - `_planned_schedule`: Prepared by the representation after latest telemetry.
-    Promoted to `_active_schedule` at the START of the next pass.
+  - `_upload_candidate`: Staged at pass start; promoted to `_active_schedule` only
+    when the comm link is actually established (`update_ground_knowledge`, i.e. the
+    runner's resolved-communication signal — same gate as telemetry downlink). A pass
+    shorter than ADCS settling transfers nothing; the candidate returns to
+    `_planned_schedule` for the next contact.
+- **Planning horizon**: `estimated_gap_steps` = the **following gap** (next-pass end →
+  subsequent-pass start) from the environment pass table — the window this schedule
+  will actually cover given the one-pass delay. AG/AH-ground get the **next** gap
+  (current-pass end → next-pass start). Pass prediction is deterministic FDS
+  capability (Sellmaier et al. 2022 §16.4); the previous one-orbit constant (93)
+  capped every ground schedule inside 92–764-step real gaps.
 - **Cold start**: At the first pass, no prior schedule exists — satellite stays in
   `default_mode` until the second pass provides the first uploadable schedule.
 - **pass_upload_done**: Ensures only the first schedule during a multi-step pass is

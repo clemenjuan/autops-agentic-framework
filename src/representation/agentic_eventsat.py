@@ -103,7 +103,10 @@ class AgenticEventSat(Representation):
     no-pass→no-comms).
     """
 
-    DEFAULT_MAX_STEPS: int = 3
+    # 5 tool/reflect calls before the forced Decide step (user decision
+    # 2026-06-12): at 3 the first live 122B run rode the budget to exhaustion
+    # on 66 % of steps — the model wants 3-4 tool calls before committing.
+    DEFAULT_MAX_STEPS: int = 5
     _TRAINED_PROMPTS_DIR: str = "data/trained_prompts"
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
