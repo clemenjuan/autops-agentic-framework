@@ -21,9 +21,9 @@ OUT = Path("data/figures/results_board.html")
 MEASURED = {
     "eventsat_sas_sda_symb_hd_ao":  ("A1|B1|C1|D1|E0", "AO|sym",         "valid",   "100 episodes"),
     "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes"),
-    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "running", "planner re-plan fix landed (fd8b05e) — 100-episode rerun in flight"),
-    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "running", "same fix — 100-episode rerun in flight"),
-    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "gated at B1 (R-COMPUTE1) — result informs B2+; rerun in flight"),
+    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "valid",   "100 episodes — after the planner re-plan fix (was U≈0 pre-fix)"),
+    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "invalid", "re-plans correctly post-fix, but the human-constraint parameterization yields observation-free schedules — under investigation"),
+    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "1 episode verified clean (ep0: 1440 steps, real 122B, zero fallbacks); ep1 excluded (7 fallback decisions in server outage); more episodes in flight. Informs B2+ per R-COMPUTE1."),
     "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "running", "gated at B1 (R-COMPUTE2) — informs B3+; rerun in flight"),
     "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
     "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
@@ -352,12 +352,20 @@ const aoR = cellState("A1|B1|C1|D1|E0","AO|sym"), ahR = cellState("A1|B1|C1|D1|E
 if (aoR && ahR){
   const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
   const diffs = [...Array(k)].map((_,i)=>ahR.per_ep_utility[i]-aoR.per_ep_utility[i]).filter(v=>v!=null);
+  const mu = diffs.reduce((a,b)=>a+b,0)/diffs.length;
+  const wins = diffs.filter(v=>v>0).length;
   Plotly.newPlot("paired", [
-   {x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}, name:"AH − AO per episode"},
-   {x:[0,0], y:[0,18], mode:"lines", line:{color:"#a13026", dash:"dash"}, name:"no effect"}],
+   {x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}}],
    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
-    xaxis:{title:"paired utility difference (AH − AO), shared seeds", gridcolor:"#eee"},
-    yaxis:{title:"episodes", gridcolor:"#eee"}, showlegend:false, margin:{t:10,b:50,l:55,r:10}});
+    xaxis:{title:"per-orbit utility gain from adding the ground plan (AH − AO, same 100 orbits)", gridcolor:"#eee"},
+    yaxis:{title:"orbits", gridcolor:"#eee"}, showlegend:false, margin:{t:34,b:50,l:55,r:10},
+    shapes:[{type:"line", x0:0, x1:0, yref:"paper", y0:0, y1:1, line:{color:"#a13026", dash:"dash"}},
+            {type:"line", x0:mu, x1:mu, yref:"paper", y0:0, y1:0.92, line:{color:"#9a6200", width:2}}],
+    annotations:[
+     {x:0, yref:"paper", y:1.04, text:"no benefit", showarrow:false, font:{color:"#a13026", size:12}},
+     {x:mu, yref:"paper", y:0.98, text:`mean gain ${mu.toFixed(2)}`, showarrow:false, font:{color:"#9a6200", size:12}},
+     {xref:"paper", x:0.98, yref:"paper", y:0.85, text:`ground plan better in ${wins}/${diffs.length} orbits →`,
+      showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
 }
 // ---- 7: episode inspector
 const T = P.telemetry, tids = Object.keys(T);
