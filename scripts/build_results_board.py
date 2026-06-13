@@ -12,10 +12,26 @@ Usage:  uv run python scripts/build_results_board.py
 from __future__ import annotations
 
 import json
+import re
 import statistics as st
 from pathlib import Path
 
 EXTRACT = Path("data/figures/extract.json")
+
+
+def _episode_steps(rid: str) -> int | None:
+    """Episode length (steps) for a run, head-streamed from its config so we
+    never load the multi-GB pre-compaction results.json. config.max_steps sits
+    in the first KB; fall back to episodes[0].num_steps via a wider read."""
+    p = Path(f"data/results/{rid}/results.json")
+    if not p.exists():
+        return None
+    head = p.open(encoding="utf-8").read(200_000)
+    m = re.search(r'"max_steps":\s*(\d+)', head)
+    if m:
+        return int(m.group(1))
+    m = re.search(r'"num_steps":\s*(\d+)', head)
+    return int(m.group(1)) if m else None
 OUT = Path("data/figures/results_board.html")
 
 # run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
@@ -94,6 +110,7 @@ def main() -> None:
         d = data.get(rid, {})
         cells.setdefault(ssp, {})[cell] = {
             "id": rid, "status": status, "note": note, "n": d.get("n", 0),
+            "steps": _episode_steps(rid),
             "mean": {k: d.get("mean", {}).get(k) for k in VALUE_KEYS},
             "per_ep_utility": d.get("per_ep", {}).get("utility", []),
         }
@@ -164,6 +181,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 
 <section>
  <h2>3&emsp;Results — EventSat (A1 anchor)</h2>
+ <div class="caption" id="res-prov"></div>
  <div class="twocol">
   <div id="gradient" class="plot" style="height:330px"></div>
   <div id="cognition" class="plot" style="height:330px"></div>
@@ -407,6 +425,18 @@ if (aoR && ahR){
     return (r&&r.status==="valid")?{nm,r}:null; }).filter(Boolean);
   const xs = rows.map(d=>d.nm);
 
+  // provenance — n and episode length (exposes the symbolic/LLM episode mismatch)
+  if (rows.length){
+    const S = rows[0].r.steps, N = rows[0].r.n;
+    const dd = S ? S*60/86400 : null;
+    const days = dd!=null ? (dd%1 ? dd.toFixed(1) : dd.toFixed(0)) : null;
+    document.getElementById("res-prov").innerHTML =
+      `Bars: mean &plusmn; 95% CI over <b>n = ${N} episodes</b> of <b>${S?S.toLocaleString():"—"} steps</b>`+
+      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)` : "")+`, shared launch-lottery seeds. `+
+      `Mission utility is target-normalised, so comparable across episode lengths; observation time and `+
+      `delivered data are per-episode absolutes (symbolic anchors only — the LLM cell ran a shorter episode).`;
+  }
+
   // 3a — mission utility by paradigm (mean ± 95% CI)
   if (rows.length){
     Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.utility),
@@ -415,10 +445,12 @@ if (aoR && ahR){
       LAY("operations paradigm", "mission utility"), {displayModeBar:false});
   }
 
-  // 3b — decision latency vs mission utility (log x; one marker per architecture)
+  // 3b — decision latency vs mission utility (log x; one marker per architecture).
+  // Includes the LLM cell — utility is normalised so this axis is fair; the
+  // legend carries each cell's n so the thin LLM sample is explicit.
   const cog = Object.entries(P.cells[A1]||{})
     .filter(([,r])=>r.status==="valid" && r.mean.utility!=null && r.mean.mean_latency_s>0)
-    .map(([ck,r],i)=>({nm:ck.replaceAll("|","·"), x:r.mean.mean_latency_s, y:r.mean.utility}));
+    .map(([ck,r],i)=>({nm:`${ck.replaceAll("|","·")} (n=${r.n})`, x:r.mean.mean_latency_s, y:r.mean.utility}));
   if (cog.length){
     Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
       x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
