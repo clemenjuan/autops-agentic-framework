@@ -818,8 +818,14 @@ class ExperimentRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         results_file = self.output_dir / "results.json"
 
-        # Remove non-serialisable observation objects from step data
-        serialisable = self._make_serialisable(results)
+        # results.json is the compact, experiment-level artifact. Strip the raw
+        # per-step payloads (multi-GB constellation_state snapshots + per-step
+        # metric lists) before serialising — they live only in
+        # decisions_ep*.jsonl (DEBUG). Keeps experiment_statistics and per-episode
+        # AGGREGATED metrics. See _strip_per_step_data.
+        serialisable = self._make_serialisable(
+            self._strip_per_step_data(results)
+        )
 
         with open(results_file, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
@@ -846,9 +852,68 @@ class ExperimentRunner:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_file = checkpoint_dir / f"episode_{episode_id:04d}.json"
 
-        serialisable = self._make_serialisable(episode_result)
+        serialisable = self._make_serialisable(
+            self._strip_episode_for_disk(episode_result)
+        )
         with open(checkpoint_file, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
+
+    @staticmethod
+    def _strip_episode_for_disk(episode: Dict[str, Any]) -> Dict[str, Any]:
+        """Drop raw per-step payloads from one episode result dict.
+
+        Removes the multi-GB raw observation snapshots (``steps`` — each entry
+        carries a full ``ConstellationState`` with every satellite's metadata)
+        and the per-step metric list (``episode_metrics.step_metrics``), keeping
+        only the per-episode AGGREGATED metrics. The full per-step trace lives
+        only in ``decisions_ep*.jsonl`` (written when ``log_level == DEBUG``).
+        """
+        out = {k: v for k, v in episode.items() if k != "steps"}
+        em = out.get("episode_metrics")
+        if (
+            em is not None
+            and dataclasses.is_dataclass(em)
+            and not isinstance(em, type)
+        ):
+            out["episode_metrics"] = dataclasses.replace(em, step_metrics=[])
+        return out
+
+    @staticmethod
+    def _strip_per_step_data(results: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of the full results with raw per-step data removed.
+
+        results.json is the compact, experiment-level artifact: experiment_id,
+        config, timestamp, num_episodes, experiment_statistics and per-episode
+        AGGREGATED metrics. Raw per-step observation/state snapshots are excluded
+        by design — they balloon the file to multi-GB and merely duplicate the
+        per-step ``decisions_ep*.jsonl`` trace (see scripts/recompute_metrics.py,
+        which reads that trace, not this file). Three leak sites are pruned:
+
+        1. ``episodes[].steps`` — raw ``ConstellationState`` observation dumps.
+        2. ``episodes[].episode_metrics.step_metrics`` — per-step scalar list.
+        3. ``experiment_statistics.raw_episodes[].step_metrics`` — same list again.
+        """
+        out = dict(results)
+
+        stats = out.get("experiment_statistics")
+        if (
+            stats is not None
+            and dataclasses.is_dataclass(stats)
+            and not isinstance(stats, type)
+        ):
+            out["experiment_statistics"] = dataclasses.replace(
+                stats,
+                raw_episodes=[
+                    dataclasses.replace(em, step_metrics=[])
+                    for em in stats.raw_episodes
+                ],
+            )
+
+        out["episodes"] = [
+            ExperimentRunner._strip_episode_for_disk(ep)
+            for ep in out.get("episodes", [])
+        ]
+        return out
 
     @staticmethod
     def _make_serialisable(obj: Any) -> Any:
