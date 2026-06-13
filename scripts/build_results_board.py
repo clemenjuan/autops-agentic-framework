@@ -36,10 +36,10 @@ OUT = Path("data/figures/results_board.html")
 
 # run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
 MEASURED = {
-    "eventsat_sas_sda_symb_hd_ao":  ("A1|B1|C1|D1|E0", "AO|sym",         "valid",   "100 episodes"),
-    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes; ground-model fix (787857f) verified neutral on this anchor"),
-    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "valid",   "100 episodes. Ground-segment fix (787857f: true pass-table horizon) verified NEUTRAL — AG ep0 utility bit-identical pre/post (3.591369). The horizon was never the binding constraint (battery/OBC/27MB-budget gating saturates first); the longer gap becomes trailing charging. Robustness result, not a regression."),
-    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "valid",   "100 episodes, U=2.99 — the conventional-ops anchor. The 'observation-free' exclusion was FALSIFIED (2026-06-12): CG does ~2 obs/gap (its own max_observations cap, matching real-LEO 1-3/gap). Construct fixes landed (787857f: plans the true FOLLOWING gap given one-pass delay; link-gated uplink) and verified neutral on A1."),
+    "eventsat_sas_sda_symb_hd_ao_1d":  ("A1|B1|C1|D1|E0", "AO|sym",      "valid",   "100 episodes × 1440 steps (1 day) — matched to the LLM cell's episode length for a fair substrate comparison. (7-day run retained off-board.)"),
+    "eventsat_sas_sda_symb_hd_ah_1d":  ("A1|B1|C1|D1|E0", "AH|sym|sym",  "valid",   "100 episodes × 1440 steps (1 day), matched to the LLM cell."),
+    "eventsat_sas_sda_symb_hd_ag_1d":  ("A1|B1|C1|D1|E0", "AG|sym",      "valid",   "100 episodes × 1440 steps (1 day), matched to the LLM cell."),
+    "eventsat_sas_sda_symb_hd_cg_1d":  ("A1|B1|C1|D1|E0", "CG|sym",      "valid",   "100 episodes × 1440 steps (1 day). NB: at a 1-day segment CG sees only a few passes and its one-pass planning delay dominates (cold-start) → lower than its 7-day value; matched length for the LLM comparison."),
     "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 of 3 episodes verified clean (ep0+ep2: 1440 steps each, real 122B, full-trace screen, zero fallbacks). ep1 excluded: 14 symbolic-fallback decisions during the 2026-06-12 Ollama 504 storm — the run process predated fallback-removal commit ec1b83b, so the silent-fallback path was still live. Informs B2+ per R-COMPUTE1."),
     "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "invalid", "queue3 rerun EXCLUDED: 474/720 decisions (66%) were silent symbolic fallbacks — the agentic loop rode its 3-call budget without ever deciding (fixed in 6866ab5: forced Decide step + loud failure). Rerun on fixed code queued (queue4). Informs B3+ per R-COMPUTE2."),
     "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
@@ -114,8 +114,8 @@ def main() -> None:
             "mean": {k: d.get("mean", {}).get(k) for k in VALUE_KEYS},
             "per_ep_utility": d.get("per_ep", {}).get("utility", []),
         }
-    ao = [v for v in data["eventsat_sas_sda_symb_hd_ao"]["per_ep"]["utility"] if v is not None]
-    ah = [v for v in data["eventsat_sas_sda_symb_hd_ah"]["per_ep"]["utility"] if v is not None]
+    ao = [v for v in data["eventsat_sas_sda_symb_hd_ao_1d"]["per_ep"]["utility"] if v is not None]
+    ah = [v for v in data["eventsat_sas_sda_symb_hd_ah_1d"]["per_ep"]["utility"] if v is not None]
     n = min(len(ao), len(ah))
     tele_path = Path("data/figures/telemetry.json")
     telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
@@ -420,29 +420,33 @@ if (aoR && ahR){
   const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
     const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
   const peps = r => (r.per_ep_utility||[]).filter(v=>v!=null);
-  const ladder = [["CG|sym","CG"],["AG|sym","AG"],["AO|sym","AO"],["AH|sym|sym","AH"]];
-  const rows = ladder.map(([ck,nm])=>{ const r=cellState(A1,ck);
-    return (r&&r.status==="valid")?{nm,r}:null; }).filter(Boolean);
-  const xs = rows.map(d=>d.nm);
+  // Symbolic paradigm ladder + the LLM onboard cell, all at the matched 1-day
+  // length. 'llm' rows are coloured distinctly.
+  const ladder = [["CG|sym","CG","sym"],["AG|sym","AG","sym"],["AO|sym","AO","sym"],
+                  ["AH|sym|sym","AH","sym"],["AH|llm_re|sym","AH·LLM","llm"]];
+  const rows = ladder.map(([ck,nm,sub])=>{ const r=cellState(A1,ck);
+    return (r&&r.status==="valid")?{nm,r,sub}:null; }).filter(Boolean);
+  const LLMC = "#D55E00";
+  const xs = rows.map(d=>`${d.nm}<br><span style="font-size:10px;color:#888">n=${d.r.n}</span>`);
+  const cols = rows.map(d=>d.sub==="llm"?LLMC:BAR);
 
-  // provenance — n and episode length (exposes the symbolic/LLM episode mismatch)
+  // provenance — episode length + per-bar n (symbolic n=100, LLM n=2)
   if (rows.length){
-    const S = rows[0].r.steps, N = rows[0].r.n;
-    const dd = S ? S*60/86400 : null;
+    const S = rows[0].r.steps, dd = S ? S*60/86400 : null;
     const days = dd!=null ? (dd%1 ? dd.toFixed(1) : dd.toFixed(0)) : null;
     document.getElementById("res-prov").innerHTML =
-      `Bars: mean &plusmn; 95% CI over <b>n = ${N} episodes</b> of <b>${S?S.toLocaleString():"—"} steps</b>`+
-      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)` : "")+`, shared launch-lottery seeds. `+
-      `Mission utility is target-normalised, so comparable across episode lengths; observation time and `+
-      `delivered data are per-episode absolutes (symbolic anchors only — the LLM cell ran a shorter episode).`;
+      `All cells at a matched <b>${S?S.toLocaleString():"—"}-step</b> episode`+
+      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)` : "")+`, shared launch-lottery seeds; `+
+      `n per bar. Bars show mean &plusmn; 95% CI. Utility is target-normalised; note that a 1-day `+
+      `segment starts on a full battery, so absolute levels run higher than a full-week mission.`;
   }
 
-  // 3a — mission utility by paradigm (mean ± 95% CI)
+  // 3a — mission utility (mean ± 95% CI); LLM cell in orange
   if (rows.length){
     Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.utility),
       error_y:{type:"data", array:rows.map(d=>ci95(peps(d.r))), visible:true, color:"#333", thickness:1.3, width:5},
-      marker:{color:BAR}, width:0.6}],
-      LAY("operations paradigm", "mission utility"), {displayModeBar:false});
+      marker:{color:cols}, width:0.62}],
+      LAY("architecture", "mission utility"), {displayModeBar:false});
   }
 
   // 3b — decision latency vs mission utility (log x; one marker per architecture).
@@ -460,18 +464,18 @@ if (aoR && ahR){
            margin:{t:12,b:60,l:70,r:16}}), {displayModeBar:false});
   }
 
-  // 3c — observation time by paradigm
+  // 3c — observation time (matched 1-day episode; LLM cell in orange)
   if (rows.length){
     Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.observation_hours),
-      marker:{color:BAR}, width:0.6}],
-      LAY("operations paradigm", "observation time (h / episode)"), {displayModeBar:false});
+      marker:{color:cols}, width:0.62}],
+      LAY("architecture", "observation time (h / episode)"), {displayModeBar:false});
   }
 
-  // 3d — delivered data by paradigm
+  // 3d — delivered data (matched 1-day episode; LLM cell in orange)
   if (rows.length){
     Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.downlinked_mb),
-      marker:{color:BAR}, width:0.6}],
-      LAY("operations paradigm", "delivered data (MB / episode)"), {displayModeBar:false});
+      marker:{color:cols}, width:0.62}],
+      LAY("architecture", "delivered data (MB / episode)"), {displayModeBar:false});
   }
 })();
 
