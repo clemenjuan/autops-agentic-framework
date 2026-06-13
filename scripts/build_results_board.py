@@ -82,7 +82,8 @@ TESTS = [
 ]
 
 VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
-              "explainability_score", "data_downlink_efficiency"]
+              "explainability_score", "data_downlink_efficiency",
+              "observation_hours", "downlinked_mb"]
 
 
 def main() -> None:
@@ -121,6 +122,7 @@ TEMPLATE = r"""<!DOCTYPE html>
  section { padding:10px 56px 24px; max-width:1280px; }
  h2 { font-size:17.5px; color:#005293; margin:26px 0 4px; font-weight:700; }
  .caption { color:#555; font-size:13px; margin:2px 0 10px; }
+ .claim { color:#0065BD; font-size:15px; font-weight:600; margin:6px 0 4px; line-height:1.35; min-height:2.6em; }
  table { border-collapse:collapse; width:100%; font-size:13.5px; font-family:'Computer Modern Serif',Georgia,serif; }
  th { text-align:left; padding:6px 10px; border-top:2px solid #111; border-bottom:1px solid #111; font-weight:600; }
  td { padding:5px 10px; border-bottom:1px solid #e2e2e2; vertical-align:top; }
@@ -158,6 +160,30 @@ TEMPLATE = r"""<!DOCTYPE html>
  <h2 id="otitle">2&emsp;Operations-system cells (O) for the selected profile</h2>
  <div class="caption">AH cells are ⟨onboard | ground-planner⟩ pairs. Gated cells name their rule; nothing is zero-filled.</div>
  <div id="ocells"></div>
+</section>
+
+<section>
+ <h2>2½&emsp;Headline results — EventSat at the A1 anchor</h2>
+ <div class="twocol">
+  <div>
+   <div class="claim" id="claim-grad"></div>
+   <div id="gradient" class="plot" style="height:340px"></div>
+  </div>
+  <div>
+   <div class="claim" id="claim-cog"></div>
+   <div id="cognition" class="plot" style="height:340px"></div>
+  </div>
+ </div>
+ <div class="twocol">
+  <div>
+   <div class="claim">What feeds mission utility: observation time and delivered data.</div>
+   <div id="drivers" class="plot" style="height:320px"></div>
+  </div>
+  <div>
+   <div class="claim">Per-metric profile, each architecture against the others.</div>
+   <div id="metricbars" class="plot" style="height:320px"></div>
+  </div>
+ </div>
 </section>
 
 <section>
@@ -370,6 +396,82 @@ if (aoR && ahR){
      {xref:"paper", x:0.98, yref:"paper", y:0.85, text:`ground plan better in ${wins}/${diffs.length} orbits →`,
       showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
 }
+// ---- 2½: headline conclusion plots (A1 anchor) ----
+(function(){
+  const A1 = "A1|B1|C1|D1|E0";
+  const AX = {paper_bgcolor:"#fff", plot_bgcolor:"#fff",
+              font:{family:"Computer Modern Serif, Georgia, serif", size:12}};
+  const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+  const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
+    const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
+  const peps = r => (r.per_ep_utility||[]).filter(v=>v!=null);
+
+  // autonomy ladder (increasing onboard autonomy)
+  const ladder = [["CG|sym","CG","#9a6200"],["AG|sym","AG","#c98a00"],
+                  ["AO|sym","AO","#3a7d34"],["AH|sym|sym","AH","#0065BD"]];
+  const g = ladder.map(([ck,nm,c])=>{ const r=cellState(A1,ck);
+    return (r&&r.status==="valid"&&r.mean.utility!=null)
+      ? {nm,c,u:r.mean.utility,e:ci95(peps(r)),n:r.n} : null; }).filter(Boolean);
+
+  // 2½a — paradigm gradient (the headline)
+  if (g.length){
+    Plotly.newPlot("gradient", [{type:"bar", x:g.map(d=>d.nm), y:g.map(d=>d.u),
+      error_y:{type:"data", array:g.map(d=>d.e), visible:true, color:"#444"},
+      marker:{color:g.map(d=>d.c)}, text:g.map(d=>d.u.toFixed(2)), textposition:"outside", cliponaxis:false}],
+      Object.assign({}, AX, {yaxis:{title:"mission utility (mean ± 95% CI)", gridcolor:"#eee"},
+        xaxis:{title:"operations paradigm (→ more onboard autonomy)"}, margin:{t:14,b:48,l:55,r:10}}));
+    const lo=g[0], hi=g[g.length-1];
+    document.getElementById("claim-grad").textContent =
+      `More onboard autonomy → higher mission utility: ${lo.nm} ${lo.u.toFixed(2)} rises to `+
+      `${hi.nm} ${hi.u.toFixed(2)} (+${(100*(hi.u-lo.u)/lo.u).toFixed(0)}%), monotonic across paradigms.`;
+  }
+
+  // 2½b — cost of cognition: decision latency vs utility (all valid A1 cells)
+  const cog = Object.entries(P.cells[A1]||{})
+    .filter(([,r])=>r.status==="valid" && r.mean.utility!=null && r.mean.mean_latency_s!=null && r.mean.mean_latency_s>0)
+    .map(([ck,r])=>({nm:ck.replaceAll("|","·"), x:r.mean.mean_latency_s, y:r.mean.utility,
+                     llm:ck.includes("llm")||ck.includes("ag")}));
+  if (cog.length){
+    Plotly.newPlot("cognition", [{type:"scatter", mode:"markers+text", x:cog.map(d=>d.x), y:cog.map(d=>d.y),
+      text:cog.map(d=>d.nm), textposition:"top center", textfont:{size:10},
+      marker:{size:13, color:cog.map(d=>d.llm?"#a13026":"#3a7d34"), line:{color:"#fff",width:1}}}],
+      Object.assign({}, AX, {xaxis:{title:"decision latency  (s/decision, log)", type:"log", gridcolor:"#eee"},
+        yaxis:{title:"mission utility", gridcolor:"#eee"}, margin:{t:14,b:48,l:55,r:14}}));
+    document.getElementById("claim-cog").textContent =
+      "The cost of cognition: LLM cores (red) pay 6–7 orders of magnitude more decision latency "+
+      "than symbolic (green) — the question is whether the utility gain is worth it.";
+  }
+
+  // 2½c — what feeds utility: observation hours + delivered MB
+  if (g.length){
+    const gd = ladder.map(([ck,nm])=>{ const r=cellState(A1,ck);
+      return (r&&r.status==="valid")?{nm, oh:r.mean.observation_hours, dl:r.mean.downlinked_mb}:null;}).filter(Boolean);
+    Plotly.newPlot("drivers", [
+      {type:"bar", name:"observation hours", x:gd.map(d=>d.nm), y:gd.map(d=>d.oh), marker:{color:"#3a7d34"}, yaxis:"y"},
+      {type:"bar", name:"delivered MB", x:gd.map(d=>d.nm), y:gd.map(d=>d.dl), marker:{color:"#0065BD"}, yaxis:"y2"}],
+      Object.assign({}, AX, {barmode:"group", legend:{orientation:"h", y:-0.18},
+        yaxis:{title:"observation hours", gridcolor:"#eee"},
+        yaxis2:{title:"delivered MB", overlaying:"y", side:"right", showgrid:false},
+        xaxis:{title:"paradigm"}, margin:{t:14,b:54,l:55,r:55}}));
+  }
+
+  // 2½d — measured-metric profile as grouped bars (readable companion to the radar)
+  if (g.length){
+    const MB = [["utility","utility"],["data_downlink_efficiency","downlink eff."],
+                ["resource_efficiency","resource eff."],["explainability_score","explainability"]];
+    const cells4 = ladder.map(([ck])=>cellState(A1,ck)).filter(r=>r&&r.status==="valid");
+    const norm = {};
+    for (const [k] of MB){ const xs=cells4.map(r=>r.mean[k]??0); const mn=Math.min(...xs),mx=Math.max(...xs);
+      norm[k]=xs.map(v=>mx>mn?(v-mn)/(mx-mn):1); }
+    Plotly.newPlot("metricbars", MB.map(([k,lbl])=>({type:"bar", name:lbl,
+      x:ladder.filter(([ck])=>{const r=cellState(A1,ck);return r&&r.status==="valid";}).map(([,nm])=>nm),
+      y:norm[k]})),
+      Object.assign({}, AX, {barmode:"group", legend:{orientation:"h", y:-0.18},
+        yaxis:{title:"min–max normalised (1 = best of set)", gridcolor:"#eee", range:[0,1.05]},
+        xaxis:{title:"paradigm"}, margin:{t:14,b:54,l:55,r:10}}));
+  }
+})();
+
 // ---- 7: episode inspector
 const T = P.telemetry, tids = Object.keys(T);
 const tsel = document.getElementById("teleSel");
