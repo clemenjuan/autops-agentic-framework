@@ -421,8 +421,9 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
      If even that yields no valid mode, the episode **fails** (substrate-integrity
      invariant — agentic sibling of `ec1b83b`; no symbolic substitution).
   5. GROUND: Same symbolic safety constraints as llm_eventsat.
-- **Max LLM calls per decision**: `max_agentic_steps` (default 3, configurable in YAML)
-  + at most 1 forced-decide call.
+- **Max LLM calls per decision**: `max_agentic_steps` (default **5**, configurable in YAML)
+  + at most 1 forced-decide call. Raised from 3 on 2026-06-12 (`6866ab5`): the first
+  live 122B run rode the 3-call budget to exhaustion on 66 % of steps without deciding.
 - **Domain tools** (6):
   - `check_battery`: SoC, charging rate, feasible modes.
   - `check_ground_pass`: Pass active, time to next, remaining duration, OBC data.
@@ -454,8 +455,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   reasoning quality, not a deployable onboard configuration. AH configs model ideal
   onboard reasoning; AG/CG configs model ground-based inference.
 - **ReAct amplification**: ReAct outer loop (max 3 iterations) × agentic inner loop
-  (max 3 steps) = up to 9 LLM calls per decision step. Cost-controlled via
-  `max_agentic_steps` config (recommend 2 for ReAct experiments).
+  (max 5 steps + 1 forced-decide call) = up to 18 LLM calls per decision step.
+  Cost-controlled via `max_agentic_steps` (lower it for ReAct experiments).
 - **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
   `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
 - **Learned-emergence variants** (Phase 5):
@@ -503,9 +504,13 @@ paradigms carry no overhead.
   `onboard_authoritative=True` makes onboard always win (ablation knob).
 - **Metrics**: `onboard_overrides`, `onboard_override_rate` (per-episode, in `paradigm_metrics`).
 - **`has_onboard_autonomy()=True`** (Jetson overhead). **Anomaly recovery**: onboard FDIR.
-- **Note**: hybrid AH onboard is the subsymbolic per-step core; its ground planner is currently the
-  `*_scheduler` placeholder, so LLM-learned mechanisms (`_lep_`/`_lec_`) are inert under AH until the
-  real LLM/agentic planners land (Phase 4.e).
+- **Note**: the AH **onboard** slot follows the configured substrate (`a3768bf`,
+  per decision_matrix §3.1): `hybrid·reactive → llm_eventsat`, `hybrid·agentic → agentic_eventsat`,
+  `subsymbolic → subsymbolic_eventsat`. (Before `a3768bf`, `resolved_onboard_type` silently
+  substituted the RL policy for hybrid AH cells, so no LLM ever ran in hyre/hyag AH — fixed.)
+  The AH **ground-planner** slot is still the `*_scheduler` placeholder, so the LLM/agentic
+  *ground* planner (and `_lep_`/`_lec_` ground variants) remain pending the real planner contract
+  (Phase 4.e); the onboard LLM/agentic core itself is live.
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 

@@ -105,6 +105,26 @@ Environment → Observation → OperationsParadigm.filter_observation()
                                      Environment.step()
 ```
 
+### Output Artifacts
+
+Each run writes to `data/results/<experiment_id>/` (git-ignored):
+
+- **`results.json`** — the compact, experiment-level artifact: `config`, `timestamp`,
+  `experiment_statistics` (means/std), and per-episode **aggregated** metrics. It deliberately
+  does **not** embed raw per-step observation/state snapshots — those ballooned the file to
+  multi-GB on long symbolic runs (`e3ac71f`). The board (`scripts/refresh_board.py`) reads only
+  this file.
+- **Embedded telemetry** — the first `ExperimentRunner.TELEMETRY_SAMPLE_EPISODES` (3) episodes
+  carry a compact, downsampled (≤1500-point) scalar-only `telemetry` block in `results.json`:
+  battery, mode, data pools (stored/downlinked/jetson_raw/obc), ground-pass, sunlight, anomaly.
+  Written regardless of log level; ~tens of KB/episode. Powers the board's Episode inspector and
+  presentation graphs (`scripts/extract_telemetry.py`, `45cefce`).
+- **`decisions_ep<N>.jsonl`** — the full per-step decision trace (rationale + raw telemetry),
+  written **only when `log_level: DEBUG`**. `scripts/recompute_metrics.py` recomputes research
+  metrics offline from this trace; the embedded telemetry block is the lighter, always-on subset.
+- **`config.json`** — the resolved configuration; **`checkpoints/`** — per-episode snapshots
+  when `save_checkpoints: true`.
+
 ### Orbital Context
 
 Eclipse intervals and ground station passes are **pre-computed at episode reset** for the entire simulation duration. The `OrbitalContext` object (in `src/environment/orbital/context.py`) stores these events and is queried each step to determine sunlight status and pass availability.
