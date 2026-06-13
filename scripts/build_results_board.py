@@ -33,21 +33,23 @@ MEASURED = {
     "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 episodes, real qwen3.5:122b, full-trace screened clean (720/720 LLM rationales/ep, zero fallbacks). Onboard LLM at its gate-legal B2 tier (R-COMPUTE1)."),
 }
 
+# Active = the measured EventSat set (2026-06-13 scope). Deferred rows kept
+# visible but marked, so the extension is drop-in (decision_matrix §5.2).
 METRICS = [
     ("M-01", "Mission Utility",           "utility",                  "measured",                    "raw A1 instance, unclamped"),
-    ("M-02", "Mean Age of Information",   None, "not instrumented",            "per-product age field, clock at capture (§7)"),
-    ("M-03", "Peak Age of Information",   None, "not instrumented",            "same field as M-02"),
-    ("M-04", "Autonomous Recovery Eff.",  None, "collector fix pending",       "raw field reads the injection pulse (§7)"),
     ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                    "environment-veto fraction; operator proxy for CG/AG"),
     ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured (raw)",              "min–max normalised per M-slice at matrix build"),
     ("M-07", "Decision Latency",          "mean_latency_s",           "measured (live calls only)",  "live probe: 122B median 38 s · symbolic 12 µs; cached runs measure cache reads"),
-    ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence only)",    "saturates at 1.0 — faithfulness redefinition pending"),
+    ("M-08", "Explainability (presence)", "explainability_score",     "measured (presence only)",    "presence floor; faithfulness scorer deferred (§5)"),
     ("M-09", "Robustness (CV)",           None, "measured for 100-ep runs",    "cross-episode; N/A below 30 episodes"),
-    ("M-10", "Scale Efficiency",          None, "multi-sat (Flamingo)",        "degenerate at C1"),
     ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                    "delivered / max-achievable"),
-    ("M-12", "Value-of-Information",      None, "not instrumented",            "per-product value weights (§7)"),
-    ("M-13", "Constraint-Violation Rate", None, "adopted 2026-06-11",          "constraint ledger + pass^k harness pending (§7)"),
-    ("M-14", "Commanding Effort",         None, "adopted 2026-06-11",          "shares the MC.03 command ledger (§7)"),
+    ("M-02", "Mean Age of Information",   None, "deferred (§5)",               "out of scope; AoI clock-at-capture instrument"),
+    ("M-03", "Peak Age of Information",   None, "deferred (§5)",               "out of scope; same field as M-02"),
+    ("M-04", "Autonomous Recovery Eff.",  None, "deferred (§5)",               "out of scope; persistent-anomaly collector"),
+    ("M-10", "Scale Efficiency",          None, "deferred (§5)",               "out of scope; multi-sat (Flamingo)"),
+    ("M-12", "Value-of-Information",      None, "deferred (§5)",               "out of scope; per-product value weights"),
+    ("M-13", "Constraint-Violation Rate", None, "deferred (§5)",               "out of scope; constraint ledger + pass^k"),
+    ("M-14", "Commanding Effort",         None, "deferred (§5)",               "out of scope; command ledger"),
 ]
 
 TESTS = [
@@ -140,12 +142,13 @@ TEMPLATE = r"""<!DOCTYPE html>
  @media (max-width:1100px){ .twocol{grid-template-columns:1fr;} }
 </style></head><body>
 <header>
- <h1>AUTOPS — the M&thinsp;&times;&thinsp;O&thinsp;&times;&thinsp;T instrument</h1>
- <div class="sub">A decision instrument for autonomous satellite operations. Choose a <b>mission profile</b> (M)
- below; every valid <b>operations architecture</b> (O) for that profile is listed with its measurement state,
- and the <b>test catalogue</b> (T) defines how each property is measured. Values appear only for verified runs.
- 2,380 valid profiles &middot; 364,980 profile&ndash;architecture combinations &middot; full specification:
- <i>docs/decision_matrix.md</i>.</div>
+ <h1>AUTOPS — EventSat architecture comparison</h1>
+ <div class="sub">A controlled comparison of operations architectures (symbolic / RL / LLM / LLM-agentic,
+ across the CG&middot;AG&middot;AO&middot;AH paradigms) on the <b>EventSat</b> event-camera CubeSat mission, on the
+ <b>measured metric set</b> — mission utility, downlink, observation hours, decision latency, safety
+ overrides, resource efficiency, explainability-presence. Values appear only for verified runs. The broader
+ M&thinsp;&times;&thinsp;O&thinsp;&times;&thinsp;T tradespace and the CCSDS-520 test catalogue are the
+ method/extension (deferred) &mdash; full specification: <i>docs/decision_matrix.md</i>.</div>
 </header>
 
 <section>
@@ -163,12 +166,12 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>4&emsp;Test catalogue — the full T axis</h2>
- <table id="tests"></table>
+ <h2>4&emsp;Test catalogue — deferred</h2>
+ <div id="tests" class="caption"></div>
 </section>
 
 <section>
- <h2>5&emsp;Metric registry — M-01 &hellip; M-14 (values for verified runs)</h2>
+ <h2>5&emsp;Metric registry — measured EventSat set (values for verified runs)</h2>
  <table id="mx"></table>
 </section>
 
@@ -295,12 +298,12 @@ Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showle
   font:{family:"Computer Modern Serif, Georgia, serif",size:13,color:"#111"}, yaxis:{title:"utility",gridcolor:"#eee"},
   margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:22}});
 
-// tests
+// tests — parked (2026-06-13 scope decision; see decision_matrix §5 banner)
 document.getElementById("tests").innerHTML =
- "<tr><th>test</th><th>name</th><th>primary metric</th><th>status</th><th>note</th></tr>" +
- P.tests.map(([id,nm,m,s,note])=>{
-  const cls = s.startsWith("runnable")?"valid":s.includes("define")?"running":"notrun";
-  return `<tr><td><b>${id}</b></td><td>${nm}</td><td>${m}</td><td>${stc(cls,s)}</td><td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
+ `The full ${P.tests.length}-test CCSDS-520 catalogue is <b>deferred</b> — out of current scope. ` +
+ `The focus is the EventSat empirical comparison on the measured metric set (&sect;5 below). ` +
+ `The standards-grounded test framework is retained in <code>decision_matrix.md &sect;5.4</code> ` +
+ `as the publishable extension, not the current deliverable.`;
 
 // metric registry (columns = verified runs)
 const vcols = [];

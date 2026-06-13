@@ -394,6 +394,12 @@ A single global stationary GP is **incorrect** — it assumes a continuous input
 
 ## 5. Axis 3 — Tests (T)
 
+> ### ⏸ SCOPE (2026-06-13): T axis parked — EventSat empirical focus
+>
+> **The full T-axis apparatus below is DEFERRED, not active.** Following the EventSat-empirical pivot, the current scope is a controlled comparison on EventSat using the **measured metric set** (see §5.2): mission utility (M-01), downlink efficiency (M-11) + delivered MB and observation hours, decision latency (M-07), safety-override rate (M-05), resource efficiency (M-06), explainability-presence (M-08 floor). These are EventSat-grounded but defined so they generalise later (downlink, utility, …).
+>
+> **Out of current scope** (retained below for the future standards-grounded extension, not deleted): the 26-test CCSDS-520 catalogue (§5.4), the new instruments (AoI M-02/03, autonomous-recovery M-04, VoI M-12, constraint-ledger M-13, commanding-effort M-14), the §7 instrumentation program for them, and the M-08 faithfulness scorer (§5.2 redefinition). The CCSDS/ECSS test framing is the *publishable extension*, not the current deliverable. This banner is reversible — re-promote by deleting it.
+
 All thresholds are functions of SSP variables (\(T_{orb}\), \(B_{dl}\), \(\lambda_{anomaly}\), \(T_{pass}\), …) — never mission-specific constants — so the T axis applies unchanged to **every valid M×O cell**; what varies per cell is applicability (§5.3), not the instrument.
 
 ### 5.0 Metric · test · benchmark — three levels of one instrument
@@ -490,6 +496,8 @@ The metric set is structured as a value hierarchy (Keeney & Raiffa 1976/1993: at
 | **M-12** | Value-of-Information fraction | \(\xi_{VoI}\) | \(\sum_{delivered}V_j/\sum_{all}V_j\) | — | \(\xi_{VoI}\) | Howard 1966; Yates et al. 2021; Boden & Larson 2006 | per-product value weight \(V_j\) |
 | **M-13** | Constraint-Violation Rate | \(p_{viol}\) | \(N_{viol}/N_{decisions}\); stochastic cores co-report \(pass^k\) (all \(k\) repeated trials violation-free) | — | \(1-p_{viol}\) | Yao et al. 2024 (τ-bench); Kim et al. 2025 (error amplification) | proposed action + declared-constraint evaluation per step; repeated-trial harness |
 | **M-14** | Commanding Effort | \(E_{cmd}\) | \((N_{cmd} + w_m N_{manual})\) per mission-day | R | min–max within M-slice | Nag et al. 2020; Castano et al. 2022; Boden & Larson 2006 | per-command ledger (shared with MC.03); manual-intervention count |
+
+**Active set (2026-06-13 scope — see the §5 banner).** Current EventSat work reports **M-01** (utility), **M-05** (safety-override rate), **M-06** (resource efficiency), **M-07** (decision latency), **M-08** (explainability *presence* floor — the faithfulness scorer is deferred), **M-11** (downlink efficiency), plus the raw EventSat readouts these aggregate (delivered MB, observation hours); **M-09** (robustness CV) falls out for free at ≥30 episodes. **Deferred** (need the §7 instruments, out of current scope): **M-02/M-03** (AoI), **M-04** (autonomous-recovery), **M-10** (scale, multi-sat), **M-12** (VoI), **M-13** (constraint-violation), **M-14** (commanding effort). The deferred rows are kept defined so the extension is drop-in.
 
 #### Per-metric notes (where the table needs unpacking)
 
