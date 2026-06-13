@@ -118,10 +118,29 @@ class ExperimentRunner:
         for episode in range(self.config.num_episodes):
             logger.info("Episode %d / %d", episode + 1, self.config.num_episodes)
             episode_result = self._run_episode(episode)
-            all_episode_metrics.append(episode_result)
 
             if self.config.save_checkpoints:
                 self._save_checkpoint(episode, episode_result)
+
+            # Bound resident memory for long / parallel runs. The raw per-step
+            # data (full ConstellationState observations + the per-step metric
+            # list) is stripped at save anyway and is only needed in-memory for
+            # the telemetry-sample episodes (and the tests that inspect the first
+            # few). Drop it eagerly for the rest instead of holding every
+            # episode's GB-scale steps until the end. Clearing
+            # episode_metrics.step_metrics in place also frees the metrics
+            # collector's shared reference (same object).
+            if episode >= self.TELEMETRY_SAMPLE_EPISODES:
+                episode_result.pop("steps", None)
+                em = episode_result.get("episode_metrics")
+                if (
+                    em is not None
+                    and dataclasses.is_dataclass(em)
+                    and not isinstance(em, type)
+                ):
+                    em.step_metrics = []
+
+            all_episode_metrics.append(episode_result)
 
         results = self._compile_results(all_episode_metrics)
         self._save_results(results)

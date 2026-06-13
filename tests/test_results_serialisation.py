@@ -137,3 +137,46 @@ class TestCompactTelemetryBlock:
 
         assert results["episodes"][0].get("telemetry")
         assert "telemetry" not in results["episodes"][1]
+
+
+class TestResidentMemoryBounded:
+    """Raw per-step data is freed eagerly for episodes beyond the sample window,
+    so resident memory does not grow with episode count (parallel/long runs).
+    The first TELEMETRY_SAMPLE_EPISODES keep their steps in memory (telemetry +
+    the tests that inspect the first few episodes); the rest are stripped.
+    """
+
+    def test_in_memory_steps_stripped_past_sample(self, tmp_path, monkeypatch) -> None:
+        from src.orchestration.config_loader import ExperimentConfig
+        from src.orchestration.experiment_runner import ExperimentRunner
+
+        monkeypatch.setattr(ExperimentRunner, "TELEMETRY_SAMPLE_EPISODES", 2)
+        cfg = ExperimentConfig(
+            experiment_id="ram_bound_test",
+            agent_organization="sas",
+            decision_procedure="sda",
+            representation="symbolic",
+            behaviour="hand_designed",
+            operations_paradigm="autonomous_hybrid",
+            representation_config={"type": "rule_based_eventsat"},
+            environment={"constellation_size": 1, "timestep_seconds": 60,
+                         "max_steps": 20, "scenario": "eventsat", "scenario_config": {}},
+            num_episodes=4,
+            max_steps=20,
+            save_checkpoints=False,
+            log_level="WARNING",
+            output_dir=str(tmp_path),
+        )
+        results = ExperimentRunner(config=cfg).run()
+        eps = results["episodes"]
+        # First 2 (sample window) keep full steps + step_metrics in memory.
+        for i in (0, 1):
+            assert len(eps[i]["steps"]) == 20
+            assert len(eps[i]["episode_metrics"].step_metrics) == 20
+        # Beyond the window: raw steps dropped and step_metrics cleared in place.
+        for i in (2, 3):
+            assert "steps" not in eps[i]
+            assert eps[i]["episode_metrics"].step_metrics == []
+        # Aggregated metrics survive for every episode (the analysis payload).
+        for ep in eps:
+            assert ep["episode_metrics"].aggregated
