@@ -20,17 +20,17 @@ OUT = Path("data/figures/results_board.html")
 # run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
 MEASURED = {
     "eventsat_sas_sda_symb_hd_ao":  ("A1|B1|C1|D1|E0", "AO|sym",         "valid",   "100 episodes"),
-    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "running", "100-ep rerun in flight under the corrected ground-segment information model (787857f: true pass-table gaps for the AH ground planner)"),
-    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "running", "100-ep rerun in flight under the corrected ground-segment information model (787857f: planner gets the true inter-pass gap; was capped at one orbit)"),
-    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "running", "100-ep rerun in flight under the corrected model (787857f: plans the true FOLLOWING gap given its one-pass delay; uplink link-gated). The earlier 'observation-free' exclusion was falsified 2026-06-12 — pre-fix CG measured U=3.02, ~2 obs/gap (its own cap)."),
+    "eventsat_sas_sda_symb_hd_ah":  ("A1|B1|C1|D1|E0", "AH|sym|sym",     "valid",   "100 episodes; ground-model fix (787857f) verified neutral on this anchor"),
+    "eventsat_sas_sda_symb_hd_ag":  ("A1|B1|C1|D1|E0", "AG|sym",         "valid",   "100 episodes. Ground-segment fix (787857f: true pass-table horizon) verified NEUTRAL — AG ep0 utility bit-identical pre/post (3.591369). The horizon was never the binding constraint (battery/OBC/27MB-budget gating saturates first); the longer gap becomes trailing charging. Robustness result, not a regression."),
+    "eventsat_sas_sda_symb_hd_cg":  ("A1|B1|C1|D1|E0", "CG|sym",         "valid",   "100 episodes, U=2.99 — the conventional-ops anchor. The 'observation-free' exclusion was FALSIFIED (2026-06-12): CG does ~2 obs/gap (its own max_observations cap, matching real-LEO 1-3/gap). Construct fixes landed (787857f: plans the true FOLLOWING gap given one-pass delay; link-gated uplink) and verified neutral on A1."),
     "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 of 3 episodes verified clean (ep0+ep2: 1440 steps each, real 122B, full-trace screen, zero fallbacks). ep1 excluded: 14 symbolic-fallback decisions during the 2026-06-12 Ollama 504 storm — the run process predated fallback-removal commit ec1b83b, so the silent-fallback path was still live. Informs B2+ per R-COMPUTE1."),
     "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "invalid", "queue3 rerun EXCLUDED: 474/720 decisions (66%) were silent symbolic fallbacks — the agentic loop rode its 3-call budget without ever deciding (fixed in 6866ab5: forced Decide step + loud failure). Rerun on fixed code queued (queue4). Informs B3+ per R-COMPUTE2."),
     "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
     "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
-    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "running", "30-ep rerun in flight (787857f ground-model fix affects the AH ground planner)"),
+    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes. NB: B2 (battery ×5) and B3 (×20) currently give bit-identical results — battery never binds for symbolic AH at A1 power (final SoC ≈0.98), so capacity scaling is inert. The B-tier power model is a known placeholder (see decision_matrix §2.2)."),
     "nbr_b3_symb_ao":               ("A1|B3|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×20)"),
-    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "running", "30-ep rerun in flight (787857f ground-model fix affects the AH ground planner)"),
-    "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "running", "onboard LLM at its gate-legal tier; rerun in flight"),
+    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes — bit-identical to B2 (battery scaling inert at A1 power; see B2 note)"),
+    "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 episodes, real qwen3.5:122b, full-trace screened clean (720/720 LLM rationales/ep, zero fallbacks). Onboard LLM at its gate-legal B2 tier (R-COMPUTE1)."),
 }
 
 METRICS = [
