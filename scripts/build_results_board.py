@@ -3,8 +3,9 @@
 Every SSP of the M space is selectable (SS-A…SS-E); for the selected profile the
 full valid O-cell slate is enumerated client-side (mirroring the §3.2 gates) and
 each cell shows its true state: measured (values) · running · excluded · gated
-(with the rule) · not yet run. All 14 metrics and the full test catalogue are
-always rendered. Academic (print-like) styling.
+(with the rule) · not yet run. Leads with EventSat results plots (§3) on the
+measured metric set; the full 14-metric registry is rendered, the T-axis test
+catalogue is parked (2026-06-13 scope). Publication-style figures.
 
 Usage:  uv run python scripts/build_results_board.py
 """
@@ -122,7 +123,6 @@ TEMPLATE = r"""<!DOCTYPE html>
  section { padding:10px 56px 24px; max-width:1280px; }
  h2 { font-size:17.5px; color:#005293; margin:26px 0 4px; font-weight:700; }
  .caption { color:#555; font-size:13px; margin:2px 0 10px; }
- .claim { color:#0065BD; font-size:15px; font-weight:600; margin:6px 0 4px; line-height:1.35; min-height:2.6em; }
  table { border-collapse:collapse; width:100%; font-size:13.5px; font-family:'Computer Modern Serif',Georgia,serif; }
  th { text-align:left; padding:6px 10px; border-top:2px solid #111; border-bottom:1px solid #111; font-weight:600; }
  td { padding:5px 10px; border-bottom:1px solid #e2e2e2; vertical-align:top; }
@@ -163,46 +163,34 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>2½&emsp;Headline results — EventSat at the A1 anchor</h2>
+ <h2>3&emsp;Results — EventSat (A1 anchor)</h2>
  <div class="twocol">
-  <div>
-   <div class="claim" id="claim-grad"></div>
-   <div id="gradient" class="plot" style="height:340px"></div>
-  </div>
-  <div>
-   <div class="claim" id="claim-cog"></div>
-   <div id="cognition" class="plot" style="height:340px"></div>
-  </div>
+  <div id="gradient" class="plot" style="height:330px"></div>
+  <div id="cognition" class="plot" style="height:330px"></div>
  </div>
  <div class="twocol">
-  <div>
-   <div class="claim">What feeds mission utility: observation time and delivered data.</div>
-   <div id="drivers" class="plot" style="height:320px"></div>
-  </div>
-  <div>
-   <div class="claim">Per-metric profile, each architecture against the others.</div>
-   <div id="metricbars" class="plot" style="height:320px"></div>
-  </div>
+  <div id="obshours" class="plot" style="height:300px"></div>
+  <div id="delivmb" class="plot" style="height:300px"></div>
  </div>
 </section>
 
 <section>
- <h2>3&emsp;Measured utility distributions (verified runs, all profiles)</h2>
+ <h2>4&emsp;Measured utility distributions (verified runs, all profiles)</h2>
  <div id="dist" class="plot"></div>
 </section>
 
 <section>
- <h2>4&emsp;Test catalogue — deferred</h2>
+ <h2>5&emsp;Test catalogue — deferred</h2>
  <div id="tests" class="caption"></div>
 </section>
 
 <section>
- <h2>5&emsp;Metric registry — measured EventSat set (values for verified runs)</h2>
+ <h2>6&emsp;Metric registry — M-01 &hellip; M-14 (measured set populated; deferred marked)</h2>
  <table id="mx"></table>
 </section>
 
 <section>
- <h2>6&emsp;Architecture comparison (verified runs)</h2>
+ <h2>7&emsp;Architecture comparison (verified runs)</h2>
  <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown runs
  (1 = best of this set — relative, not absolute). Right: paired per-episode utility differences
  (shared launch-lottery seeds), the basis of the &sect;5.6 statistics.</div>
@@ -213,7 +201,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>7&emsp;Episode inspector — simulation telemetry</h2>
+ <h2>8&emsp;Episode inspector — simulation telemetry</h2>
  <div class="caption">One simulated week, step by step: battery state of charge, data stored on board and
  downlinked, ground-contact windows (grey bands), anomaly-forced safe periods (red bands), and the
  operating mode chosen at every step. For verifying that the simulation behaves physically, not just
@@ -224,7 +212,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>8&emsp;Statistical adequacy (&sect;5.6, pre-registered)</h2>
+ <h2>9&emsp;Statistical adequacy (&sect;5.6, pre-registered)</h2>
  <div class="guide" id="guide"></div>
  <div class="twocol">
   <div id="powcurve" class="plot" style="height:290px"></div>
@@ -321,7 +309,7 @@ for (const [ssp, cs] of Object.entries(P.cells))
         line:{color:"#111"}, fillcolor:"#eee", name:ck,
         hovertext:r.per_ep_utility.map((v,i)=>`ep ${i}: ${fmt(v)}`), hoverinfo:"text"});
 Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showlegend:false,
-  font:{family:"Computer Modern Serif, Georgia, serif",size:13,color:"#111"}, yaxis:{title:"utility",gridcolor:"#eee"},
+  font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13,color:"#111"}, yaxis:{title:"utility",gridcolor:"#eee"},
   margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:22}});
 
 // tests — parked (2026-06-13 scope decision; see decision_matrix §5 banner)
@@ -354,7 +342,7 @@ const za=2.807, zb=0.8416, ds=[...Array(19)].map((_,i)=>0.1+i*0.05);
 Plotly.newPlot("powcurve",[
  {x:ds,y:ds.map(d=>Math.ceil((za+zb)**2*2*(1-P.rho)/d/d/0.955)),name:"paired (measured ρ)",line:{color:"#111"}},
  {x:ds,y:ds.map(d=>Math.ceil(2*(za+zb)**2/d/d/0.955)),name:"unpaired / group",line:{color:"#999",dash:"dot"}}],
- {paper_bgcolor:"#fff",plot_bgcolor:"#fff",font:{family:"Computer Modern Serif, Georgia, serif",size:13},
+ {paper_bgcolor:"#fff",plot_bgcolor:"#fff",font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13},
   xaxis:{title:"minimum detectable effect d",gridcolor:"#eee"},
   yaxis:{title:"episodes required",type:"log",gridcolor:"#eee"},margin:{t:8,b:45,l:60,r:10},legend:{x:0.55,y:0.95}});
 
@@ -373,7 +361,7 @@ if (rruns.length){
     type:"scatterpolar", fill:"toself", opacity:0.55, name:`${ck.replaceAll("|","·")} @${ssp.replaceAll("|","/")}`,
     theta:RMETRICS.map(m=>m[1]).concat(RMETRICS[0][1]),
     r:RMETRICS.map(([k])=>vals[k][i]).concat(vals[RMETRICS[0][0]][i])
-  })), {paper_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+  })), {paper_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
        polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
 }
 // ---- 6b: paired differences (AH - AO at the anchor)
@@ -385,7 +373,7 @@ if (aoR && ahR){
   const wins = diffs.filter(v=>v>0).length;
   Plotly.newPlot("paired", [
    {x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}}],
-   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
     xaxis:{title:"per-orbit utility gain from adding the ground plan (AH − AO, same 100 orbits)", gridcolor:"#eee"},
     yaxis:{title:"orbits", gridcolor:"#eee"}, showlegend:false, margin:{t:34,b:50,l:55,r:10},
     shapes:[{type:"line", x0:0, x1:0, yref:"paper", y0:0, y1:1, line:{color:"#a13026", dash:"dash"}},
@@ -396,79 +384,62 @@ if (aoR && ahR){
      {xref:"paper", x:0.98, yref:"paper", y:0.85, text:`ground plan better in ${wins}/${diffs.length} orbits →`,
       showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
 }
-// ---- 2½: headline conclusion plots (A1 anchor) ----
+// ---- 3: results plots (A1 anchor) — publication style, results only ----
 (function(){
   const A1 = "A1|B1|C1|D1|E0";
-  const AX = {paper_bgcolor:"#fff", plot_bgcolor:"#fff",
-              font:{family:"Computer Modern Serif, Georgia, serif", size:12}};
+  // Journal figure style: neutral sans, visible axis lines, outside ticks,
+  // restrained colourblind-safe palette (Okabe–Ito). No titles, no annotations.
+  const FONT = {family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:14, color:"#1a1a1a"};
+  const BAR = "#4878a6";              // single muted steel-blue for bar series
+  const OK = ["#0072B2","#D55E00","#009E73","#E69F00","#56B4E9","#CC79A7","#000000"];
+  const axx = t => ({title:{text:t, font:{size:14}}, showline:true, linecolor:"#444", linewidth:1,
+                     ticks:"outside", tickcolor:"#444", ticklen:5, gridcolor:"#ededed", zeroline:false,
+                     automargin:true});
+  const LAY = (xt, yt, extra) => Object.assign(
+    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:FONT,
+     xaxis:axx(xt), yaxis:axx(yt), margin:{t:12,b:60,l:70,r:16}, showlegend:false}, extra||{});
   const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
   const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
     const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
   const peps = r => (r.per_ep_utility||[]).filter(v=>v!=null);
+  const ladder = [["CG|sym","CG"],["AG|sym","AG"],["AO|sym","AO"],["AH|sym|sym","AH"]];
+  const rows = ladder.map(([ck,nm])=>{ const r=cellState(A1,ck);
+    return (r&&r.status==="valid")?{nm,r}:null; }).filter(Boolean);
+  const xs = rows.map(d=>d.nm);
 
-  // autonomy ladder (increasing onboard autonomy)
-  const ladder = [["CG|sym","CG","#9a6200"],["AG|sym","AG","#c98a00"],
-                  ["AO|sym","AO","#3a7d34"],["AH|sym|sym","AH","#0065BD"]];
-  const g = ladder.map(([ck,nm,c])=>{ const r=cellState(A1,ck);
-    return (r&&r.status==="valid"&&r.mean.utility!=null)
-      ? {nm,c,u:r.mean.utility,e:ci95(peps(r)),n:r.n} : null; }).filter(Boolean);
-
-  // 2½a — paradigm gradient (the headline)
-  if (g.length){
-    Plotly.newPlot("gradient", [{type:"bar", x:g.map(d=>d.nm), y:g.map(d=>d.u),
-      error_y:{type:"data", array:g.map(d=>d.e), visible:true, color:"#444"},
-      marker:{color:g.map(d=>d.c)}, text:g.map(d=>d.u.toFixed(2)), textposition:"outside", cliponaxis:false}],
-      Object.assign({}, AX, {yaxis:{title:"mission utility (mean ± 95% CI)", gridcolor:"#eee"},
-        xaxis:{title:"operations paradigm (→ more onboard autonomy)"}, margin:{t:14,b:48,l:55,r:10}}));
-    const lo=g[0], hi=g[g.length-1];
-    document.getElementById("claim-grad").textContent =
-      `More onboard autonomy → higher mission utility: ${lo.nm} ${lo.u.toFixed(2)} rises to `+
-      `${hi.nm} ${hi.u.toFixed(2)} (+${(100*(hi.u-lo.u)/lo.u).toFixed(0)}%), monotonic across paradigms.`;
+  // 3a — mission utility by paradigm (mean ± 95% CI)
+  if (rows.length){
+    Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.utility),
+      error_y:{type:"data", array:rows.map(d=>ci95(peps(d.r))), visible:true, color:"#333", thickness:1.3, width:5},
+      marker:{color:BAR}, width:0.6}],
+      LAY("operations paradigm", "mission utility"), {displayModeBar:false});
   }
 
-  // 2½b — cost of cognition: decision latency vs utility (all valid A1 cells)
+  // 3b — decision latency vs mission utility (log x; one marker per architecture)
   const cog = Object.entries(P.cells[A1]||{})
-    .filter(([,r])=>r.status==="valid" && r.mean.utility!=null && r.mean.mean_latency_s!=null && r.mean.mean_latency_s>0)
-    .map(([ck,r])=>({nm:ck.replaceAll("|","·"), x:r.mean.mean_latency_s, y:r.mean.utility,
-                     llm:ck.includes("llm")||ck.includes("ag")}));
+    .filter(([,r])=>r.status==="valid" && r.mean.utility!=null && r.mean.mean_latency_s>0)
+    .map(([ck,r],i)=>({nm:ck.replaceAll("|","·"), x:r.mean.mean_latency_s, y:r.mean.utility}));
   if (cog.length){
-    Plotly.newPlot("cognition", [{type:"scatter", mode:"markers+text", x:cog.map(d=>d.x), y:cog.map(d=>d.y),
-      text:cog.map(d=>d.nm), textposition:"top center", textfont:{size:10},
-      marker:{size:13, color:cog.map(d=>d.llm?"#a13026":"#3a7d34"), line:{color:"#fff",width:1}}}],
-      Object.assign({}, AX, {xaxis:{title:"decision latency  (s/decision, log)", type:"log", gridcolor:"#eee"},
-        yaxis:{title:"mission utility", gridcolor:"#eee"}, margin:{t:14,b:48,l:55,r:14}}));
-    document.getElementById("claim-cog").textContent =
-      "The cost of cognition: LLM cores (red) pay 6–7 orders of magnitude more decision latency "+
-      "than symbolic (green) — the question is whether the utility gain is worth it.";
+    Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
+      x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
+      LAY("decision latency  (s, log scale)", "mission utility",
+          {xaxis:Object.assign(axx("decision latency  (s, log scale)"), {type:"log"}),
+           showlegend:true, legend:{font:{size:12}, x:0.02, y:0.98, bgcolor:"rgba(255,255,255,0.6)"},
+           margin:{t:12,b:60,l:70,r:16}}), {displayModeBar:false});
   }
 
-  // 2½c — what feeds utility: observation hours + delivered MB
-  if (g.length){
-    const gd = ladder.map(([ck,nm])=>{ const r=cellState(A1,ck);
-      return (r&&r.status==="valid")?{nm, oh:r.mean.observation_hours, dl:r.mean.downlinked_mb}:null;}).filter(Boolean);
-    Plotly.newPlot("drivers", [
-      {type:"bar", name:"observation hours", x:gd.map(d=>d.nm), y:gd.map(d=>d.oh), marker:{color:"#3a7d34"}, yaxis:"y"},
-      {type:"bar", name:"delivered MB", x:gd.map(d=>d.nm), y:gd.map(d=>d.dl), marker:{color:"#0065BD"}, yaxis:"y2"}],
-      Object.assign({}, AX, {barmode:"group", legend:{orientation:"h", y:-0.18},
-        yaxis:{title:"observation hours", gridcolor:"#eee"},
-        yaxis2:{title:"delivered MB", overlaying:"y", side:"right", showgrid:false},
-        xaxis:{title:"paradigm"}, margin:{t:14,b:54,l:55,r:55}}));
+  // 3c — observation time by paradigm
+  if (rows.length){
+    Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.observation_hours),
+      marker:{color:BAR}, width:0.6}],
+      LAY("operations paradigm", "observation time (h / episode)"), {displayModeBar:false});
   }
 
-  // 2½d — measured-metric profile as grouped bars (readable companion to the radar)
-  if (g.length){
-    const MB = [["utility","utility"],["data_downlink_efficiency","downlink eff."],
-                ["resource_efficiency","resource eff."],["explainability_score","explainability"]];
-    const cells4 = ladder.map(([ck])=>cellState(A1,ck)).filter(r=>r&&r.status==="valid");
-    const norm = {};
-    for (const [k] of MB){ const xs=cells4.map(r=>r.mean[k]??0); const mn=Math.min(...xs),mx=Math.max(...xs);
-      norm[k]=xs.map(v=>mx>mn?(v-mn)/(mx-mn):1); }
-    Plotly.newPlot("metricbars", MB.map(([k,lbl])=>({type:"bar", name:lbl,
-      x:ladder.filter(([ck])=>{const r=cellState(A1,ck);return r&&r.status==="valid";}).map(([,nm])=>nm),
-      y:norm[k]})),
-      Object.assign({}, AX, {barmode:"group", legend:{orientation:"h", y:-0.18},
-        yaxis:{title:"min–max normalised (1 = best of set)", gridcolor:"#eee", range:[0,1.05]},
-        xaxis:{title:"paradigm"}, margin:{t:14,b:54,l:55,r:10}}));
+  // 3d — delivered data by paradigm
+  if (rows.length){
+    Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.downlinked_mb),
+      marker:{color:BAR}, width:0.6}],
+      LAY("operations paradigm", "delivered data (MB / episode)"), {displayModeBar:false});
   }
 })();
 
@@ -495,7 +466,7 @@ function renderTele(){
     {x:t.steps, y:t.soc, name:"battery SoC", yaxis:"y", line:{color:"#0065BD"}},
     {x:t.steps, y:t.stored, name:"data stored (MB)", yaxis:"y2", line:{color:"#1e8449"}},
     {x:t.steps, y:t.downlinked, name:"downlinked cum. (MB)", yaxis:"y2", line:{color:"#9a6200"}}],
-   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:12},
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
     xaxis:{title:"simulation step (1 min each)", gridcolor:"#eee"},
     yaxis:{title:"SoC", range:[0,1.05], gridcolor:"#eee"},
     yaxis2:{title:"MB", overlaying:"y", side:"right"},
@@ -503,7 +474,7 @@ function renderTele(){
   Plotly.newPlot("teleB", [{x:t.steps, y:t.mode.map(()=>1), mode:"markers",
     marker:{color:t.mode.map(m=>MODECOL[m]||"#999"), size:6, symbol:"square"},
     text:t.mode, hoverinfo:"text+x"}],
-   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Computer Modern Serif, Georgia, serif", size:11},
+   {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:11},
     xaxis:{title:"operating mode per step (hover)", gridcolor:"#fff"},
     yaxis:{visible:false}, showlegend:false, margin:{t:4,b:40,l:55,r:55}});
 }
