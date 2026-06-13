@@ -8,9 +8,12 @@ its paper basis, and key design decisions. Grows as new components are added.
 > (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic);
 > *learning is folded in* (offline per core + the agentic online-learning action) and *decision
 > procedure is held fixed* — neither is a peer axis. **This registry documents the current code**,
-> whose tokens are unchanged pending the planned code rename: `src/decision_procedure/`, the
+> whose tokens are retained **permanently via this crosswalk** — the bulk code rename was evaluated
+> and **dropped in the 2026-06-12 pivot** (focus moved to EventSat empirical results), so these are
+> the stable names, not a transitional state: `src/decision_procedure/`, the
 > `behaviour` / `behaviour_config` field (`src/behaviour/`), and `llm_eventsat` (= subsymbolic·LLM,
-> legacy token `hyre`) / `agentic_eventsat` (= hybrid·agentic, legacy token `hyag`). So the
+> token `hyre`) / `agentic_eventsat` (= hybrid·agentic, token `hyag`). The `rl` / `llm` substrate
+> schema values added during the migration stay valid for new configs. So the
 > "Decision Loops" and "Emergence" headings below keep their **implemented** names; map them to the
 > spec via the crosswalk in `decision_matrix.md` §3.
 

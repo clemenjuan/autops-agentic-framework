@@ -196,7 +196,7 @@ Symbolic and subsymbolic·RL are reactive by nature (rules fire once; an RL poli
 
 This yields **6 per-core cells**: symbolic·re · RL·re · LLM·re · LLM·ag · hybrid·re · hybrid·ag.
 
-The mapping from these six cells to concrete representation classes and config tokens is **implementation-level and lives in `implementations.md`** (the component registry); the legacy tokens are scheduled for renaming during the engine adaptation, and this spec speaks only the cell names. Two cells are expressible but not yet instantiated: *subsymbolic·LLM·agentic* (pure reasoning loop, no symbolic tools) and *hybrid·reactive* (e.g. an RL policy wrapped by symbolic safety rules).
+The mapping from these six cells to concrete representation classes and config tokens is **implementation-level and lives in `implementations.md`** (the component registry); this spec speaks only the cell names. The code retains its original tokens (`decision_procedure`/`behaviour` fields, `hyre`/`hyag` representation names) via the documented crosswalk in `implementations.md` — the bulk token rename was **evaluated and dropped (2026-06-12 pivot)** to keep effort on the EventSat empirical results, so the crosswalk is the permanent design, not a transitional state (the `rl`/`llm` substrate schema values remain valid for new configs). Two cells are expressible but not yet instantiated: *subsymbolic·LLM·agentic* (pure reasoning loop, no symbolic tools) and *hybrid·reactive* (e.g. an RL policy wrapped by symbolic safety rules).
 
 **Axis C — Operations paradigm** (defines which *autonomy slots* are active)
 
