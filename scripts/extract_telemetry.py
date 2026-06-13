@@ -15,11 +15,12 @@ from pathlib import Path
 # run_id -> inspector label. Embedded-telemetry runs are preferred; the
 # legacy telemetry_* single-episode DEBUG runs remain as a fallback source.
 SOURCES = {
-    "eventsat_sas_sda_symb_hd_ah": "Symbolic · AH — EventSat (ep0)",
-    "eventsat_sas_sda_symb_hd_ao": "Symbolic · AO — EventSat (ep0)",
-    "eventsat_sas_sda_symb_hd_ag": "Symbolic · AG — EventSat (ep0)",
-    "eventsat_sas_sda_symb_hd_cg": "Symbolic · CG — EventSat (ep0)",
-    "eventsat_sas_sda_hyre_hd_ah": "LLM 122B single-shot · AH — EventSat (ep0)",
+    "eventsat_sas_symbolic_ah": "Symbolic · AH — EventSat (ep0)",
+    "eventsat_sas_symbolic_ao": "Symbolic · AO — EventSat (ep0)",
+    "eventsat_sas_symbolic_ag": "Symbolic · AG — EventSat (ep0)",
+    "eventsat_sas_symbolic_cg": "Symbolic · CG — EventSat (ep0)",
+    "eventsat_sas_llm_ah": "LLM · AH — EventSat (ep0)",
+    "eventsat_sas_agentic_ah": "Agentic · AH — EventSat (ep0)",
 }
 MAX_POINTS = 1500
 

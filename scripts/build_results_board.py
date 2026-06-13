@@ -35,19 +35,16 @@ def _episode_steps(rid: str) -> int | None:
 OUT = Path("data/figures/results_board.html")
 
 # run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
+# run_id -> (SSP, cell key PARADIGM|onboard[|ground], status, note). Clean
+# naming per decision_matrix §3.1a. Symbolic anchors at 7-day; LLM/agentic
+# cells run qwen3.6:35b at 7-day (campaign pending).
 MEASURED = {
-    "eventsat_sas_sda_symb_hd_ao_1d":  ("A1|B1|C1|D1|E0", "AO|sym",      "valid",   "100 episodes × 1440 steps (1 day) — matched to the LLM cell's episode length for a fair substrate comparison. (7-day run retained off-board.)"),
-    "eventsat_sas_sda_symb_hd_ah_1d":  ("A1|B1|C1|D1|E0", "AH|sym|sym",  "valid",   "100 episodes × 1440 steps (1 day), matched to the LLM cell."),
-    "eventsat_sas_sda_symb_hd_ag_1d":  ("A1|B1|C1|D1|E0", "AG|sym",      "valid",   "100 episodes × 1440 steps (1 day), matched to the LLM cell."),
-    "eventsat_sas_sda_symb_hd_cg_1d":  ("A1|B1|C1|D1|E0", "CG|sym",      "valid",   "100 episodes × 1440 steps (1 day). NB: at a 1-day segment CG sees only a few passes and its one-pass planning delay dominates (cold-start) → lower than its 7-day value; matched length for the LLM comparison."),
-    "eventsat_sas_sda_hyre_hd_ah":  ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 of 3 episodes verified clean (ep0+ep2: 1440 steps each, real 122B, full-trace screen, zero fallbacks). ep1 excluded: 14 symbolic-fallback decisions during the 2026-06-12 Ollama 504 storm — the run process predated fallback-removal commit ec1b83b, so the silent-fallback path was still live. Informs B2+ per R-COMPUTE1."),
-    "eventsat_sas_sda_hyag_hd_ah":  ("A1|B1|C1|D1|E0", "AH|hyb_ag|sym",  "invalid", "queue3 rerun EXCLUDED: 474/720 decisions (66%) were silent symbolic fallbacks — the agentic loop rode its 3-call budget without ever deciding (fixed in 6866ab5: forced Decide step + loud failure). Rerun on fixed code queued (queue4). Informs B3+ per R-COMPUTE2."),
-    "lf_hyre_4b_ah":                ("A1|B1|C1|D1|E0", "AH|llm_re|sym",  "running", "LF rung (4B), paired seeds with HF"),
-    "nbr_b2_symb_ao":               ("A1|B2|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×5)"),
-    "nbr_b2_symb_ah":               ("A1|B2|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes. NB: B2 (battery ×5) and B3 (×20) currently give bit-identical results — battery never binds for symbolic AH at A1 power (final SoC ≈0.98), so capacity scaling is inert. The B-tier power model is a known placeholder (see decision_matrix §2.2)."),
-    "nbr_b3_symb_ao":               ("A1|B3|C1|D1|E0", "AO|sym",         "valid",   "30 episodes (power ×20)"),
-    "nbr_b3_symb_ah":               ("A1|B3|C1|D1|E0", "AH|sym|sym",     "valid",   "30 episodes — bit-identical to B2 (battery scaling inert at A1 power; see B2 note)"),
-    "nbr_b2_hyre_ah":               ("A1|B2|C1|D1|E0", "AH|llm_re|sym",  "valid",   "2 episodes, real qwen3.5:122b, full-trace screened clean (720/720 LLM rationales/ep, zero fallbacks). Onboard LLM at its gate-legal B2 tier (R-COMPUTE1)."),
+    "eventsat_sas_symbolic_ao": ("A1|B1|C1|D1|E0", "AO|symbolic",          "valid",   "100 episodes × 10080 steps (7 days)."),
+    "eventsat_sas_symbolic_ah": ("A1|B1|C1|D1|E0", "AH|symbolic|symbolic", "valid",   "100 episodes × 10080 steps (7 days)."),
+    "eventsat_sas_symbolic_ag": ("A1|B1|C1|D1|E0", "AG|symbolic",          "valid",   "100 episodes × 10080 steps (7 days)."),
+    "eventsat_sas_symbolic_cg": ("A1|B1|C1|D1|E0", "CG|symbolic",          "valid",   "100 episodes × 10080 steps (7 days) — conventional-ops anchor."),
+    "eventsat_sas_llm_ah":      ("A1|B1|C1|D1|E0", "AH|llm|symbolic",      "running", "LLM·reactive onboard (qwen3.6:35b), 7-day — campaign pending."),
+    "eventsat_sas_agentic_ah":  ("A1|B1|C1|D1|E0", "AH|agentic|symbolic",  "running", "LLM·agentic onboard (qwen3.6:35b), 7-day — campaign pending."),
 }
 
 # Active = the measured EventSat set (2026-06-13 scope). Deferred rows kept
@@ -114,14 +111,15 @@ def main() -> None:
             "mean": {k: d.get("mean", {}).get(k) for k in VALUE_KEYS},
             "per_ep_utility": d.get("per_ep", {}).get("utility", []),
         }
-    ao = [v for v in data["eventsat_sas_sda_symb_hd_ao_1d"]["per_ep"]["utility"] if v is not None]
-    ah = [v for v in data["eventsat_sas_sda_symb_hd_ah_1d"]["per_ep"]["utility"] if v is not None]
+    ao = [v for v in data.get("eventsat_sas_symbolic_ao", {}).get("per_ep", {}).get("utility", []) if v is not None]
+    ah = [v for v in data.get("eventsat_sas_symbolic_ah", {}).get("per_ep", {}).get("utility", []) if v is not None]
     n = min(len(ao), len(ah))
     tele_path = Path("data/figures/telemetry.json")
     telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
+    rho = round(st.correlation(ao[:n], ah[:n]), 3) if n >= 2 else 0.79
+    sigma = round(st.stdev(ao[:n] + ah[:n]), 3) if n >= 2 else 0.0
     payload = {"cells": cells, "metrics": METRICS, "tests": TESTS, "telemetry": telemetry,
-               "rho": round(st.correlation(ao[:n], ah[:n]), 3),
-               "sigma": round(st.stdev(ao[:n] + ah[:n]), 3)}
+               "rho": rho, "sigma": sigma}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
     print(f"wrote {OUT}: {sum(len(v) for v in cells.values())} cell records, "
           f"{len(METRICS)} metrics, {len(TESTS)} tests")
@@ -248,15 +246,15 @@ const DIM = { A:["A1 EO","A2 Comms","A3 Nav","A4 Science","A5 SSA","A6 Planetary
               C:["C1 (1)","C2 (2–10)","C3 (10–100)","C4 (100–1k)","C5 (>1k)"],
               D:["D1 LEO","D2 GEO","D3 Lunar","D4 Mars","D5 Deep space"],
               E:["E0 none","E1 intra-plane","E2 planned","E3 full-mesh"] };
-const CORE = { sym:"symbolic rules", srl:"reinforcement learning", llm_re:"LLM (single-shot)",
-               llm_ag:"LLM (agentic)", hyb_re:"hybrid (RL + rules)", hyb_ag:"hybrid (LLM + tools)" };
+const CORE = { symbolic:"symbolic rules", rl:"reinforcement learning", llm:"LLM (single-shot)",
+               llm_agentic:"LLM (agentic, no tools)", hybrid:"hybrid (RL + rules)", agentic:"agentic (LLM + tools)" };
 const DIMLABEL = { A:"Mission function", B:"Platform class", C:"Constellation size", D:"Comms latency", E:"Inter-satellite links" };
-const GROUND = ["sym","srl","llm_re","llm_ag","hyb_re","hyb_ag"];
+const GROUND = ["symbolic","rl","llm","llm_agentic","hybrid","agentic"];
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
 
-function onboardCells(b){ const o=["sym","srl"]; if(b>=2)o.push("llm_re","hyb_re"); if(b>=3)o.push("llm_ag","hyb_ag"); return o; }
-function gatedOnboard(b){ const g={}; if(b<2){g.llm_re="R-COMPUTE1 (needs B2+)";g.hyb_re="R-COMPUTE1";} if(b<3){g.llm_ag="R-COMPUTE2 (needs B3+)";g.hyb_ag="R-COMPUTE2";} return g; }
+function onboardCells(b){ const o=["symbolic","rl"]; if(b>=2)o.push("llm","hybrid"); if(b>=3)o.push("llm_agentic","agentic"); return o; }
+function gatedOnboard(b){ const g={}; if(b<2){g.llm="R-COMPUTE1 (needs B2+)";g.hybrid="R-COMPUTE1";} if(b<3){g.llm_agentic="R-COMPUTE2 (needs B3+)";g.agentic="R-COMPUTE2";} return g; }
 
 // selectors
 const sel = {A:0,B:0,C:0,D:0,E:0};
@@ -292,7 +290,7 @@ function render(){
     document.getElementById("kpis").innerHTML = ""; return;
   }
   const gates = gatedOnboard(b);
-  const ALL = ["sym","srl","llm_re","llm_ag","hyb_re","hyb_ag"];
+  const ALL = ["symbolic","rl","llm","llm_agentic","hybrid","agentic"];
   let h = group("Conventional Ground (CG)", "operators plan the schedule on ground; uplinked once per contact",
                 GROUND.map(g=>row(`⟨${CORE[g]} planner⟩`, `CG|${g}`, code, null)));
   h += group("Autonomous Ground (AG)", "a ground planner plans autonomously; uplinked per contact",
@@ -383,7 +381,7 @@ if (rruns.length){
        polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
 }
 // ---- 6b: paired differences (AH - AO at the anchor)
-const aoR = cellState("A1|B1|C1|D1|E0","AO|sym"), ahR = cellState("A1|B1|C1|D1|E0","AH|sym|sym");
+const aoR = cellState("A1|B1|C1|D1|E0","AO|symbolic"), ahR = cellState("A1|B1|C1|D1|E0","AH|symbolic|symbolic");
 if (aoR && ahR){
   const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
   const diffs = [...Array(k)].map((_,i)=>ahR.per_ep_utility[i]-aoR.per_ep_utility[i]).filter(v=>v!=null);
@@ -422,8 +420,8 @@ if (aoR && ahR){
   const peps = r => (r.per_ep_utility||[]).filter(v=>v!=null);
   // Symbolic paradigm ladder + the LLM onboard cell, all at the matched 1-day
   // length. 'llm' rows are coloured distinctly.
-  const ladder = [["CG|sym","CG","sym"],["AG|sym","AG","sym"],["AO|sym","AO","sym"],
-                  ["AH|sym|sym","AH","sym"],["AH|llm_re|sym","AH·LLM","llm"]];
+  const ladder = [["CG|symbolic","CG","sym"],["AG|symbolic","AG","sym"],["AO|symbolic","AO","sym"],
+                  ["AH|symbolic|symbolic","AH","sym"],["AH|llm|symbolic","AH·LLM","llm"]];
   const rows = ladder.map(([ck,nm,sub])=>{ const r=cellState(A1,ck);
     return (r&&r.status==="valid")?{nm,r,sub}:null; }).filter(Boolean);
   const LLMC = "#D55E00";

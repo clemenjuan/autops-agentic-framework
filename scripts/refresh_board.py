@@ -14,10 +14,9 @@ KEYS = ["utility","data_downlink_efficiency","observation_hours","downlinked_mb"
 # Excluded episodes are nulled in per_ep (preserving index alignment for paired
 # seeds) and the means are recomputed over the surviving episodes only.
 EXCLUDED_EPISODES = {
-    # ep1: 14 "symbolic fallback" decisions during the 2026-06-12 Ollama 504 storm.
-    # The run process launched 18:38 Jun 11, 24 min before the fallback-removal
-    # commit ec1b83b — pre-fix code ran all 3 episodes. ep0/ep2 full-trace clean.
-    "eventsat_sas_sda_hyre_hd_ah": {1},
+    # run_id -> {episode indices excluded by substrate-integrity screening}.
+    # Append-only, evidence required. (Cleared at the 2026-06-13 rename; the old
+    # 122B hyre runs are superseded by the clean-named qwen3.6:35b campaign.)
 }
 ex_mtime = EXTRACT.stat().st_mtime
 data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
