@@ -37,7 +37,19 @@ class ExperimentRunner:
     Attributes:
         config: Validated experiment configuration.
         output_dir: Path where results and logs are saved.
+
+    Class constants:
+        TELEMETRY_SAMPLE_EPISODES: how many leading episodes keep a compact,
+            downsampled per-step telemetry block in results.json (for graphs /
+            the Episode inspector / presentations). The full per-step trace is
+            never kept in results.json (it ballooned the file to multi-GB); this
+            block is small (~1.5k points × a handful of scalar fields) and, unlike
+            decisions_ep*.jsonl, is written regardless of log level.
+        TELEMETRY_MAX_POINTS: downsample target per episode.
     """
+
+    TELEMETRY_SAMPLE_EPISODES: int = 3
+    TELEMETRY_MAX_POINTS: int = 1500
 
     def __init__(
         self,
@@ -853,13 +865,50 @@ class ExperimentRunner:
         checkpoint_file = checkpoint_dir / f"episode_{episode_id:04d}.json"
 
         serialisable = self._make_serialisable(
-            self._strip_episode_for_disk(episode_result)
+            self._strip_episode_for_disk(episode_result, with_telemetry=True)
         )
         with open(checkpoint_file, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
 
-    @staticmethod
-    def _strip_episode_for_disk(episode: Dict[str, Any]) -> Dict[str, Any]:
+    # Critical per-step fields kept in the compact telemetry block. Names match
+    # what scripts/extract_telemetry.py and the board's Episode inspector read.
+    _TELEMETRY_FIELDS = (
+        ("soc", "battery_soc", 4),
+        ("stored", "data_stored_mb", 2),
+        ("downlinked", "data_downlinked_mb", 2),
+        ("jetson_raw", "jetson_raw_mb", 2),
+        ("obc", "obc_data_mb", 2),
+    )
+
+    @classmethod
+    def _compact_telemetry(cls, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Downsampled, scalar-only per-step telemetry for graphs / inspector.
+
+        Pulls the critical fields (battery, mode, data pools, ground-pass,
+        anomaly) from each step's ``info`` dict, downsampled to at most
+        ``TELEMETRY_MAX_POINTS`` evenly-spaced points. Tens of KB per episode,
+        vs the multi-GB raw observation dump it replaces.
+        """
+        if not steps:
+            return {}
+        k = max(1, len(steps) // cls.TELEMETRY_MAX_POINTS)
+        rows = steps[::k]
+        infos = [r.get("info", {}) or {} for r in rows]
+        tel: Dict[str, Any] = {
+            "steps": [r.get("step") for r in rows],
+            "mode": [i.get("resolved_mode", "?") for i in infos],
+            "gpass": [int(bool(i.get("ground_pass_active"))) for i in infos],
+            "sunlight": [int(bool(i.get("in_sunlight"))) for i in infos],
+            "anomaly": [int(bool(i.get("anomaly_forced_safe"))) for i in infos],
+        }
+        for out_key, info_key, ndigits in cls._TELEMETRY_FIELDS:
+            tel[out_key] = [round(i.get(info_key) or 0.0, ndigits) for i in infos]
+        return tel
+
+    @classmethod
+    def _strip_episode_for_disk(
+        cls, episode: Dict[str, Any], with_telemetry: bool = False
+    ) -> Dict[str, Any]:
         """Drop raw per-step payloads from one episode result dict.
 
         Removes the multi-GB raw observation snapshots (``steps`` — each entry
@@ -867,8 +916,17 @@ class ExperimentRunner:
         and the per-step metric list (``episode_metrics.step_metrics``), keeping
         only the per-episode AGGREGATED metrics. The full per-step trace lives
         only in ``decisions_ep*.jsonl`` (written when ``log_level == DEBUG``).
+
+        When ``with_telemetry`` is set, a compact downsampled ``telemetry`` block
+        of the critical scalar fields is attached before the raw steps are
+        dropped — small enough for results.json, enough for graphs / the Episode
+        inspector, and present regardless of log level.
         """
         out = {k: v for k, v in episode.items() if k != "steps"}
+        if with_telemetry:
+            tel = cls._compact_telemetry(episode.get("steps", []) or [])
+            if tel:
+                out["telemetry"] = tel
         em = out.get("episode_metrics")
         if (
             em is not None
@@ -910,8 +968,10 @@ class ExperimentRunner:
             )
 
         out["episodes"] = [
-            ExperimentRunner._strip_episode_for_disk(ep)
-            for ep in out.get("episodes", [])
+            ExperimentRunner._strip_episode_for_disk(
+                ep, with_telemetry=(i < ExperimentRunner.TELEMETRY_SAMPLE_EPISODES)
+            )
+            for i, ep in enumerate(out.get("episodes", []))
         ]
         return out
 

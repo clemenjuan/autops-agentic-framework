@@ -96,3 +96,44 @@ class TestResultsJsonStaysCompact:
         # Generous bound: without stripping this would be many MB even at 2x30
         # (full ConstellationState per step). Compact form is well under 1 MB.
         assert size_bytes < 1_000_000, f"results.json too large: {size_bytes} bytes"
+
+
+class TestCompactTelemetryBlock:
+    """Sample episodes keep a compact, scalar-only per-step telemetry block for
+    graphs / the Episode inspector — present regardless of log level, and small.
+    """
+
+    def test_sample_episodes_carry_telemetry(self, tmp_path) -> None:
+        results_path = _run_short_experiment(tmp_path, episodes=2, steps=30)
+        results = json.loads(results_path.read_text(encoding="utf-8"))
+
+        # 2 episodes < TELEMETRY_SAMPLE_EPISODES (3) → both carry telemetry.
+        expected_keys = {
+            "steps", "mode", "gpass", "sunlight", "anomaly",
+            "soc", "stored", "downlinked", "jetson_raw", "obc",
+        }
+        for ep in results["episodes"]:
+            tel = ep.get("telemetry")
+            assert tel, "sample episode missing telemetry block"
+            assert expected_keys.issubset(tel.keys())
+            n = len(tel["steps"])
+            assert n > 0
+            # All series are aligned and scalar (graph-ready).
+            for key in expected_keys:
+                assert len(tel[key]) == n
+            assert all(isinstance(m, str) for m in tel["mode"])
+            assert all(isinstance(s, (int, float)) for s in tel["soc"])
+            # Telemetry is the WARNING-level run (no DEBUG) — proves it is not
+            # gated on the decision-trace flag.
+            assert not (tmp_path / "decisions_ep0.jsonl").exists()
+
+    def test_telemetry_only_for_leading_sample(self, tmp_path, monkeypatch) -> None:
+        """Episodes beyond the sample window carry no telemetry (keeps file small)."""
+        from src.orchestration.experiment_runner import ExperimentRunner
+
+        monkeypatch.setattr(ExperimentRunner, "TELEMETRY_SAMPLE_EPISODES", 1)
+        results_path = _run_short_experiment(tmp_path, episodes=2, steps=30)
+        results = json.loads(results_path.read_text(encoding="utf-8"))
+
+        assert results["episodes"][0].get("telemetry")
+        assert "telemetry" not in results["episodes"][1]
