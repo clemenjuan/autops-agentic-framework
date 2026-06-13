@@ -173,9 +173,9 @@ uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 10
 
 ### Training Learned-Emergence Variants
 ```bash
-uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml    # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml   # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml   # writable CoALA
+uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml    # PPO
+uv run autops train configs/experiments/eventsat_sas_llm_ah.yaml   # prompt-opt
+uv run autops train configs/experiments/eventsat_sas_agentic_ah.yaml   # writable CoALA
 ```
 
 ### Batch Experiments

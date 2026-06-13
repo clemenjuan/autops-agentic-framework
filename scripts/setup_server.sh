@@ -137,7 +137,7 @@ fi
 log "Setup complete."
 log "Next step: run the live hd sweep with"
 log "    cd ${REPO_DIR}"
-log "    uv run autops batch configs/experiments/eventsat_sas_sda_hyre_hd_ah.yaml --episodes 3 --steps 1440 --log-level DEBUG"
+log "    uv run autops batch configs/experiments/eventsat_sas_llm_ah.yaml --episodes 3 --steps 1440 --log-level DEBUG"
 log ""
 log "Add OLLAMA_HOST to ~/.bashrc if you want it set in future shells:"
 log "    echo 'export OLLAMA_HOST=${OLLAMA_HOST}' >> ~/.bashrc"

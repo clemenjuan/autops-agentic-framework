@@ -19,7 +19,7 @@ Papers:
 
 Usage:
     optimizer = PromptOptimizer(config)
-    prompt = optimizer.optimize(source_results_dir="data/results/eventsat_sas_sda_hyre_hd_ah")
+    prompt = optimizer.optimize(source_results_dir="data/results/eventsat_sas_llm_ah")
 """
 from __future__ import annotations
 

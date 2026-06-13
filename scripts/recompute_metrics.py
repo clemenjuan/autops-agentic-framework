@@ -9,7 +9,7 @@ numbers without re-rolling expensive LLM episodes.
 
 Usage::
 
-    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_sda_hyre_hd_ah/
+    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_llm_ah/
     uv run python scripts/recompute_metrics.py data/results/eventsat_sas_*_hyre_*/
 """
 

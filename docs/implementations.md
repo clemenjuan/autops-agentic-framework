@@ -7,15 +7,16 @@ its paper basis, and key design decisions. Grows as new components are added.
 > ([`decision_matrix.md` §3](decision_matrix.md)): O is, per active core, **substrate**
 > (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic);
 > *learning is folded in* (offline per core + the agentic online-learning action) and *decision
-> procedure is held fixed* — neither is a peer axis. **This registry documents the current code**,
-> whose tokens are retained **permanently via this crosswalk** — the bulk code rename was evaluated
-> and **dropped in the 2026-06-12 pivot** (focus moved to EventSat empirical results), so these are
-> the stable names, not a transitional state: `src/decision_procedure/`, the
-> `behaviour` / `behaviour_config` field (`src/behaviour/`), and `llm_eventsat` (= subsymbolic·LLM,
-> token `hyre`) / `agentic_eventsat` (= hybrid·agentic, token `hyag`). The `rl` / `llm` substrate
-> schema values added during the migration stay valid for new configs. So the
-> "Decision Loops" and "Emergence" headings below keep their **implemented** names; map them to the
-> spec via the crosswalk in `decision_matrix.md` §3.
+> procedure is held fixed* — neither is a peer axis. **Config/run names use the clean scheme**
+> `eventsat_<org>_<substrate>_<paradigm>`, substrate ∈ `symbolic · rl · llm · agentic`
+> (decision_matrix §3.1a; the old `symb/subm/hyre/hyag` + `<proc>_<beh>` filename tokens were
+> retired 2026-06-13). The substrate token resolves to the concrete class via
+> `ExperimentConfig._resolve_repr_type`: `symbolic`→`rule_based_eventsat`, `rl`→`subsymbolic_eventsat`,
+> `llm`→`llm_eventsat`, `agentic` (= `hybrid`+agentic) → `agentic_eventsat` (with the
+> `*_scheduler_eventsat` variants in the ground slot). `src/decision_procedure/` and
+> `src/behaviour/` (and their config fields) remain at defaults — folded, not in names. So the
+> "Decision Loops" and "Emergence" headings below keep their **implemented** class names; map them
+> to the spec via §3.1a.
 
 ---
 
@@ -631,7 +632,7 @@ Maps to the **Behaviour** overlay ([decision_matrix §3.2](decision_matrix.md#32
 
 - **File**: `src/behaviour/training_pipeline.py` (PPOTrainer)
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml`
 - **Output**: `data/trained_models/<experiment_id>/policy.pt`
 
 ### PromptOptimizer — `_lep_` LLM/agentic variants
@@ -647,7 +648,7 @@ Maps to the **Behaviour** overlay ([decision_matrix §3.2](decision_matrix.md#32
   3. Generate `num_candidates` few-shot-augmented system prompt candidates.
   4. Score candidates on 20% held-out split (mock-mode: proxy score; live: LLM accuracy).
   5. Write best prompt to `data/trained_prompts/<experiment_id>/prompt.txt` + `metadata.json`.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_llm_ah.yaml`
 - **Source dir**: auto-derived from experiment_id (`_lep_` → `_hd_`), or explicit via
   `--source-dir`.
 - **Runtime**: `LLMEventSat` and `AgenticEventSat` load the prompt at `__init__`; fall back
@@ -660,7 +661,7 @@ Maps to the **Behaviour** overlay ([decision_matrix §3.2](decision_matrix.md#32
 
 - **Mechanism**: `behaviour_config.mechanism = "writable_coala"`
 - **Pre-training**: None. Memory accretion happens online at run-time.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_agentic_ah.yaml`
   (prints guidance; no artifact written)
 - **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala` and injects the
   `memory_write_rule` + `memory_write_episode` tools into the tool schema and CoALA memory

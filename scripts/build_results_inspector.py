@@ -17,10 +17,10 @@ OUT = Path("data/figures/results_inspector.html")
 
 # Honesty flags shown next to experiments (kept in code so they are versioned).
 FLAGS = {
-    "eventsat_sas_sda_symb_hd_ag": "EXCLUDED — ground-schedule playback bug at full episode length (probe: passes eaten by ADCS settling before telemetry refresh)",
-    "eventsat_sas_sda_symb_hd_cg": "EXCLUDED — same playback bug as AG",
-    "eventsat_sas_sda_hyre_hd_ah": "HF pilot, n=3 ×1440 steps — deterministic cache replay of real qwen3.5:122b outputs (temp 0)",
-    "eventsat_sas_sda_hyag_hd_ah": "HF pilot, n=2 ×720 steps — agentic, partially cached",
+    "eventsat_sas_symbolic_ag": "EXCLUDED — ground-schedule playback bug at full episode length (probe: passes eaten by ADCS settling before telemetry refresh)",
+    "eventsat_sas_symbolic_cg": "EXCLUDED — same playback bug as AG",
+    "eventsat_sas_llm_ah": "HF pilot, n=3 ×1440 steps — deterministic cache replay of real qwen3.5:122b outputs (temp 0)",
+    "eventsat_sas_agentic_ah": "HF pilot, n=2 ×720 steps — agentic, partially cached",
     "lf_hyre_4b_ah": "LF rung L1, n=3 ×1440 — qwen3.5:4b live, paired seeds with HF hyre",
     "nbr_b2_hyre_ah": "B2 neighbour, onboard LLM gate-legal (R-COMPUTE1), live 122B",
 }
@@ -100,9 +100,9 @@ Plotly.newPlot("strip", strips, {{showlegend:false, yaxis:{{title:"utility (raw)
 // ---- B-walk
 function meanOf(id) {{ const d = DATA.find(x=>x.id===id); return d? d.mean.utility : null; }}
 const bw = [
- {{x:["B1","B2","B3"], y:[meanOf("eventsat_sas_sda_symb_hd_ao"), meanOf("nbr_b2_symb_ao"), meanOf("nbr_b3_symb_ao")], name:"symbolic AO", mode:"lines+markers"}},
- {{x:["B1","B2","B3"], y:[meanOf("eventsat_sas_sda_symb_hd_ah"), meanOf("nbr_b2_symb_ah"), meanOf("nbr_b3_symb_ah")], name:"symbolic AH", mode:"lines+markers"}},
- {{x:["B1","B2"], y:[meanOf("eventsat_sas_sda_hyre_hd_ah"), meanOf("nbr_b2_hyre_ah")], name:"LLM (hyre) AH — B1 informs B2+ per R-COMPUTE1", mode:"lines+markers", line:{{dash:"dot"}}}},
+ {{x:["B1","B2","B3"], y:[meanOf("eventsat_sas_symbolic_ao"), meanOf("nbr_b2_symb_ao"), meanOf("nbr_b3_symb_ao")], name:"symbolic AO", mode:"lines+markers"}},
+ {{x:["B1","B2","B3"], y:[meanOf("eventsat_sas_symbolic_ah"), meanOf("nbr_b2_symb_ah"), meanOf("nbr_b3_symb_ah")], name:"symbolic AH", mode:"lines+markers"}},
+ {{x:["B1","B2"], y:[meanOf("eventsat_sas_llm_ah"), meanOf("nbr_b2_hyre_ah")], name:"LLM (hyre) AH — B1 informs B2+ per R-COMPUTE1", mode:"lines+markers", line:{{dash:"dot"}}}},
 ];
 Plotly.newPlot("bwalk", bw, {{yaxis:{{title:"mean utility"}}, xaxis:{{title:"SS-B engineering tier"}}}});
 // ---- sweep
@@ -121,7 +121,7 @@ const sweepTraces = Object.entries(series).map(([k,pts])=>({{
 }}));
 Plotly.newPlot("sweep", sweepTraces, {{xaxis:{{title:"daily downlink budget B_dl (MB)"}}, yaxis:{{title:"mean utility (30 eps)"}}}});
 // ---- LF-HF pairs
-const hf = DATA.find(d=>d.id==="eventsat_sas_sda_hyre_hd_ah"), lf = DATA.find(d=>d.id==="lf_hyre_4b_ah");
+const hf = DATA.find(d=>d.id==="eventsat_sas_llm_ah"), lf = DATA.find(d=>d.id==="lf_hyre_4b_ah");
 if (hf && lf) {{
   const n = Math.min(hf.per_ep.utility.length, lf.per_ep.utility.length);
   const xs = lf.per_ep.utility.slice(0,n), ys = hf.per_ep.utility.slice(0,n);

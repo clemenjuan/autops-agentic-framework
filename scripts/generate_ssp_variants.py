@@ -17,9 +17,9 @@ TIERS = {"a1b2c1d1e0": 5.0, "a1b3c1d1e0": 20.0}
 # cell token -> (base config, schema overrides). New-nomenclature tokens
 # (decision_matrix §3.1): symb · srl · sllm_re · sllm_ag · hyb_re · hyb_ag.
 EXPS = {
-    "symb_hd_ao":    ("configs/experiments/eventsat_sas_sda_symb_hd_ao.yaml", {}),
-    "symb_hd_ah":    ("configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml", {}),
-    "sllm_re_hd_ah": ("configs/experiments/eventsat_sas_sda_hyre_hd_ah.yaml",
+    "symb_hd_ao":    ("configs/experiments/eventsat_sas_symbolic_ao.yaml", {}),
+    "symb_hd_ah":    ("configs/experiments/eventsat_sas_symbolic_ah.yaml", {}),
+    "sllm_re_hd_ah": ("configs/experiments/eventsat_sas_llm_ah.yaml",
                       {"representation": "llm"}),
 }
 
