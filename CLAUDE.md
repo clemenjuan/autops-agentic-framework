@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## What this is
-PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite ops via a three-axis **M × O × T** decision/tradespace matrix — canonical spec `docs/decision_matrix.md`. **M** mission profile (SSP) · **O** operations-system architecture · **T** CCSDS-520 tests; M×O coverage by a multi-fidelity surrogate. **O** = (per active core) **substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic), over **organization** (SAS/MAS) × **operations paradigm** (AO/AH/AG/CG). The conceptual axes crosswalk 1:1 to the **implemented config tokens** — the code still carries `decision_procedure` and `behaviour_config` (held/folded per decision_matrix §3), so the tokens, configs, and commands below are unchanged.
+PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite ops via a three-axis **M × O × T** decision/tradespace matrix — canonical spec `docs/decision_matrix.md`. **M** mission profile (SSP) · **O** operations-system architecture · **T** CCSDS-520 tests; M×O coverage by a multi-fidelity surrogate. **O** = (per active core) **substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic), over **organization** (SAS/MAS) × **operations paradigm** (AO/AH/AG/CG). Config/run names follow the clean convention `eventsat_<org>_<substrate>_<paradigm>` (decision_matrix §3.1a); `decision_procedure`/`behaviour` are folded (held at content defaults, not axes, not in names).
 
 ## Execution environment
 - **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.
@@ -23,29 +23,20 @@ uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
 uv run pytest tests/ -v -o "addopts="     # Full test suite (692 tests: 669 pass, 23 RL skipped without --extra rl)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
-# Run experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
-# org:  sas (cmas valid at N>=2 only — Flamingo)   proc: sda | ooda | react
-# repr: symb | hyre | subm | hyag                ops:  ao | ah | ag | cg
-# beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
-#
-# Canonical config values (as accepted by config_loader.py):
-#   agent_organization: sas | centralized_mas | decentralized_mas | independent_mas | hybrid_mas
-#   behaviour_config.mechanism: hand_designed | ppo | prompt_optimized | writable_coala
-# (dmas/imas/hmas require N>=10 + ISL for dmas (R-ORG2/3); deferred to Flamingo — see Architecture.)
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
-uv run autops run configs/experiments/eventsat_sas_sda_hyre_hd_ah.yaml  # LLM hybrid
-uv run autops run configs/experiments/eventsat_sas_sda_subm_le_ah.yaml  # RL subsymbolic
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_hd_ah.yaml  # Agentic hybrid
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml # Writable CoALA
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml # Prompt-optimized
+# Run experiments — name = eventsat_<org>_<substrate>_<paradigm>  (decision_matrix §3.1a)
+#   org:        sas (cmas/dmas/imas/hmas deferred to Flamingo)
+#   substrate:  symbolic | rl | llm | agentic     (llm/agentic carry llm_model + 7-day)
+#   paradigm:   ao | ah | ag | cg
+uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml
+uv run autops run configs/experiments/eventsat_sas_rl_ah.yaml        # RL (PPO; needs --extra rl)
+uv run autops run configs/experiments/eventsat_sas_llm_ah.yaml       # LLM reactive (qwen3.6:35b)
+uv run autops run configs/experiments/eventsat_sas_agentic_ah.yaml   # LLM agentic (tool loop)
 
 # Quick smoke test (1 episode, 100 steps)
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
+uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml --episodes 1 --steps 100
 
-# Training learned-emergence variants
-uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml         # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml        # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml        # writable CoALA
+# Training (RL / prompt-optimised cells)
+uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml                  # PPO
 
 # Batch run / analyze — see uv run autops --help
 ```

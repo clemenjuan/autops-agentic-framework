@@ -3,17 +3,14 @@ AUTOPS CLI — unified entry point for running experiments and analysis.
 
 Usage::
 
-    uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
-    uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 3 --analyze
+    uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml
+    uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml --episodes 3 --analyze
     uv run autops batch configs/experiments/generated/
     uv run autops generate --template configs/experiments/template.yaml
-    uv run autops analyze data/results/eventsat_sas_sda_symb_hd_ah/
+    uv run autops analyze data/results/eventsat_sas_symbolic_ah/
 
-    # Training learned-emergence variants
-    uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml      # PPO
-    uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml     # prompt-optimized
-    uv run autops train configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml     # agentic prompt-opt
-    uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml     # writable CoALA
+    # Config name = eventsat_<org>_<substrate>_<paradigm>  (decision_matrix §3.1a)
+    uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml               # PPO
 """
 
 from __future__ import annotations

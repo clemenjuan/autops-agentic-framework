@@ -1,32 +1,24 @@
-# EventSat | Centralized · ReAct · Hybrid · Hand-designed · Autonomous-Ground
-# ============================================================================
-# 5D Morphological Matrix: sas | react | hyre | hd | ag
-#
-# LLM hybrid representation with ReAct iterative reason-act-observe and algorithmic ground scheduling.
-# Papers: Rodriguez-Fernandez et al. (2024), Li (2025)
-
-experiment_id: eventsat_sas_react_hyre_hd_ag
-description: EventSat LLM hybrid representation with ReAct iterative reason-act-observe
-  and algorithmic ground scheduling. LLM reasons about mode selection with symbolic
-  safety grounding.
+experiment_id: eventsat_sas_agentic_ah
+description: "EventSat \xB7 SAS \xB7 agentic \xB7 AH.\n"
 seed: 42
 agent_organization: sas
-decision_procedure: react
+decision_procedure: sda
 representation: hybrid
 behaviour: hand_designed
-operations_paradigm: autonomous_ground
+operations_paradigm: autonomous_hybrid
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
 representation_config:
-  action_space: reactive
+  action_space: agentic
   llm_provider: auto
-  llm_model: qwen3.5:122b
+  llm_model: qwen3.6:35b
   openai_model: gpt-4o-mini
   llm_temperature: 0.0
   llm_mock: false
   llm_cache_dir: data/llm_cache
+  max_agentic_steps: 5
 behaviour_config:
   mode: hand_designed
 environment:
@@ -51,6 +43,3 @@ metrics:
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
-operations_paradigm_config:
-  default_mode: charging
-  orbital_period_steps: 93

@@ -1,43 +1,34 @@
-# EventSat | Centralized · ReAct · Subsymbolic · Learned · Autonomous-Ground
-# ============================================================================
-# 5D Morphological Matrix: sas | react | subm | le | ag
-
-experiment_id: eventsat_sas_react_subm_le_ag
-description: >
-  EventSat RL subsymbolic representation with ReAct loop and autonomous-ground ops.
-
+experiment_id: eventsat_sas_rl_ao
+description: "EventSat \xB7 SAS \xB7 rl \xB7 AO.\n"
 seed: 42
-
 agent_organization: sas
-decision_procedure: react
-representation: subsymbolic
+decision_procedure: sda
+representation: rl
 behaviour: emergent
-operations_paradigm: autonomous_ground
-
+operations_paradigm: autonomous_onboard
 agent_organization_config: {}
-
 decision_procedure_config:
-  max_iterations: 3
-  think_before_act: true
-
+  sense_encode: true
+  decide_act: true
 representation_config:
   rl_mock: false
   deterministic: false
-  checkpoint_path: ""
+  checkpoint_path: ''
   orbital_period_steps: 94
   max_steps: 10080
   compression_time_factor: 2.0
   detection_steps: 5
   jetson_capacity_mb: 249036.8
-
 behaviour_config:
   mechanism: ppo
   mode: emergent
   rollout_fragment: 128
-  lr: 1.0e-4
+  lr: 0.0001
   lr_schedule:
-    - [0, 1.0e-4]
-    - [3000000, 1.0e-5]
+  - - 0
+    - 0.0001
+  - - 3000000
+    - 1.0e-05
   gamma: 0.97
   gae_lambda: 0.95
   clip_ratio: 0.3
@@ -46,32 +37,24 @@ behaviour_config:
   value_coef: 1.0
   max_grad_norm: 0.5
   minibatch_size: 256
-
-operations_paradigm_config:
-  orbital_period_steps: 93
-
 environment:
   constellation_size: 1
   timestep_seconds: 60
   scenario: eventsat
   scenario_config:
     scenario_file: configs/scenarios/eventsat.yaml
-
 memory_config:
   history_depth: 100
-
 num_episodes: 10
 max_steps: 10080
-
 metrics:
   enabled:
-    - utility
-    - latency
-    - resource_efficiency
-    - operator_load
-    - explainability
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
   collection_frequency: per_step
-
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO

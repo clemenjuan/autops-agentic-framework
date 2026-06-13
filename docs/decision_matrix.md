@@ -196,7 +196,7 @@ Symbolic and subsymbolic·RL are reactive by nature (rules fire once; an RL poli
 
 This yields **6 per-core cells**: symbolic·re · RL·re · LLM·re · LLM·ag · hybrid·re · hybrid·ag.
 
-The mapping from these six cells to concrete representation classes and config tokens is **implementation-level and lives in `implementations.md`** (the component registry); this spec speaks only the cell names. The code retains its original tokens (`decision_procedure`/`behaviour` fields, `hyre`/`hyag` representation names) via the documented crosswalk in `implementations.md` — the bulk token rename was **evaluated and dropped (2026-06-12 pivot)** to keep effort on the EventSat empirical results, so the crosswalk is the permanent design, not a transitional state (the `rl`/`llm` substrate schema values remain valid for new configs). Two cells are expressible but not yet instantiated: *subsymbolic·LLM·agentic* (pure reasoning loop, no symbolic tools) and *hybrid·reactive* (e.g. an RL policy wrapped by symbolic safety rules).
+The mapping from these six cells to concrete representation classes is in `implementations.md` (the component registry). Config/run names use the clean substrate tokens of §3.1a (`symbolic`/`rl`/`llm`/`agentic`); the old `symb/subm/hyre/hyag` tokens and the `<proc>_<repr>_<beh>` filename scheme were **retired in the 2026-06-13 clean-up** (the `decision_procedure`/`behaviour` config *fields* remain at defaults but no longer appear in names). Two cells are expressible but not yet instantiated: *subsymbolic·LLM·agentic* (pure reasoning loop, no symbolic tools) and *hybrid·reactive* (e.g. an RL policy wrapped by symbolic safety rules).
 
 **Axis C — Operations paradigm** (defines which *autonomy slots* are active)
 
@@ -224,6 +224,33 @@ The ground planner is the **same artifact** in AH and AG, so AH↔AG isolates th
 **Decision procedure (SDA / OODA / ReAct) is also not a tradespace axis** — held at the default (`sda`). For deterministic substrates the three collapse to identical decisions; for LLM cells the difference is an internal control-flow detail that does not interact with mission selection.
 
 **O-cell descriptor:** (Organisation · per-core Substrate × Action-space · Paradigm).
+
+### 3.1a Naming convention (single source of truth)
+
+A run/config is named **only** by its M×O coordinates — nothing folded:
+
+```
+eventsat_<org>_<substrate>_<paradigm>[_<model>][_<length>]
+```
+
+| Field | Tokens |
+|---|---|
+| `org` | `sas` · `cmas` · `dmas` · `imas` · `hmas` |
+| **`substrate`** | `symbolic` · `rl` · `llm` · `agentic`  (future neurosymbolic: `hybrid` · `hybrid_agentic`) |
+| `paradigm` | `ao` · `ah` · `ag` · `cg` |
+| `model` *(LLM cells only)* | e.g. `35b` (qwen3.6) |
+| `length` *(optional)* | `7d` · `1d` |
+
+The four substrate tokens map to the per-core cells of §3.1 and to the concrete classes:
+
+| token | cell (§3.1) | content (`representation` + `action_space`) | resolved class |
+|---|---|---|---|
+| `symbolic` | symbolic·reactive | `symbolic` | `rule_based_eventsat` / `schedule_based` / `conventional_schedule` |
+| `rl` | RL·reactive | `rl` | `subsymbolic_eventsat` / `subsymbolic_scheduler` |
+| `llm` | LLM·reactive | `llm` + `reactive` | `llm_eventsat` / `llm_scheduler` |
+| `agentic` | hybrid·agentic | `hybrid` + `agentic` | `agentic_eventsat` / `agentic_scheduler` |
+
+**Not in the name** (folded per §3.1, kept at content defaults): decision procedure (held at `sda`), behaviour / offline-adaptation, and the online-learning action. Examples: `eventsat_sas_symbolic_ao`, `eventsat_sas_llm_ah`, `eventsat_sas_agentic_ah_35b_7d`. This replaces the retired `<scenario>_<org>_<proc>_<repr>_<beh>_<ops>` scheme and its `symb/subm/hyre/hyag` · `hd/le/lep/lec` tokens.
 
 ### 3.2 Validity rules (O and O×M)
 
