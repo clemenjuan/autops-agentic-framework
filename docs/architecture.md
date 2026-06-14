@@ -7,7 +7,7 @@
 
 ## Overview
 
-This framework is the **test engine** for the **M × O × T** decision/tradespace matrix. The architecture axis (O) is, per operational core, a cognitive substrate (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × action space (reactive / agentic), over the organization and operations-paradigm axes. Full definition and rationale: [`decision_matrix.md` §3](decision_matrix.md). This document covers only the *system* view — data flow, component interactions, and directory layout.
+This framework is the **engine** for the EventSat **operations-system (O) benchmark**. An architecture is organisation × representation (cognitive substrate × action space) × operational paradigm. Full definition: [`morphological_matrix.md`](morphological_matrix.md). This document covers only the *system* view — data flow, component interactions, and directory layout.
 
 ## Architecture Diagram
 
@@ -21,7 +21,7 @@ reference architecture** in a sibling domain (autonomous satellite operations), 
 a structural adoption. The layered view below is complementary to the
 morphological matrix (which remains canonical) and to the diagram above; it makes
 the autops architectural choices legible to the broader agentic-AI literature. For
-the framing see [`decision_matrix.md` §2.1](decision_matrix.md#21-parallel-reference-architecture-bhati-2026);
+the framing see [`morphological_matrix.md`](morphological_matrix.md);
 for the per-component mapping see
 [`implementations.md` → Layer Mapping](implementations.md#layer-mapping-bhati-2026).
 
@@ -64,7 +64,7 @@ targets while keeping L2–L5 fixed across the matrix.
 
 ## Design Principles
 
-1. **Orthogonal per-core axes**: O is (substrate × action) per active core; learning is folded in (per-core offline training + the agentic online-learning action), not a peer axis; decision procedure is held fixed, not a tradespace axis. Action-space richness (reactive vs agentic) varies only for LLM-bearing cores. Full rationale: [`decision_matrix.md` §3](decision_matrix.md).
+1. **Per-core representation**: each active core (onboard and/or ground) carries a representation = cognitive substrate × action space; the action space (single-shot vs agentic) is richer only for LLM-bearing cores. Full rationale: [`morphological_matrix.md`](morphological_matrix.md).
 2. **Modularity**: Components can be swapped without affecting others.
 3. **Reproducibility**: Configuration-driven experiments with seed control.
 4. **Fair Comparison**: Same environment and metrics for all variants.
@@ -143,7 +143,7 @@ Two computation backends are supported:
 | `src/agent_organization/` | Agent coordination patterns |
 | `src/decision_procedure/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
-| `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
+| `src/memory/` | `FixedMemory` (all cells, default); `WritableMemory` (agentic online-learning — CoALA §3) |
 | `src/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
 | `src/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
@@ -158,7 +158,7 @@ Two computation backends are supported:
 
 All architecture variants access the **same** `FixedMemory` structure by default to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
 
-**Exception**: `_lec_` configs (`behaviour_config.mechanism = "writable_coala"`) use `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — these variants are compared against the hand-designed agentic baseline only, not against other representation types. See `src/memory/writable_memory.py` and CLAUDE.md for the rationale.
+**Exception**: the agentic online-learning variant (`behaviour_config.mechanism = "writable_coala"`) uses `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — it is compared against the same agentic cell with fixed memory, not against other cells. See `src/memory/writable_memory.py` and CLAUDE.md.
 
 ### Why YAML Configuration?
 

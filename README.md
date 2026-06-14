@@ -6,58 +6,33 @@ Part of the AUTOPS project at TUM Chair of Spacecraft Systems.
 
 ## Overview
 
-This framework is the **test engine** for a three-axis **M × O × T** decision/tradespace matrix
-(canonical spec: [docs/decision_matrix.md](docs/decision_matrix.md)): **M** mission profile (SSP),
-**O** operations-system architecture, **T** CCSDS-520-grounded tests, with M×O coverage by a
-multi-fidelity surrogate. Conceptually, **O** is — per active operational core — a cognitive
-**substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive /
-agentic), over the organization and operations-paradigm axes.
+This framework is the **engine** for the **EventSat operations-system (O) benchmark** — a
+controlled, metric-based comparison of cognitive architectures for autonomous satellite operations
+on a real event-camera CubeSat (canonical spec: [docs/morphological_matrix.md](docs/morphological_matrix.md)).
+Scenario-specific (EventSat now; multi-satellite later); no mission tradespace, no test catalogue,
+no multi-fidelity surrogate.
 
-The table below is the **implemented axis layer** (the crosswalk the code uses; the conceptual
-mapping is decision_matrix §3):
+An architecture has **three components**:
 
-| Implemented axis        | Options                                                      |
-|------------------------|--------------------------------------------------------------|
-| **Organization**       | SAS, Centralized MAS (instantiated); Decentralized / Independent / Hybrid MAS deferred to constellation scenarios (Kim et al. 2025) |
-| **Representation** (substrate) | Symbolic, Subsymbolic, Hybrid — hybrid split by **action space**: reactive vs agentic |
-| **Decision Procedure** | SDA, OODA, ReAct — *held at `sda` in the matrix; not a tradespace axis* |
-| **Operations Paradigm**| Autonomous Onboard, Autonomous Hybrid, Autonomous Ground, Conventional Ground |
+| Component | Options |
+|-----------|---------|
+| **Organisation** | `sas` (EventSat); `cmas/imas/dmas/hmas` for the future multi-satellite scenario |
+| **Representation** = substrate × action space | `symb · rl · hrl · llm-s · llm-a · hllm-s · hllm-a` (7 cells) |
+| **Operational paradigm** | `conventional` · `ag` · `ao` · `ah` (`ah` is dual-core: onboard + ground) |
 
-**Behaviour tokens** (`hd` / `le` / `lep` / `lec`) are retained in code but *conceptually folded*
-into per-core offline-training (RL trained-by-construction; LLM zero-shot vs prompt-optimised) plus
-the agentic online-learning action (writable-CoALA) — see decision_matrix §3.
-
-Each combination defines a unique architecture evaluated under identical conditions. The concrete
-representation class is resolved from `representation × action_space × operations_paradigm` (see
-[docs/decision_matrix.md §3](docs/decision_matrix.md)).
+EventSat·SAS yields **32 experiments**, named `eventsat_sas_<paradigm>_<rep>` (and
+`eventsat_sas_ah_<onboard>_<ground>` for the dual-core hybrid). See
+[docs/morphological_matrix.md](docs/morphological_matrix.md) for the full framework, naming, and the
+14 metrics.
 
 ### Current Status
 
-**Phase 5 complete** — 70 experiment configurations across the valid morphological matrix (21 cmas N=1 duplicates pruned per R-ORG1):
-- **Decision loops**: SDA (reactive baseline), OODA (Boyd's cycle with CBR orient), ReAct (iterative reason-act-observe with grounding checks)
-- **Operations paradigms**: Autonomous Onboard (onboard-only, per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic with planning delay and cognitive constraints). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to non-Jetson modes (not to compress/detect/send, which already include the Jetson); symbolic onboard runs on the OBC with no overhead.
-- **Representations** (3 substrates; concrete class resolved from substrate × action_space × ops):
-  - *Symbolic*: Rule-based (OODA-aware + ReAct-capable), Schedule-based, Conventional Schedule (human cognitive constraints)
-  - *Hybrid — reactive* (single-shot LLM): `llm_eventsat` (Rodriguez-Fernandez et al. 2024)
-  - *Hybrid — agentic* (tool-using): `agentic_eventsat` (CoALA, Sumers et al. 2024) — multi-step Plan-Tool-Reflect-Decide with 6 domain tools
-  - *Subsymbolic — RL*: `subsymbolic_eventsat` (PPO, Juan Oliver et al. 2025) — trainable per-step policy (AH)
-
-  Under ground paradigms (AG/CG), non-symbolic representations act as **schedule producers** —
-  **distinct** long-horizon planners (a full-pass RL planner; real LLM/agentic planners), shared by
-  AH and AG. AH additionally runs the per-step onboard policy that can override the uplinked plan, so
-  AH-vs-AG isolates the onboard-override effect. These planners (`subsymbolic_scheduler_eventsat`,
-  `llm_scheduler_eventsat`, `agentic_scheduler_eventsat`) are currently symbolic-planner
-  **placeholders** (`is_placeholder`), pending Phase 4.e.
-- **Learned-emergence for LLM representations** (Phase 5):
-  - `prompt_optimized` (`_lep_`): offline bootstrap few-shot prompt optimization (DSPy-style; 24 configs)
-  - `writable_coala` (`_lec_`): online CoALA memory accretion with writable semantic + episodic stores (12 configs)
-- **`autops train` CLI**: dispatches PPO training, prompt optimization, or CoALA guidance by config
-- **Inference gating**: Ground-based paradigms (AG/CG) only run LLM/agentic inference during ground passes (Rossi et al. 2023)
-- Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection)
-- Orbital mechanics (analytical + optional Orekit J2 propagation, launch lottery)
-- 7 research metrics + loop-specific + representation-specific metrics
-- DecisionContext interface decoupling decision procedures from representations
-- 692 tests (669 passing; 23 RL tests skipped without the `rl` extra)
+Implemented components (the code is being mapped onto the 7-representation framework step by step — see `morphological_matrix.md`):
+- **Operational paradigms**: Autonomous Onboard (per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic, one-pass planning delay). Jetson-based onboard cores (RL/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to non-Jetson modes; symbolic onboard runs on the OBC with no overhead.
+- **Representation cores** (current `@register` classes): `rule_based_eventsat` (symbolic), `subsymbolic_eventsat` (RL/PPO, Juan Oliver et al. 2025), `llm_eventsat` (single-shot LLM, Rodriguez-Fernandez et al. 2024), `agentic_eventsat` (tool-using loop, CoALA — Sumers et al. 2024). Ground-slot schedule producers (`*_scheduler_eventsat`) are currently symbolic placeholders (`is_placeholder`).
+- **`autops train` CLI**: PPO training and online CoALA memory accretion.
+- Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection); orbital mechanics (analytical + optional Orekit J2, launch lottery); the 14 metrics.
+- 683 tests (passing; 23 RL tests skipped without the `rl` extra)
 
 ## Quick Start
 
@@ -76,35 +51,27 @@ uv run python -m pytest tests/ -v -o "addopts="
 
 ### Running an Experiment
 ```bash
-# Run EventSat experiments (naming: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>)
-# org:  sas  (cmas valid at N>=2 only — Flamingo; dmas/imas/hmas need N>=10, R-ORG2/3)
-# proc: sda | ooda | react           repr: symb | hyre | subm | hyag
-# beh:  hd (hand_designed) | le (ppo) | lep (prompt_optimized) | lec (writable_coala)
-# ops:  ao (autonomous_onboard) | ah | ag | cg
-# SDA loop (baseline)
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml    # hand-designed symbolic
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_hd_ah.yaml    # hand-designed agentic
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml   # writable-CoALA
-uv run autops run configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml   # prompt-optimized
+# Run EventSat experiments — name = eventsat_sas_<paradigm>_<rep>
+#   paradigm: conventional | ag | ao | ah        (ah: _<onboard>_<ground>)
+#   rep:      symb | rl | hrl | llm-s | llm-a | hllm-s | hllm-a   (ao: symb/rl/hrl only)
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml       # symbolic ground planner
+uv run autops run configs/experiments/eventsat_sas_ag_llm-s.yaml      # single-shot LLM ground
+uv run autops run configs/experiments/eventsat_sas_ah_rl_llm-s.yaml   # RL onboard + LLM ground
 
 # Quick smoke test (1 episode, 100 steps)
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 1 --steps 100
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --episodes 1 --steps 100
 
 # Run and auto-generate analysis figures
-uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --analyze
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --analyze
 ```
 
 ### Training Learned-Emergence Variants
 ```bash
-# PPO (subsymbolic)
-uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml
+# PPO (RL onboard)
+uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml
 
-# Prompt-optimization (LLM / agentic)
-uv run autops train configs/experiments/eventsat_sas_sda_hyre_lep_ah.yaml
-uv run autops train configs/experiments/eventsat_sas_sda_hyag_lep_ah.yaml
-
-# Writable CoALA (no pre-training; memory accretes at runtime)
-uv run autops train configs/experiments/eventsat_sas_sda_hyag_lec_ah.yaml
+# Writable CoALA (agentic online learning; memory accretes at runtime)
+uv run autops train configs/experiments/eventsat_sas_ag_llm-a.yaml
 ```
 
 ### Batch Experiments
@@ -116,7 +83,7 @@ uv run autops generate --template configs/experiments/template.yaml
 uv run autops batch configs/experiments --episodes 1 --steps 200
 
 # Run batch of specific configurations
-uv run autops batch configs/experiments/eventsat_sas_sda_*.yaml --episodes 1 --steps 200  # all SAS·SDA configs
+uv run autops batch configs/experiments/eventsat_sas_*.yaml --episodes 1 --steps 200  # all EventSat configs
 
 # Run all generated configs or all experiments in a folder
 uv run autops batch configs/experiments/generated/
@@ -127,7 +94,7 @@ uv run autops batch configs/experiments --episodes 5 --steps 10080
 ### Analyzing Results
 ```bash
 # Generate figures and summary from existing results
-uv run autops analyze data/results/eventsat_sas_sda_symb_hd_ah/
+uv run autops analyze data/results/eventsat_sas_ag_symb/
 ```
 
 For interactive exploration, use the Jupyter notebooks:
@@ -145,20 +112,20 @@ autops-demo/
 |   +-- agent_organization/   # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS
 |   +-- decision_procedure/        # SDA / OODA / ReAct (+ DecisionContext interface)
 |   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
-|   +-- memory/               # FixedMemory (all variants) + WritableMemory (_lec_ only, CoALA §3)
+|   +-- memory/               # FixedMemory (all variants) + WritableMemory (agentic online-learning, CoALA §3)
 |   +-- behaviour/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
 |   +-- operations/           # Operations paradigm (autonomous_onboard, autonomous_hybrid, autonomous_ground, conventional_ground)
 |   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
 +-- configs/
-|   +-- experiments/          # 70 experiment configs + 1 template
+|   +-- experiments/          # EventSat experiment configs + 1 template
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
 |   +-- train_subsymbolic.py  # PPO training script for RL representation
-+-- tests/                    # 692 tests (669 pass; 23 RL skipped without --extra rl)
++-- tests/                    # 683 tests (passing; 23 RL skipped without --extra rl)
 +-- docs/
-|   +-- decision_matrix.md    # Canonical M×O×T spec (axes, metrics, tests, analysis protocol)
+|   +-- morphological_matrix.md  # Canonical O-framework spec (3 components, 32 experiments, 14 metrics)
 |   +-- implementations.md    # Implementation registry (components, paper basis, design decisions)
 |   +-- architecture.md       # Architecture overview
 |   +-- scenarios.md          # Scenario descriptions
@@ -166,7 +133,7 @@ autops-demo/
 |   +-- results/              # Experiment outputs (git-ignored)
 |   +-- trained_models/       # PPO policy checkpoints (git-ignored)
 |   +-- trained_prompts/      # Prompt-optimized system prompts (git-ignored)
-|   +-- writable_memory_state/# WritableMemory persistence for _lec_ runs (git-ignored)
+|   +-- writable_memory_state/# WritableMemory for agentic online-learning runs (git-ignored)
 |   +-- llm_cache/            # LLM response cache with prompts (git-ignored)
 ```
 
@@ -175,12 +142,12 @@ autops-demo/
 Experiments are defined via YAML files validated by Pydantic:
 
 ```yaml
-experiment_id: "eventsat_sas_sda_symb_hd_ah"
+experiment_id: "eventsat_sas_ag_symb"
 agent_organization: sas
-decision_procedure: sda
-representation: symbolic
-behaviour: hand_designed
-operations_paradigm: autonomous_hybrid
+representation: symbolic        # content value; framework cell = symb
+operations_paradigm: autonomous_ground
+decision_procedure: sda        # held fixed (not a framework component)
+behaviour: hand_designed       # held at default
 environment:
   scenario: eventsat
   constellation_size: 1
@@ -207,7 +174,7 @@ uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
 
 ## Documentation
 
-- [Decision/Tradespace Matrix (M×O×T)](docs/decision_matrix.md) — the governing spec, incl. metric definitions (§5.2) and analysis protocol (§5.6)
+- [Operations-System (O) Framework](docs/morphological_matrix.md) — the canonical spec: 3 components, 7 representations, 4 paradigms, 32 EventSat experiments, naming, and the 14 metrics
 - [Implementation Registry](docs/implementations.md) — all components, paper basis, design decisions
 - [Architecture Overview](docs/architecture.md)
 - [Scenario Descriptions](docs/scenarios.md)

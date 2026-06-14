@@ -3,20 +3,18 @@
 Persistent record of every implemented component in the morphological matrix,
 its paper basis, and key design decisions. Grows as new components are added.
 
-> **Terminology / alignment note.** The canonical conceptual framing is the M × O × T spec
-> ([`decision_matrix.md` §3](decision_matrix.md)): O is, per active core, **substrate**
-> (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic);
-> *learning is folded in* (offline per core + the agentic online-learning action) and *decision
-> procedure is held fixed* — neither is a peer axis. **Config/run names use the clean scheme**
-> `eventsat_<org>_<substrate>_<paradigm>`, substrate ∈ `symbolic · rl · llm · agentic`
-> (decision_matrix §3.1a; the old `symb/subm/hyre/hyag` + `<proc>_<beh>` filename tokens were
-> retired 2026-06-13). The substrate token resolves to the concrete class via
-> `ExperimentConfig._resolve_repr_type`: `symbolic`→`rule_based_eventsat`, `rl`→`subsymbolic_eventsat`,
-> `llm`→`llm_eventsat`, `agentic` (= `hybrid`+agentic) → `agentic_eventsat` (with the
-> `*_scheduler_eventsat` variants in the ground slot). `src/decision_procedure/` and
-> `src/behaviour/` (and their config fields) remain at defaults — folded, not in names. So the
-> "Decision Loops" and "Emergence" headings below keep their **implemented** class names; map them
-> to the spec via §3.1a.
+> **Terminology / alignment note.** The canonical framing is the O framework
+> ([`morphological_matrix.md`](morphological_matrix.md)): an architecture is organisation ×
+> representation (cognitive **substrate** × **action space**) × operational paradigm. The seven
+> representations are `symb · rl · hrl · llm-s · llm-a · hllm-s · hllm-a`; run names follow
+> `eventsat_sas_<paradigm>_<rep>` (ah: `_<onboard>_<ground>`). The `decision_procedure` and
+> `behaviour` modules and config fields are held at defaults (not framework components). **NB —
+> work in progress:** the code still uses the legacy `representation` values
+> (`symbolic/subsymbolic/hybrid` + `action_space`) and `@register` class names
+> (`rule_based_eventsat`, `subsymbolic_eventsat`, `llm_eventsat`, `agentic_eventsat`,
+> `*_scheduler_eventsat`); mapping these onto the seven framework cells and enabling dual-core AH
+> is the step-by-step code work, not done yet. The component descriptions below document the
+> **current code** — map them to the framework via `morphological_matrix.md` §2.
 
 ---
 
@@ -395,7 +393,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - `prompt_optimized` (`_hyre_lep_*`): loads offline-optimised system prompt. `FixedMemory`
     invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
     gated by the *agentic* action space (writing is an action), which the reactive single-shot
-    LLM lacks (see [decision_matrix §3.2/§3.4](decision_matrix.md#32-behaviour-overlay)).
+    LLM lacks (see [morphological_matrix.md](morphological_matrix.md)).
 - **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyre_hd_*`; 12 `*_hyre_lep_*`
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
@@ -509,7 +507,7 @@ paradigms carry no overhead.
 - **Metrics**: `onboard_overrides`, `onboard_override_rate` (per-episode, in `paradigm_metrics`).
 - **`has_onboard_autonomy()=True`** (Jetson overhead). **Anomaly recovery**: onboard FDIR.
 - **Note**: the AH **onboard** slot follows the configured substrate (`a3768bf`,
-  per decision_matrix §3.1): `hybrid·reactive → llm_eventsat`, `hybrid·agentic → agentic_eventsat`,
+  per the O framework (morphological_matrix.md)): `hybrid·reactive → llm_eventsat`, `hybrid·agentic → agentic_eventsat`,
   `subsymbolic → subsymbolic_eventsat`. (Before `a3768bf`, `resolved_onboard_type` silently
   substituted the RL policy for hybrid AH cells, so no LLM ever ran in hyre/hyag AH — fixed.)
   The AH **ground-planner** slot is still the `*_scheduler` placeholder, so the LLM/agentic
@@ -624,7 +622,7 @@ paradigms carry no overhead.
 
 ## Emergence (Behaviour overlay)
 
-Maps to the **Behaviour** overlay ([decision_matrix §3.2](decision_matrix.md#32-behaviour-overlay)):
+Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matrix.md)):
 `ppo`/`prompt_optimized` = emergent·policy (gated by substrate); `writable_coala` = emergent·memory
 (gated by the agentic action space). Mechanism is derived from Behaviour × substrate, not chosen freely.
 
@@ -700,7 +698,7 @@ software engineering** systems. The autops framework is positioned as a parallel
 reference architecture in a **sibling domain** (autonomous satellite operations).
 The mapping below tags each component already documented above with its layer in
 Bhati's stack — it is illustrative, not a structural adoption. See
-[`decision_matrix.md` §2.1](decision_matrix.md#21-parallel-reference-architecture-bhati-2026)
+[morphological_matrix.md](morphological_matrix.md)
 for the framing.
 
 | Component | File / module | Bhati layer | Existing paper basis | Cross-domain note |
@@ -733,8 +731,8 @@ for the framing.
 — there is no foundation model. They sit at L1 directly. This asymmetry is
 load-bearing for the fair-comparison invariant: holding L2–L5 fixed across the
 matrix, the variation in L0 (none / RL policy / LLM) isolates the cognitive-paradigm
-effect (Brooks 1991; Colelough & Regli 2025) that RQ1 targets. The asymmetry is
-explicit in §2.1 of decision_matrix.
+effect (Brooks 1991; Colelough & Regli 2025). The asymmetry is explicit in
+[`morphological_matrix.md`](morphological_matrix.md).
 
 ---
 
