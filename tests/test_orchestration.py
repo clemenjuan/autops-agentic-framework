@@ -210,8 +210,7 @@ class TestConfigLoaderSaveLoad:
             experiment_id="test_round_trip",
             seed=123,
             agent_organization="decentralized_mas",
-            # R-ORG2/R-ORG3 gates: dmas needs N >= 10 and an ISL
-            environment={"constellation_size": 12, "isl_topology": "E1"},
+            environment={"constellation_size": 12},
         )
         yaml_path = tmp_path / "test.yaml"
         save_config(original, yaml_path)
@@ -396,81 +395,11 @@ class TestDeferredOrganizationGuard:
             max_steps=2,
             output_dir=str(tmp_path),
             agent_organization=org,
-            # satisfy the R-ORG2/R-ORG3 config gates so the runner-level guard is reached
-            environment={"constellation_size": 12, "isl_topology": "E1"},
+            environment={"constellation_size": 12},
         )
         runner = ExperimentRunner(config=cfg)
         with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
             runner._create_organization()
-
-
-class TestTradespaceGates:
-    """Hard organisation gates + compute warnings (decision_matrix.md §3.2)."""
-
-    def test_r_org1_cmas_requires_ah(self) -> None:
-        with pytest.raises(ValueError, match="R-ORG1"):
-            ExperimentConfig(
-                agent_organization="centralized_mas",
-                operations_paradigm="autonomous_ground",
-                representation="symbolic",
-                representation_config={"type": "schedule_based_eventsat"},
-                environment={"constellation_size": 3},
-            )
-
-    def test_r_org1_cmas_at_n1_is_sas_duplicate(self) -> None:
-        with pytest.raises(ValueError, match="identified with"):
-            ExperimentConfig(
-                agent_organization="centralized_mas",
-                operations_paradigm="autonomous_hybrid",
-                environment={"constellation_size": 1},
-            )
-
-    def test_cmas_ah_valid_at_n2(self) -> None:
-        cfg = ExperimentConfig(
-            agent_organization="centralized_mas",
-            operations_paradigm="autonomous_hybrid",
-            environment={"constellation_size": 2},
-        )
-        assert cfg.agent_organization == "centralized_mas"
-
-    @pytest.mark.parametrize("org", ["decentralized_mas", "independent_mas", "hybrid_mas"])
-    def test_r_org2_distributed_require_n10(self, org: str) -> None:
-        with pytest.raises(ValueError, match="R-ORG2"):
-            ExperimentConfig(
-                agent_organization=org,
-                environment={"constellation_size": 5, "isl_topology": "E1"},
-            )
-
-    def test_r_org3_dmas_requires_isl(self) -> None:
-        with pytest.raises(ValueError, match="R-ORG3"):
-            ExperimentConfig(
-                agent_organization="decentralized_mas",
-                environment={"constellation_size": 12, "isl_topology": "E0"},
-            )
-
-    def test_r_compute1_warns_for_onboard_llm_on_b1(self) -> None:
-        with pytest.warns(UserWarning, match="R-COMPUTE1"):
-            ExperimentConfig(
-                representation="hybrid",
-                representation_config={"action_space": "reactive"},
-                operations_paradigm="autonomous_hybrid",
-                environment={"scenario": "eventsat", "constellation_size": 1},
-            )
-
-    def test_symbolic_onboard_on_b1_does_not_warn(self) -> None:
-        import warnings as _w
-
-        with _w.catch_warnings():
-            _w.simplefilter("error", UserWarning)
-            ExperimentConfig(
-                representation="symbolic",
-                operations_paradigm="autonomous_hybrid",
-                environment={"scenario": "eventsat", "constellation_size": 1},
-            )
-
-    def test_invalid_isl_topology_rejected(self) -> None:
-        with pytest.raises(ValueError, match="isl_topology"):
-            ExperimentConfig(environment={"isl_topology": "E9"})
 
 
 class TestMatrixRestructureNaming:
@@ -642,6 +571,66 @@ class TestTwoCoreResolution:
                                    representation_config=rc)
         assert cfg.resolved_onboard_type == onboard
         assert cfg.resolved_ground_planner_type == ground
+
+
+class TestRepresentationVocabulary:
+    """7-cell framework tokens (morphological_matrix.md §2) normalise to the
+    internal substrate + action_space; hrl/llm-a route to flagged placeholders."""
+
+    @pytest.mark.parametrize(
+        "cell, ops, expected",
+        [
+            ("symb", "autonomous_hybrid", "rule_based_eventsat"),
+            ("rl", "autonomous_hybrid", "subsymbolic_eventsat"),
+            ("hrl", "autonomous_hybrid", "hrl_onboard_eventsat"),
+            ("hrl", "autonomous_ground", "hrl_scheduler_eventsat"),
+            ("llm-s", "autonomous_hybrid", "llm_eventsat"),
+            ("llm-s", "autonomous_ground", "llm_scheduler_eventsat"),
+            ("llm-a", "autonomous_ground", "llm_agentic_scheduler_eventsat"),
+            ("hllm-s", "autonomous_hybrid", "llm_eventsat"),
+            ("hllm-a", "autonomous_hybrid", "agentic_eventsat"),
+        ],
+    )
+    def test_cell_resolves(self, cell, ops, expected) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=cell, operations_paradigm=ops)
+        assert cfg.representation_cell == cell
+        assert cfg.resolved_representation_type == expected
+
+    def test_placeholder_cells_flagged(self) -> None:
+        import src.representation.placeholder_cells  # noqa: F401  (registers cells)
+        from src.behaviour.controller import _REPRESENTATION_REGISTRY
+
+        for name in (
+            "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
+            "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
+        ):
+            assert _REPRESENTATION_REGISTRY[name].is_placeholder is True
+
+    def test_cell_matches_legacy_equivalent(self) -> None:
+        """hllm-a must resolve identically to legacy hybrid+agentic (behaviour-preserving)."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cell = ExperimentConfig(representation="hllm-a",
+                                    operations_paradigm="autonomous_hybrid")
+            legacy = ExperimentConfig(representation="hybrid",
+                                      operations_paradigm="autonomous_hybrid",
+                                      representation_config={"action_space": "agentic"})
+        assert cell.representation == "hybrid"
+        assert cell.representation_config.get("action_space") == "agentic"
+        assert cell.resolved_onboard_type == legacy.resolved_onboard_type == "agentic_eventsat"
+        assert cell.resolved_ground_planner_type == legacy.resolved_ground_planner_type
+        assert cell.onboard_uses_jetson == legacy.onboard_uses_jetson
+
+    def test_legacy_substrate_still_accepted(self) -> None:
+        """Legacy substrate values keep working (representation_cell stays None)."""
+        cfg = ExperimentConfig(representation="symbolic",
+                               operations_paradigm="autonomous_onboard")
+        assert cfg.representation == "symbolic"
+        assert cfg.representation_cell is None
 
 
 class TestAutonomousHybridArbitration:

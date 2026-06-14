@@ -72,17 +72,6 @@ class EnvironmentConfig(BaseModel):
     max_steps: int = Field(default=1440, gt=0)
     scenario: str = Field(default="to_be_defined")
     scenario_config: Dict[str, Any] = Field(default_factory=dict)
-    # SS-E inter-satellite-link topology (decision_matrix.md §2): E0 none ·
-    # E1 intra-plane · E2 planned · E3 full-mesh. Gates dmas via R-ORG3.
-    isl_topology: str = Field(default="E0")
-
-    @field_validator("isl_topology")
-    @classmethod
-    def _validate_isl(cls, v: str) -> str:
-        allowed = {"E0", "E1", "E2", "E3"}
-        if v not in allowed:
-            raise ValueError(f"isl_topology must be one of {allowed}, got '{v}'")
-        return v
 
 
 class ExperimentConfig(BaseModel):
@@ -104,6 +93,11 @@ class ExperimentConfig(BaseModel):
     agent_organization: str = Field(default="sas")
     decision_procedure: str = Field(default="sda")
     representation: str = Field(default="symbolic")
+    # 7-cell framework token (symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a) when the
+    # config used the cell vocabulary; None for legacy substrate configs. The
+    # normalizer expands the cell into the internal substrate + action_space
+    # (morphological_matrix.md §2) so all downstream resolution is unchanged.
+    representation_cell: Optional[str] = Field(default=None)
     behaviour: str = Field(default="hand_designed")
     operations_paradigm: str = Field(default="autonomous_hybrid")
 
@@ -142,11 +136,14 @@ class ExperimentConfig(BaseModel):
     VALID_ORGANIZATIONS: ClassVar[Set[str]] = {
         "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
     }
-    # Bible substrates (decision_matrix §3.1): symbolic | rl | llm | hybrid.
-    # "subsymbolic" is the legacy alias of "rl". Legacy "hybrid"+reactive still
-    # resolves to the per-step LLM until the bulk config rename lands; new
-    # configs use "llm" for the subsymbolic-LLM substrate.
-    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "rl", "llm", "hybrid"}
+    # Internal substrate vocabulary. Configs may instead declare a 7-cell
+    # framework token (symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a, morphological_matrix.md
+    # §2); _normalize_representation_cell expands those into these substrates +
+    # action_space before validation. "subsymbolic" is the legacy alias of "rl";
+    # "hybrid-rl" backs the not-yet-implemented hrl cell (placeholder).
+    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {
+        "symbolic", "subsymbolic", "rl", "llm", "hybrid", "hybrid-rl",
+    }
     VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent"}
     VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
@@ -168,8 +165,38 @@ class ExperimentConfig(BaseModel):
                 raise ValueError(
                     f"Legacy config field(s) {sorted(present)} are no longer supported. "
                     f"Use decision_procedure / decision_procedure_config / behaviour / "
-                    f"behaviour_config (see decision_matrix.md §3)."
+                    f"behaviour_config (see morphological_matrix.md §7)."
                 )
+        return data
+
+    # 7-cell framework vocabulary (morphological_matrix.md §2) → internal
+    # (substrate, action_space). Lets a config declare `representation: hllm-a`
+    # etc.; the normalizer expands it so every downstream consumer (resolution,
+    # jetson flag) keeps seeing the legacy substrate it already understands.
+    _CELL_TO_LEGACY: ClassVar[Dict[str, Any]] = {
+        "symb": ("symbolic", None),
+        "rl": ("rl", None),
+        "hrl": ("hybrid-rl", None),
+        "llm-s": ("llm", "reactive"),
+        "llm-a": ("llm", "agentic"),
+        "hllm-s": ("hybrid", "reactive"),
+        "hllm-a": ("hybrid", "agentic"),
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_representation_cell(cls, data: Any) -> Any:
+        """Expand a 7-cell representation token into substrate + action_space."""
+        if isinstance(data, dict):
+            rep = data.get("representation")
+            if rep in cls._CELL_TO_LEGACY:
+                substrate, action_space = cls._CELL_TO_LEGACY[rep]
+                data["representation_cell"] = rep
+                data["representation"] = substrate
+                if action_space is not None:
+                    rc = dict(data.get("representation_config") or {})
+                    rc.setdefault("action_space", action_space)
+                    data["representation_config"] = rc
         return data
 
     @field_validator("agent_organization")
@@ -218,79 +245,6 @@ class ExperimentConfig(BaseModel):
         return v_upper
 
     # ------------------------------------------------------------------
-    # Tradespace validity gates (decision_matrix.md §3.2)
-    # ------------------------------------------------------------------
-
-    # Engineering tier (SS-B ordinal: B1=1 … B4=4) per scenario. Used by the
-    # R-COMPUTE gates, which *warn* rather than error: an onboard-LLM cell
-    # simulated on a B1 scenario stays valid evidence — it informs the B2+
-    # neighbourhood of the surrogate, not the B1 SSP (§3.2).
-    _SCENARIO_ENGINEERING_TIER: ClassVar[Dict[str, int]] = {"eventsat": 1}
-
-    @model_validator(mode="after")
-    def _enforce_tradespace_gates(self) -> "ExperimentConfig":
-        """Hard organisation gates (R-ORG1/2/3) + compute-feasibility warnings (R-COMPUTE1/2)."""
-        org = self.agent_organization
-        ops = self.operations_paradigm
-        n = self.environment.constellation_size
-        isl = self.environment.isl_topology
-
-        # R-ORG1: cmas exists only as AH, at N >= 2.
-        if org == "centralized_mas":
-            if ops != "autonomous_hybrid":
-                raise ValueError(
-                    f"R-ORG1: agent_organization='centralized_mas' is valid only with "
-                    f"operations_paradigm='autonomous_hybrid' (got '{ops}') — for CG/AG/AO "
-                    f"there is no coordination structure (decision_matrix.md §3.2)."
-                )
-            if n < 2:
-                raise ValueError(
-                    "R-ORG1: 'centralized_mas' at constellation_size=1 is identified with "
-                    "SAS·AH — the orchestrator with a single managed agent reduces to the "
-                    "AH ground planner. Run the 'sas' sibling config instead "
-                    "(decision_matrix.md §3.2)."
-                )
-
-        # R-ORG2: distributed organisations require fleet scale (SS-C >= C3, N >= 10).
-        if org in ("decentralized_mas", "independent_mas", "hybrid_mas") and n < 10:
-            raise ValueError(
-                f"R-ORG2: '{org}' requires constellation_size >= 10 (SS-C >= C3), "
-                f"got {n} (decision_matrix.md §3.2)."
-            )
-
-        # R-ORG3: decentralised peer coordination needs an inter-satellite channel.
-        if org == "decentralized_mas" and isl == "E0":
-            raise ValueError(
-                "R-ORG3: 'decentralized_mas' requires environment.isl_topology >= E1 — "
-                "peer coordination without an ISL is structurally impossible "
-                "(decision_matrix.md §3.2)."
-            )
-
-        # R-COMPUTE1/2 — warnings, not errors (see _SCENARIO_ENGINEERING_TIER note).
-        tier = self._SCENARIO_ENGINEERING_TIER.get(self.environment.scenario)
-        onboard_active = ops in ("autonomous_onboard", "autonomous_hybrid")
-        if tier is not None and onboard_active and self.representation in ("llm", "hybrid"):
-            action_space = self.representation_config.get("action_space")
-            if tier < 2:
-                warnings.warn(
-                    f"R-COMPUTE1: onboard LLM core on a B{tier} scenario "
-                    f"('{self.environment.scenario}') — a 1-20 W platform cannot sustain "
-                    f"per-step LLM inference. The run stays valid evidence but informs the "
-                    f"B2+ neighbourhood of the surrogate, not the B{tier} SSP "
-                    f"(decision_matrix.md §3.2).",
-                    stacklevel=2,
-                )
-            elif tier < 3 and action_space == "agentic":
-                warnings.warn(
-                    f"R-COMPUTE2: onboard agentic loop on a B{tier} scenario "
-                    f"('{self.environment.scenario}') — multi-call loops per decision "
-                    f"require B3+. The run informs the B3+ neighbourhood of the surrogate "
-                    f"(decision_matrix.md §3.2).",
-                    stacklevel=2,
-                )
-        return self
-
-    # ------------------------------------------------------------------
     # Learned-emergence mechanism
     # ------------------------------------------------------------------
 
@@ -324,6 +278,8 @@ class ExperimentConfig(BaseModel):
         "subsymbolic_scheduler_eventsat",
         "llm_scheduler_eventsat",
         "agentic_scheduler_eventsat",
+        "hrl_scheduler_eventsat",
+        "llm_agentic_scheduler_eventsat",
     }
 
     # ------------------------------------------------------------------
@@ -361,12 +317,20 @@ class ExperimentConfig(BaseModel):
                 "subsymbolic_eventsat" if ops in _ONBOARD_OPS
                 else "subsymbolic_scheduler_eventsat"
             )
+        if representation == "hybrid-rl":
+            # hrl cell (hybrid RL+symbolic): not yet implemented → documented
+            # placeholder (is_placeholder, morphological_matrix.md §2).
+            return (
+                "hrl_onboard_eventsat" if ops in _ONBOARD_OPS
+                else "hrl_scheduler_eventsat"
+            )
         if representation == "llm":
             if action_space == "agentic":
-                raise ValueError(
-                    "llm·agentic (pure reasoning loop, no tools) is expressible in the "
-                    "matrix but not yet instantiated (decision_matrix §3.1) — use "
-                    "representation 'hybrid' + agentic for the tool-using loop."
+                # llm-a cell (pure LLM agentic, no symbolic layer): not yet
+                # implemented → documented placeholder (is_placeholder).
+                return (
+                    "llm_agentic_onboard_eventsat" if ops in _ONBOARD_OPS
+                    else "llm_agentic_scheduler_eventsat"
                 )
             return "llm_eventsat" if ops == "autonomous_hybrid" else "llm_scheduler_eventsat"
         if representation == "hybrid":
@@ -396,12 +360,11 @@ class ExperimentConfig(BaseModel):
     def resolved_onboard_type(self) -> Optional[str]:
         """Onboard per-step core, for paradigms with an onboard slot (AO, AH).
 
-        The onboard core follows the configured substrate (decision_matrix.md §3.1 —
+        The onboard core follows the configured substrate (morphological_matrix.md §2 —
         the O-cell is substrate × action *per active core*): symbolic→rule_based,
         subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive→llm_eventsat (per-step
-        constrained LLM), hybrid·agentic→agentic_eventsat. None for AG/CG.
-        Feasibility against the platform tier is handled by the R-COMPUTE warnings,
-        never by silently substituting a different substrate.
+        constrained LLM), hybrid·agentic→agentic_eventsat. None for AG/CG. The
+        substrate is never silently substituted by a different one.
         """
         if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
             return None
@@ -409,7 +372,11 @@ class ExperimentConfig(BaseModel):
             return "rule_based_eventsat"
         if self.representation in ("subsymbolic", "rl"):
             return "subsymbolic_eventsat"
+        if self.representation == "hybrid-rl":
+            return "hrl_onboard_eventsat"  # hrl cell placeholder
         if self.representation == "llm":
+            if self.representation_config.get("action_space") == "agentic":
+                return "llm_agentic_onboard_eventsat"  # llm-a cell placeholder
             return "llm_eventsat"
         # hybrid: reactive -> per-step constrained LLM; agentic -> LLM + tool loop
         if self.representation_config.get("action_space") == "agentic":
@@ -444,7 +411,7 @@ class ExperimentConfig(BaseModel):
         """
         return (
             self.operations_paradigm in ("autonomous_onboard", "autonomous_hybrid")
-            and self.representation in ("subsymbolic", "hybrid")
+            and self.representation in ("subsymbolic", "hybrid", "hybrid-rl")
         )
 
     @model_validator(mode="after")

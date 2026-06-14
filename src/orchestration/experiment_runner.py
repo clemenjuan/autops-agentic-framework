@@ -345,6 +345,7 @@ class ExperimentRunner:
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
+        import src.representation.placeholder_cells  # register hrl / llm-a placeholder cells
         emergence = BehaviourController(config=self.config.behaviour_config)
         # Primary per-step core: the onboard core for paradigms with an onboard
         # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
