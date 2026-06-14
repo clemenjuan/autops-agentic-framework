@@ -52,6 +52,10 @@ for the per-component mapping see
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
+The `src/decision_procedure/` loops (SDA / OODA / ReAct) at L1 are **held fixed** in
+the EventSat benchmark — they are not a framework component (see
+[`morphological_matrix.md`](morphological_matrix.md)).
+
 **Dependency runs upward; feedback flows downward.** Each layer depends on those
 below it (orchestration uses environment + tools; reasoning operates over memory and
 foundation substrate). Governance/safety constraints — env-enforced safe mode,
@@ -59,8 +63,8 @@ ground-pass gating in CG/AG — reach into all layers from L5 downward, matching
 semantics of Bhati's Figure 3.
 
 **L0 asymmetry.** Pure-symbolic variants (`symb`) have no L0 substrate; they sit at
-L1 directly. This is by design: it isolates the cognitive-paradigm effect that RQ1
-targets while keeping L2–L5 fixed across the matrix.
+L1 directly. This is by design: it isolates the cognitive-substrate effect while
+keeping L2–L5 fixed across the framework.
 
 ## Design Principles
 

@@ -78,7 +78,7 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 6. **Register** with the `BehaviourController` using the `@register()` decorator:
    ```python
-   from src.emergence.controller import register
+   from src.behaviour.controller import register
 
    @register("my_symbolic_rules")
    class MySymbolicRepresentation(Representation):
@@ -173,9 +173,8 @@ uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 10
 
 ### Training Learned-Emergence Variants
 ```bash
-uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml    # PPO
-uv run autops train configs/experiments/eventsat_sas_llm_ah.yaml   # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_agentic_ah.yaml   # writable CoALA
+uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml      # PPO (RL onboard)
+uv run autops train configs/experiments/eventsat_sas_ag_llm-a.yaml   # writable CoALA (agentic online learning)
 ```
 
 ### Batch Experiments

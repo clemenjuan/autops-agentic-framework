@@ -53,7 +53,7 @@ Internal TUM/AUTOPS mission data — high confidence in accurate subsystem model
 
 **Environment:** `src/environment/scenarios/eventsat_env.py`
 **Scenario config:** `configs/scenarios/eventsat.yaml`
-**Experiment configs:** `configs/experiments/eventsat_sas_symbolic_ah.yaml` (autonomous hybrid), `configs/experiments/eventsat_sas_symbolic_cg.yaml` (conventional ground)
+**Experiment configs:** `configs/experiments/eventsat_sas_ah_symb_symb.yaml` (autonomous hybrid, symbolic both cores), `configs/experiments/eventsat_sas_conventional_symb.yaml` (conventional, symbolic)
 **Metrics collector:** `src/orchestration/eventsat_metrics.py`
 **Representation:** `src/representation/rule_based_eventsat.py`
 **Decision loop:** `src/decision_procedure/sda_loop.py`
