@@ -1,7 +1,14 @@
 # CLAUDE.md
 
 ## What this is
-PhD experimental framework (TUM Chair of Spacecraft Systems). Compares cognitive architectures for autonomous satellite ops via a three-axis **M × O × T** decision/tradespace matrix — canonical spec `docs/decision_matrix.md`. **M** mission profile (SSP) · **O** operations-system architecture · **T** CCSDS-520 tests; M×O coverage by a multi-fidelity surrogate. **O** = (per active core) **substrate** (symbolic / subsymbolic{RL, LLM} / neurosymbolic) × **action space** (reactive / agentic), over **organization** (SAS/MAS) × **operations paradigm** (AO/AH/AG/CG). Config/run names follow the clean convention `eventsat_<org>_<substrate>_<paradigm>` (decision_matrix §3.1a); `decision_procedure`/`behaviour` are folded (held at content defaults, not axes, not in names).
+PhD experimental framework (TUM Chair of Spacecraft Systems). Benchmarks **cognitive architectures for autonomous satellite operations** on the **EventSat** mission (an event-camera CubeSat). Scenario-specific and metric-based — **no mission tradespace, no test catalogue, no multi-fidelity surrogate.**
+
+An architecture is an **operations system (O)** with **three components** (canonical spec: `docs/morphological_matrix.md`):
+- **Organisation** — `sas` for EventSat (MAS variants belong to the future multi-satellite scenario).
+- **Representation** = cognitive **substrate** (symbolic · subsymbolic-RL · subsymbolic-LLM · hybrid) × **action space** (single-shot · agentic) → **7 cells**: `symb · rl · hrl · llm-s · llm-a · hllm-s · hllm-a`.
+- **Operational paradigm** — `conventional` (symbolic only, one-pass delay) · `ag` (autonomous ground, all 7) · `ao` (autonomous onboard, no-LLM → `symb/rl/hrl`) · `ah` (autonomous hybrid, **dual-core**: onboard {3} × ground {7}).
+
+EventSat·SAS = **32 experiments** (1 + 7 + 3 + 21), scored on 14 metrics (`morphological_matrix.md` §6). Names: `eventsat_sas_<paradigm>_<rep>`; AH names both cores onboard-first: `eventsat_sas_ah_<onboard>_<ground>`.
 
 ## Execution environment
 - **Live LLM experiments** (anything with `llm_mock: false`, plus `lep` training) are I/O-bound on Ollama. Run them on a machine with low-latency reach to an Ollama endpoint (ideally co-located) that can stay up uninterrupted for hours. A workstation over HTTPS works but is slow and fragile.
@@ -23,20 +30,20 @@ uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
 uv run pytest tests/ -v -o "addopts="     # Full test suite (692 tests: 669 pass, 23 RL skipped without --extra rl)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
-# Run experiments — name = eventsat_<org>_<substrate>_<paradigm>  (decision_matrix §3.1a)
-#   org:        sas (cmas/dmas/imas/hmas deferred to Flamingo)
-#   substrate:  symbolic | rl | llm | agentic     (llm/agentic carry llm_model + 7-day)
-#   paradigm:   ao | ah | ag | cg
-uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml
-uv run autops run configs/experiments/eventsat_sas_rl_ah.yaml        # RL (PPO; needs --extra rl)
-uv run autops run configs/experiments/eventsat_sas_llm_ah.yaml       # LLM reactive (qwen3.6:35b)
-uv run autops run configs/experiments/eventsat_sas_agentic_ah.yaml   # LLM agentic (tool loop)
+# Run experiments — name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
+#   paradigm: conventional | ag | ao | ah
+#   rep:      symb | rl | hrl | llm-s | llm-a | hllm-s | hllm-a   (ao: symb/rl/hrl only)
+#   ah names both cores onboard-first:  eventsat_sas_ah_<onboard>_<ground>
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml
+uv run autops run configs/experiments/eventsat_sas_ao_rl.yaml            # RL onboard (PPO; --extra rl)
+uv run autops run configs/experiments/eventsat_sas_ag_llm-s.yaml         # single-shot LLM ground (qwen3.6:35b)
+uv run autops run configs/experiments/eventsat_sas_ah_rl_llm-s.yaml      # RL onboard + LLM ground
 
 # Quick smoke test (1 episode, 100 steps)
-uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml --episodes 1 --steps 100
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --episodes 1 --steps 100
 
-# Training (RL / prompt-optimised cells)
-uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml                  # PPO
+# Training (RL cells)
+uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml                  # PPO
 
 # Batch run / analyze — see uv run autops --help
 ```
@@ -45,17 +52,16 @@ uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml                 
 - **Run tests after every code change**
 - Trunk-based: commit small focused changes directly to `main`; tests must stay green per commit
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
-- Ask before changing morphological matrix dimensions or adding dependencies
-- **Before planning:** read `docs/decision_matrix.md` + Zotero library. Every implementation must cite specific papers.
-- **After implementation:** update `docs/implementations.md` + `docs/decision_matrix.md` if scientific grounding changed. Do NOT create new doc files.
+- Ask before changing the O-framework components (organisation / representation / paradigm) or adding dependencies
+- **Before planning:** read `docs/morphological_matrix.md` + Zotero library. Every implementation must cite specific papers.
+- **After implementation:** update `docs/implementations.md` + `docs/morphological_matrix.md` if the framework changed. Do NOT create new doc files.
 
 ## Doc map (single source per topic)
 | Topic | File |
 |---|---|
-| **Canonical conceptual spec** — M×O×T matrix, axes, multi-fidelity, RQs pointer, phase roadmap, tests/metrics provenance | `docs/decision_matrix.md` |
+| **Canonical spec** — the O framework (3 components, 7 reps, 4 paradigms, 32 EventSat experiments), naming, the 14 metrics | `docs/morphological_matrix.md` |
 | Component registry, paper basis, design decisions | `docs/implementations.md` |
 | How to add new components (step-by-step) | `docs/implementation_guide.md` |
-| Metric definitions (M-01…M-14) + analysis protocol | `docs/decision_matrix.md` §5.2 / §5.6 (`metrics.md` retired) |
 | Scenario specifications | `docs/scenarios.md` |
 | System architecture diagram + data flow | `docs/architecture.md` |
 | EventSat physics parameters | This file (below) |
@@ -64,16 +70,16 @@ uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml                 
 ```
 src/
   environment/        # Satellite sim (ABC + EventSat scenario + orbital/)
-  agent_organization/ # SAS / CentralizedMAS (instantiated) + DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025; deferred to Flamingo N>=3)
-  decision_procedure/      # SDA / OODA / ReAct  (+DecisionContext interface)
-  representation/     # Symbolic / Hybrid / Subsymbolic + llm_client.py
-  memory/             # FixedMemory (default, all variants); WritableMemory (_lec_ only — see below)
+  agent_organization/ # SAS (EventSat) + CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025; multi-satellite scenario)
+  decision_procedure/      # per-step decision driver (+DecisionContext interface)
+  representation/     # Symbolic / Subsymbolic / Hybrid cores + llm_client.py
+  memory/             # FixedMemory (default, all cells); WritableMemory (agentic online-learning variant — see below)
   behaviour/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
   operations/         # autonomous_onboard / autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
-configs/experiments/  # 70 experiment configs + 1 template (21 cmas N=1 duplicates pruned per R-ORG1)
-tests/                # 23 test modules, 692 tests (669 pass, 23 RL skipped without --extra rl)
+configs/experiments/  # EventSat experiment configs + template (the 32-experiment matrix — morphological_matrix.md §4)
+tests/                # test suite (683 pass, 23 RL skipped without --extra rl)
 ```
 
 **Key interfaces:**
@@ -82,16 +88,16 @@ tests/                # 23 test modules, 692 tests (669 pass, 23 RL skipped with
 - New representations must be imported in `experiment_runner.py` `_create_decision_loops()` to trigger registration
 
 ## Memory invariant
-All hand-designed and non-CoALA learned variants use `FixedMemory` for fair comparison.
-**Exception**: `_lec_` configs (`behaviour_config.mechanism = "writable_coala"`) use `WritableMemory`,
-which adds writable semantic + episodic stores (CoALA §3, Sumers et al. 2024). This deviates
-from the fairness invariant intentionally — these variants are compared against the
-hand-designed agentic baseline (`_hyag_hd_`), not against other representations.
-See `src/memory/writable_memory.py` for the implementation.
+All cells use `FixedMemory` for fair comparison. **Exception**: the **agentic online-learning
+variant** (`writable_coala`) uses `WritableMemory`, which adds writable semantic + episodic
+stores (CoALA §3, Sumers et al. 2024) — the *online-learning* internal action available only to
+agentic cells (`llm-a` / `hllm-a`). It deviates from the fairness invariant intentionally and is
+compared against the *same* agentic cell with fixed memory, not against other representations.
+See `src/memory/writable_memory.py`.
 
 ## Coding conventions
 - Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)
-- `representation: symbolic | subsymbolic | hybrid` — substrate. The concrete implementation class is **resolved** from `representation × representation_config.action_space (hybrid only) × operations_paradigm` (e.g. symbolic+AH→`rule_based_eventsat`, hybrid+agentic+AH→`agentic_eventsat`, hybrid+reactive+AG→`llm_scheduler_eventsat`). `representation_config.type` is an **optional override** (e.g. the `_algobase` CG cell). See `ExperimentConfig.resolved_representation_type`.
+- The config `representation` field + `action_space` resolve to the concrete `@register` class via `ExperimentConfig.resolved_representation_type` (e.g. symbolic+AH→`rule_based_eventsat`, hybrid+agentic+AH→`agentic_eventsat`, hybrid+reactive+AG→`llm_scheduler_eventsat`). NB: the config *content* values still use the legacy substrate terms (`symbolic/subsymbolic/hybrid`) — mapping them onto the 7 framework cells (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`) is part of the step-by-step code work, not done yet. `representation_config.type` is an optional explicit override.
 - Loop-specific data goes in `context.enrichments`, never in representation state
 - All representations must implement `encode_observation()` + `select_action()`; optionally `reason()` for ReAct, `update()` for learned variants
 - Rationale strings always set `self._last_rationale` for explainability metrics
