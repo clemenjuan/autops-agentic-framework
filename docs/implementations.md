@@ -16,8 +16,7 @@ its paper basis, and key design decisions. Grows as new components are added.
 > documented placeholders, `placeholder_cells.py`), the learned ground LLM schedulers, and
 > dual-core AH with *independent* onboard/ground representations (the 21 `ah_<onboard>_<ground>`
 > pairs). The component descriptions below document the **current code** — map them to the
-> framework via `morphological_matrix.md` §2. Some structural counts further below (e.g.
-> "36 configs", "3 loops") are stale pre-refocus residue, pending a dedicated docs pass.
+> framework via `morphological_matrix.md` §2.
 
 ---
 
@@ -29,15 +28,15 @@ Formal definition: an agent system **S = (A, E, C, Ω)** where A = agents, E = e
 
 Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent Systems".
 
-### SingleAgentSystem (SAS) — Phase 2
+### SingleAgentSystem (SAS)
 
 - **File**: `src/agent_organization/single_agent_system.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Single-Agent System (SAS) — |A|=1, single reasoning locus, C undefined, Ω direct, complexity O(k).
 - **Structure**: One central agent receives full constellation observation and selects actions for all satellites. No inter-agent communication. Zero coordination overhead.
 - **Key property**: Maximum context integration (unified memory stream, full prior-history access). Upper bound for context-quality; lower bound for parallelism.
-- **Configs**: 36 `eventsat_sas_*` configs — 3 loops × 4 representations × 3 ops paradigms.
+- **Configs**: the EventSat·SAS matrix is **32 experiments** — conventional 1 + ag 7 + ao 3 + ah 21 (morphological_matrix.md §4); `decision_procedure` is held fixed, not a multiplied axis.
 
-### CentralizedMAS — Phase 3 (EventSat single-satellite)
+### CentralizedMAS
 
 - **File**: `src/agent_organization/centralized_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Centralized MAS — orchestrator routes to sub-agents, C = {(a_orch, aᵢ) : ∀i}, Ω = hierarchical, complexity O(rnk). Also: ECSS-E-ST-70-11C autonomy levels (mission management layer vs onboard autonomy layer).
@@ -47,7 +46,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - `collect_actions`: Manager action stored as `_last_manager_directive`; local agent action returned as environment action. Fallback to manager action if no local agent output.
   - Manager directive carries over step-to-step via `_last_manager_directive`; reset to `None` in `initialize()`.
   - Latency: `ExperimentRunner` accumulates manager + local agent latencies as the total step latency (sequential execution, both contribute to decision overhead).
-- **Configs**: 12 `eventsat_cmas_*_ah.yaml` configs — 3 loops × 4 representations × 1 ops (AH only; CG/AG degenerate at single-satellite scale as ground already acts as the strategic layer).
+- **Scope**: the MAS organisations (cmas/imas/dmas/hmas) belong to the **future multi-satellite scenario** and are not exercised by the EventSat benchmark (morphological_matrix.md §1). The code below is the single-satellite wiring kept for that future work; no EventSat configs use it.
 
 ### DecentralizedMAS — Placeholder (deferred to N≥3)
 
@@ -313,8 +312,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   (`agentic_scheduler_eventsat`) — to make the RL-vs-LLM scheduling comparison.
 - **Guard**: `config_loader` now **errors** if a ground paradigm is paired with a
   non-schedule-producing representation type, so the degenerate cell cannot be
-  recreated silently. The 36 non-symbolic ground configs were rewired to these
-  placeholder types. Note: the subsymbolic ground cells no longer require `torch`
+  recreated silently. The non-symbolic ground cells use these placeholder types.
+  Note: the subsymbolic ground cells no longer require `torch`
   (they delegate to the symbolic planner).
 
 ### Subsymbolic EventSat — Phase 4b (RL learned)
@@ -352,12 +351,12 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
 - **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
 - **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
-- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 4 ops paradigms (AO/AH/AG/CG)
+- **Orthogonality**: Works with all 3 decision procedures (SDA/OODA/ReAct, held fixed) and all 4 ops paradigms (ao/ah/ag/conventional)
 - **Training script**: `scripts/train_subsymbolic.py`
 - **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
 - **Supporting modules**: `src/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/behaviour/training_pipeline.py` (PPOTrainer)
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
-- **Configs**: 9 YAML files `eventsat_sas_{sda,ooda,react}_subm_le_{ah,ag,cg}.yaml`
+- **Configs** (rl cell): `eventsat_sas_ao_rl.yaml`, `eventsat_sas_ag_rl.yaml`, `eventsat_sas_ah_rl_rl.yaml`
 
 ### LLM EventSat — Phase 4a (hybrid)
 
@@ -386,8 +385,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - File-based response cache (`data/llm_cache/`) keyed on prompt hash.
   - Mock mode (`llm_mock: true`) for CI — no live LLM calls.
   - Configurable model, temperature, provider via YAML.
-- **Orthogonality**: Works with all 3 loops (SDA/OODA/ReAct) and all 4 ops paradigms
-  (AH/AG/CG). Unlike symbolic which needed 3 separate representation types per ops
+- **Orthogonality**: Works with all 3 decision procedures (SDA/OODA/ReAct, held fixed) and the ops paradigms
+  (ah/ag/conventional). Unlike symbolic which needed 3 separate representation types per ops
   paradigm, the LLM representation handles all ops contexts through its prompt.
 - **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
   `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
@@ -397,7 +396,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
     invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
     gated by the *agentic* action space (writing is an action), which the reactive single-shot
     LLM lacks (see [morphological_matrix.md](morphological_matrix.md)).
-- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyre_hd_*`; 12 `*_hyre_lep_*`
+- **Cell**: `hllm-s` (hybrid LLM + symbolic, single-shot). **Config**: `eventsat_sas_ag_hllm-s` (ground planner via `llm_scheduler_eventsat`). The AH-ground hllm-s and a prompt-optimized variant are pending the dual-core + 32-config increment.
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
@@ -472,7 +471,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - `writable_coala` (`_hyag_lec_*`): swaps `FixedMemory` for `WritableMemory`;
     injects two writable memory tools; expands system prompt with CoALA memory
     instructions. **Fairness trade-off**: compared against `_hyag_hd_` baseline only.
-- **Configs**: 12 SAS + 3 CMAS = 15 hand-designed `*_hyag_hd_*`; 12 `*_hyag_lep_*`; 12 `*_hyag_lec_*`
+- **Cell**: `hllm-a` (hybrid LLM + symbolic, agentic). **Config**: `eventsat_sas_ag_hllm-a`. The writable_coala online-learning variant (mechanism, not a separate class) and AH-ground hllm-a are pending.
 
 ---
 
@@ -854,8 +853,8 @@ is a separate research question on optimal uplink timing.
 | rule_based | Rules every step | Rules between passes → uplinked plan | Rules between passes → schedule | Rules between passes → delayed schedule |
 | schedule_based | N/A | N/A | Greedy planner between passes → schedule | N/A |
 | conventional_schedule | N/A | N/A | N/A | Human-modeled planner between passes → delayed schedule |
-| llm_eventsat | LLM every step (a3768bf; Jetson-class, R-COMPUTE1) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
-| agentic_eventsat | Agentic loop every step (a3768bf; Jetson-class, R-COMPUTE2) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
+| llm_eventsat (hllm-s) | LLM every step (a3768bf; Jetson-class) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
+| agentic_eventsat (hllm-a) | Agentic loop every step (a3768bf; Jetson-class) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
 | subsymbolic | DNN every step | DNN between passes → uplinked plan | DNN between passes → schedule | DNN between passes → delayed schedule |
 
 | Repr Type | Typical Inference Time | Onboard Feasible? |
@@ -882,58 +881,34 @@ is a separate research question on optimal uplink timing.
 
 ## Experiment Configurations
 
-Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
-`org` ∈ {sas, cmas}, `loop` ∈ {sda, ooda, react}, `repr` ∈ {symb, hyre, subm, hyag},
-`emrg` ∈ {hd, le, lep, lec}, `ops` ∈ {ao, ah, ag, cg}.
+Config IDs follow `eventsat_sas_<paradigm>_<rep>` (morphological_matrix.md §5):
+`paradigm` ∈ {conventional, ag, ao, ah}; `rep` ∈ the 7 cells
+{symb, rl, hrl, llm-s, llm-a, hllm-s, hllm-a}; `ah` names both cores onboard-first
+(`eventsat_sas_ah_<onboard>_<ground>`). The full EventSat·SAS matrix is **32
+experiments** (conventional 1 + ag 7 + ao 3 + ah 21). `decision_procedure` and
+`behaviour` are held fixed (not framework components).
 
-### Symbolic (Phases 2–3) — SAS only
+**Shipped so far** — the framework-valid cells with runnable cores (symb · rl ·
+hllm-s · hllm-a):
 
-9 SAS configs (`eventsat_sas_{sda,ooda,react}_symb_hd_{ah,ag,cg}`); no CMAS symbolic configs.
+- `eventsat_sas_conventional_symb`
+- `eventsat_sas_ag_{symb, rl, hllm-s, hllm-a}`
+- `eventsat_sas_ao_{symb, rl}`
+- `eventsat_sas_ah_symb_symb`, `eventsat_sas_ah_rl_rl`
 
-### LLM Hybrid hand-designed (Phase 4a)
-
-12 SAS (`eventsat_sas_{sda,ooda,react}_hyre_hd_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hyre_hd_ah`).
-
-### LLM Hybrid prompt-optimized (Phase 5)
-
-12 SAS (`eventsat_sas_{sda,ooda,react}_hyre_lep_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hyre_lep_ah`). Mechanism: `prompt_optimized`.
-
-### Subsymbolic RL (Phase 4b)
-
-9 SAS `*_subm_le_{ah,ag,cg}` + 3 CMAS `*_subm_le_ah`. Mechanism: `ppo`.
-
-### Agentic Hybrid hand-designed (Phase 4c)
-
-12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_hd_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hyag_hd_ah`).
-
-### Agentic Hybrid prompt-optimized (Phase 5)
-
-12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_lep_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hyag_lep_ah`). Mechanism: `prompt_optimized`.
-
-### Agentic Hybrid writable-CoALA (Phase 5)
-
-12 SAS (`eventsat_sas_{sda,ooda,react}_hyag_lec_{ah,ag,cg}`) + 3 CMAS
-(`eventsat_cmas_{sda,ooda,react}_hyag_lec_ah`). Mechanism: `writable_coala`.
-
-### Autonomous Onboard (Stage 1 — onboard-only)
-
-6 SAS `eventsat_sas_{sda,ooda,react}_{symb_hd,subm_le}_ao` — onboard core only (no ground plan).
-
-**Total**: 91 experiment configs + 1 template.
+**Pending** (later increments): the `hrl` / `llm-s` / `llm-a` cells (currently
+documented placeholders, `placeholder_cells.py`), the learned ground LLM
+schedulers, and dual-core AH with *independent* onboard/ground reps (the 21
+`ah_<onboard>_<ground>` pairs). Learned behaviour is wired via `behaviour_config`
+(`ppo` for RL, `writable_coala` for agentic online learning), not separate cells.
 
 ### Comparison axes
 
-- **Loop comparison** (same repr + ops): SDA vs OODA vs ReAct → decision quality vs latency
-- **Ops paradigm ladder** (same loop + repr): AO vs AH vs AG vs CG → onboard-only vs onboard+ground vs ground-only vs human-ground
-- **Onboard-override effect** (same repr, shared ground planner): AH vs AG → what the onboard per-step override buys (`onboard_overrides`)
+- **Ops paradigm ladder** (same rep): conventional vs AG vs AO vs AH → human-ground vs autonomous-ground vs onboard-only vs onboard+ground
 - **Value of a ground plan** (same onboard core): AO vs AH → does adding the ground plan help beyond pure onboard
-- **Human vs algorithmic** (same loop, AH excluded): AG vs CG → effect of cognitive constraints (Endsley 1995 SA degradation)
-- **Representation comparison** (same loop + ops): symbolic vs LLM vs agentic vs RL → cognitive paradigm effectiveness
-- **Single-shot vs agentic** (same loop + ops, AH only): `hyre_hd` vs `hyag_hd` → does multi-step reasoning with tools improve decisions?
-- **Hand-designed vs learned** (same repr + loop + ops): `_hd_` vs `_lep_` → does offline prompt optimization improve LLM/agentic decisions?
-- **Fixed vs writable memory** (agentic AH only): `_hyag_hd_` vs `_hyag_lec_` → does CoALA-style memory accretion improve decisions across episodes?
-- **Ground ops baseline**: CG with conventional schedule + SDA loop → human lower bound
+- **Onboard-override effect** (same rep, shared ground planner): AH vs AG → what the onboard per-step override buys (`onboard_overrides`)
+- **Human vs algorithmic** (symbolic ground): conventional vs AG → effect of cognitive constraints (Endsley 1995 SA degradation)
+- **Representation comparison** (same paradigm): symb vs rl vs hllm-s vs hllm-a → cognitive-substrate effectiveness
+- **Single-shot vs agentic** (LLM cells): hllm-s vs hllm-a → does multi-step tool use improve decisions?
+- **Hand-designed vs learned**: `ppo` (RL) / `writable_coala` (agentic online learning) vs their fixed-baseline siblings
+- **Fixed vs writable memory** (agentic only): hllm-a fixed-memory vs `writable_coala` → does CoALA memory accretion improve decisions across episodes?
