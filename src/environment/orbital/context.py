@@ -70,6 +70,16 @@ class OrbitalContext:
                 return gp
         return None
 
+    def next_pass_contact_s(self, step: int) -> float:
+        """Contact seconds of the next pass still ongoing or upcoming at this step
+        (0 if none remain). Used to size the planner's achievable downlink."""
+        t = step * self.step_s
+        upcoming = [gp for gp in self.ground_passes if gp.end_s > t]
+        if not upcoming:
+            return 0.0
+        gp = min(upcoming, key=lambda g: g.start_s)
+        return max(0.0, gp.end_s - gp.start_s)
+
 
 def compute_orbital_context(
     orbit_config: Dict[str, Any],

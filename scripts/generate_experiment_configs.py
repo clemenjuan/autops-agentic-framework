@@ -54,7 +54,7 @@ def _symbolic_power_block(conventional: bool) -> dict:
         "solar_generation_w": 24.0, "battery_capacity_wh": 84.0, "eclipse_fraction": 0.36,
         "step_duration_s": 60.0, "charge_efficiency": 0.9, "compression_time_factor": 2.0,
         "detection_steps": 5, "observation_size_mb": 9.41, "compression_ratio": 5.11,
-        "jetson_to_obc_rate_kbps": 50, "obc_capacity_mb": 512.0, "daily_downlink_budget_mb": 27.0,
+        "jetson_to_obc_rate_kbps": 8000, "obc_capacity_mb": 4096.0,  # CAN ~1 MB/s; OBC 4 GB (match scenario)
         "charge_reserve_fraction": 0.12, "min_soc_for_operations": 0.4,
         "staleness_threshold": 5, "settling_time_steps": 2,
     }

@@ -77,6 +77,7 @@ def format_state_prompt(state: Dict[str, Any], enrichments: Dict[str, Any] | Non
     undetected = state.get("undetected_observations", 0)
     health = state.get("health_status", "nominal")
     budget_mb = state.get("daily_downlink_budget_mb", 27.0)
+    achievable = state.get("achievable_downlink_mb")
 
     lines = [
         "CURRENT SATELLITE STATE:",
@@ -90,8 +91,12 @@ def format_state_prompt(state: Dict[str, Any], enrichments: Dict[str, Any] | Non
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
         f"  OBC ready for downlink: {obc_mb:.2f} MB",
         f"  Total stored: {data_mb:.1f} / {cap_mb:.0f} MB ({data_mb/cap_mb*100:.0f}%)",
-        f"  Daily downlink budget: {budget_mb:.0f} MB",
     ]
+    if achievable is not None:
+        lines.append(f"  Downlink achievable at next pass: {achievable:.2f} MB "
+                     f"(50 kbps × contact) — observing beyond this just fills storage")
+    else:
+        lines.append(f"  Daily downlink budget: {budget_mb:.0f} MB")
 
     # Add loop-specific enrichments
     if enrichments:
@@ -209,6 +214,12 @@ def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
     uncomp = state.get("uncompressed_observations", 0)
     undetected = state.get("undetected_observations", 0)
     budget_mb = state.get("daily_downlink_budget_mb", 27.0)
+    achievable = state.get("achievable_downlink_mb")
+    cap_line = (
+        f"  Downlink achievable at next pass: {achievable:.2f} MB (50 kbps × contact) "
+        f"— observing more than this just fills storage you cannot deliver"
+        if achievable is not None else f"  Daily downlink budget: {budget_mb:.0f} MB"
+    )
 
     lines = [
         f"PLAN THE NEXT {gap_steps} STEPS (1 step = 60 s) until the next ground contact.",
@@ -218,7 +229,7 @@ def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
         f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
         f"  OBC ready for downlink: {obc_mb:.2f} MB",
-        f"  Daily downlink budget: {budget_mb:.0f} MB",
+        cap_line,
         "",
         f"Produce a schedule whose segment durations sum to about {gap_steps} steps. "
         'Respond with JSON: {"schedule": [["<mode>", <steps>], ...], "rationale": "<why>"}',

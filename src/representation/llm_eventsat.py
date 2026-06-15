@@ -149,6 +149,7 @@ class LLMEventSat(Representation):
                 "health_status": meta.get("health_status", "nominal"),
                 "undetected_observations": meta.get("undetected_observations", 0),
                 "daily_downlink_budget_mb": meta.get("daily_downlink_budget_mb", 27.0),
+                "achievable_downlink_mb": meta.get("achievable_downlink_mb"),
             }
         return {}
 

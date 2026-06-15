@@ -114,6 +114,8 @@ class ScheduleBasedEventSat(Representation):
                 "daily_downlink_budget_mb": meta.get(
                     "daily_downlink_budget_mb", self._daily_downlink_budget_mb
                 ),
+                # Physical downlink achievable at the next pass (50 kbps × contact).
+                "achievable_downlink_mb": meta.get("achievable_downlink_mb"),
             }
         return {}
 
@@ -278,7 +280,12 @@ class ScheduleBasedEventSat(Representation):
         sim_jetson_compressed_mb = state.get("jetson_compressed_mb", 0.0)
         sim_jetson_raw_mb = state.get("jetson_raw_mb", 0.0)
         sim_obc_mb = state.get("obc_data_mb", 0.0)
-        daily_budget_mb = state.get("daily_downlink_budget_mb", self._daily_downlink_budget_mb)
+        # Cap observation at what we can physically downlink at the next pass
+        # (50 kbps × contact); fall back to the daily-budget heuristic if unknown.
+        achievable = state.get("achievable_downlink_mb")
+        daily_budget_mb = achievable if achievable else state.get(
+            "daily_downlink_budget_mb", self._daily_downlink_budget_mb
+        )
 
         # Reserve the last chunk for charging (pre-pass battery buffer)
         # OODA: high urgency → reduce reserve to front-load productive ops

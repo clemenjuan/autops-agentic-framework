@@ -383,6 +383,9 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "health_status": "nominal" if self.active_anomaly is None else self.active_anomaly,
                 "undetected_observations": self.undetected_observations,
                 "daily_downlink_budget_mb": self.daily_downlink_budget_mb,
+                # Physical capacity the planner can actually downlink at the next pass
+                # (50 kbps × next-pass contact seconds) — replaces the 27 MB heuristic.
+                "achievable_downlink_mb": self._next_pass_capacity_mb(),
                 # Orbital lookahead (RL observation space Groups 2, BSK-RL pattern)
                 **orbital_lookahead,
             },
@@ -446,6 +449,15 @@ class EventSatEnvironment(SatelliteEnvironment):
         if self._orbital_ctx is None:
             return 0.0
         return self._orbital_ctx.contact_seconds(self.current_step)
+
+    def _next_pass_capacity_mb(self):
+        """Physically achievable downlink at the next ground pass = downlink rate ×
+        that pass's contact seconds. The capacity a planner can actually deliver for
+        the gap it is scheduling (replaces the flat daily-budget heuristic)."""
+        if self._orbital_ctx is None:
+            return 0.0
+        contact_s = self._orbital_ctx.next_pass_contact_s(self.current_step)
+        return self.downlink_rate_kbps / 8.0 * contact_s / 1000.0
 
     def _requires_attitude_maneuver(self, from_mode: str, to_mode: str) -> bool:
         """Return True if switching from_mode→to_mode requires attitude settling (P2)."""
