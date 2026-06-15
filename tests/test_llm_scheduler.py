@@ -65,6 +65,20 @@ def test_stale_telemetry_communicates_first() -> None:
     assert "schedule" not in action["eventsat_0"]
 
 
+def test_client_mean_latency_and_reset() -> None:
+    """M-07 plumbing: mean per-live-call latency + per-episode counter reset."""
+    from src.representation.llm_client import LLMClient
+    c = LLMClient({"llm_mock": True})
+    c._total_calls = 5
+    c._cache_hits = 2
+    c._total_latency_s = 9.0
+    m = c.get_metrics()
+    assert m["llm_mean_call_latency_s"] == 3.0  # 9.0 / (5 - 2) live calls
+    c.reset_metrics()
+    assert c.get_metrics()["llm_api_calls"] == 0.0
+    assert c.get_metrics()["llm_total_latency_s"] == 0.0
+
+
 def test_substrate_integrity_raises_on_no_valid_schedule(monkeypatch) -> None:
     """If the LLM never returns a valid schedule, the episode fails (no fallback)."""
     rep = LLMSchedulerEventSat({"llm_mock": True})

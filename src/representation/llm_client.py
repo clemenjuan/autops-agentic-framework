@@ -125,6 +125,7 @@ class LLMClient:
 
     def get_metrics(self) -> Dict[str, float]:
         """Return LLM client metrics."""
+        live_calls = self._total_calls - self._cache_hits
         return {
             "llm_api_calls": float(self._total_calls),
             "llm_cache_hits": float(self._cache_hits),
@@ -133,9 +134,24 @@ class LLMClient:
             ),
             "llm_total_latency_s": self._total_latency_s,
             "llm_last_latency_s": self._last_latency_s,
+            # Mean wall-clock per *live* LLM inference (cache hits are ~0 s) — the
+            # M-07 "cost of cognition" signal for LLM cells.
+            "llm_mean_call_latency_s": (
+                self._total_latency_s / live_calls if live_calls > 0 else 0.0
+            ),
             "llm_tokens_prompt": float(self._total_prompt_tokens),
             "llm_tokens_completion": float(self._total_completion_tokens),
         }
+
+    def reset_metrics(self) -> None:
+        """Zero the per-episode metric counters (the on-disk cache is untouched, so
+        cross-episode cache hits still register within the next episode)."""
+        self._total_calls = 0
+        self._cache_hits = 0
+        self._total_prompt_tokens = 0
+        self._total_completion_tokens = 0
+        self._total_latency_s = 0.0
+        self._last_latency_s = 0.0
 
     # ------------------------------------------------------------------
     # Provider calls

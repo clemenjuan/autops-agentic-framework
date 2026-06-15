@@ -462,6 +462,30 @@ class ExperimentRunner:
         logger.warning("No metrics collector for scenario '%s'.", scenario)
         return None
 
+    def _core_representations(self) -> List[Any]:
+        """Active reasoning cores: the onboard/primary representation plus any
+        dual-slot AH ground-planner representations."""
+        reps: List[Any] = []
+        if self._representation is not None:
+            reps.append(self._representation)
+        for loop in self._ground_planner_loops.values():
+            rep = getattr(loop, "representation", None)
+            if rep is not None:
+                reps.append(rep)
+        return reps
+
+    def _collect_core_llm_metrics(self) -> Dict[str, float]:
+        """Gather per-episode ``llm_*`` metrics (api calls, latency, cache, tokens)
+        from every active core. Empty for non-LLM cells."""
+        out: Dict[str, float] = {}
+        for rep in self._core_representations():
+            if not hasattr(rep, "get_metrics"):
+                continue
+            for k, v in rep.get_metrics().items():
+                if k.startswith("llm_") and isinstance(v, (int, float)):
+                    out[k] = float(v)
+        return out
+
     def _run_episode(self, episode_id: int) -> Dict[str, Any]:
         """Execute a single episode.
 
@@ -494,6 +518,14 @@ class ExperimentRunner:
 
         for loop in self._decision_loops.values():
             loop.reset()
+
+        # Zero per-episode LLM metric counters on every active core (onboard +
+        # ground planner) so the episode's aggregated llm_* metrics are per-episode,
+        # not cumulative. The response cache is preserved.
+        for rep in self._core_representations():
+            client = getattr(rep, "_client", None)
+            if client is not None and hasattr(client, "reset_metrics"):
+                client.reset_metrics()
 
         if self._operations_paradigm is not None:
             self._operations_paradigm.reset()
@@ -544,6 +576,11 @@ class ExperimentRunner:
         episode_metrics = None
         if self._metrics_collector is not None:
             episode_metrics = self._metrics_collector.finalise_episode(episode_id)
+            # Merge per-core LLM metrics (api calls, latency, cache, tokens) into the
+            # episode's aggregated dict. finalise_episode returns the same object the
+            # collector stores, so this also propagates to experiment_statistics.
+            if episode_metrics is not None and hasattr(episode_metrics, "aggregated"):
+                episode_metrics.aggregated.update(self._collect_core_llm_metrics())
 
         # Paradigm-level metrics (e.g. AH onboard_overrides) — captured before the
         # next episode's reset() clears them.
