@@ -128,6 +128,12 @@ class OperationsParadigm(ABC):
         real_ground_pass_active = False
         real_in_sunlight = False
         real_lookahead: Dict[str, Any] = {}
+        # Forward-looking / static fields the ground segment legitimately knows
+        # (pass geometry, link capacity, OBC size) — carried from the live obs so the
+        # ground planner sizes observation against the real next-pass capacity.
+        real_achievable_dl_mb = None
+        real_daily_budget_mb = None
+        real_storage_capacity_mb = None
         for sat in full_observation.constellation_state.satellites.values():
             if sat.metadata.get("ground_pass_active", False):
                 real_ground_pass_active = True
@@ -138,6 +144,12 @@ class OperationsParadigm(ABC):
                 for k in ("time_to_next_pass", "remaining_pass_duration",
                           "following_gap_steps")
             }
+            if sat.metadata.get("achievable_downlink_mb") is not None:
+                real_achievable_dl_mb = sat.metadata.get("achievable_downlink_mb")
+            if sat.metadata.get("daily_downlink_budget_mb") is not None:
+                real_daily_budget_mb = sat.metadata.get("daily_downlink_budget_mb")
+            if sat.metadata.get("storage_capacity_mb") is not None:
+                real_storage_capacity_mb = sat.metadata.get("storage_capacity_mb")
 
         self._ground_knowledge.staleness_steps = (
             step - self._ground_knowledge.last_update_step
@@ -149,7 +161,8 @@ class OperationsParadigm(ABC):
             "ground_pass_active": real_ground_pass_active,
             "uncompressed_observations": gk.uncompressed_observations,
             "total_observation_s": gk.observation_hours * 3600.0,
-            "storage_capacity_mb": 1 * 1024 * 1024,  # 1 TB in MB
+            # Real OBC capacity (from the live obs); fall back to 4 GB if absent.
+            "storage_capacity_mb": real_storage_capacity_mb if real_storage_capacity_mb is not None else 4096.0,
             "health_status": gk.health_status,
             "staleness_steps": gk.staleness_steps,
             "last_update_step": gk.last_update_step,
@@ -157,6 +170,9 @@ class OperationsParadigm(ABC):
             "jetson_compressed_mb": gk.jetson_compressed_mb,
             "obc_data_mb": gk.obc_data_mb,
             "undetected_observations": gk.undetected_observations,
+            # Physical downlink capacity the ground planner sizes against (Phase B).
+            "achievable_downlink_mb": real_achievable_dl_mb,
+            "daily_downlink_budget_mb": real_daily_budget_mb,
         }
 
         if real_ground_pass_active:

@@ -130,6 +130,21 @@ class TestAutonomousGround:
         assert sat.metadata["staleness_steps"] == 40
         assert sat.metadata["last_update_step"] == 10
 
+    def test_stale_obs_carries_physical_capacity(self):
+        # Regression: the ground planner must see achievable_downlink_mb (Phase B)
+        # in the stale view — it's rebuilt metadata and used to drop these.
+        paradigm = AutonomousGround()
+        obs = _make_observation(step=10, ground_pass_active=True)
+        meta_in = obs.constellation_state.satellites["eventsat_0"].metadata
+        meta_in["achievable_downlink_mb"] = 2.5
+        meta_in["daily_downlink_budget_mb"] = 27.0
+        meta_in["storage_capacity_mb"] = 4096.0
+        filtered = paradigm.filter_observation(obs, step=10)
+        meta = filtered.constellation_state.satellites["eventsat_0"].metadata
+        assert meta["achievable_downlink_mb"] == 2.5
+        assert meta["daily_downlink_budget_mb"] == 27.0
+        assert meta["storage_capacity_mb"] == 4096.0   # not the old hardcoded 1 TB
+
     def test_can_act_only_during_pass(self):
         paradigm = AutonomousGround()
         assert paradigm.can_act(step=0, ground_pass_active=False) is False
