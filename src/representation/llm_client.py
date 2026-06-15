@@ -384,7 +384,13 @@ class LLMClient:
         self._total_calls += 1
         self._last_provider = "mock"
         self._last_latency_s = 0.001
-        # Return a valid JSON mode selection that tests can parse
+        # Schedule planner prompt → return a small valid schedule (the planner
+        # clamps/pads it to the gap). Otherwise a single-mode selection.
+        if "schedule" in user_prompt.lower():
+            return json.dumps({
+                "schedule": [["payload_observe", 3], ["payload_compress", 4], ["charging", 10]],
+                "rationale": "Mock LLM schedule: observe, compress, then charge.",
+            })
         return json.dumps({
             "mode": "charging",
             "rationale": "Mock LLM response: defaulting to charging for safety.",

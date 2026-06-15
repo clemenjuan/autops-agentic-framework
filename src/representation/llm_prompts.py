@@ -154,3 +154,73 @@ def format_reasoning_prompt(state: Dict[str, Any], memory: Any) -> str:
         f"  {schema}\n"
         f"Example: {example}"
     )
+
+
+# ======================================================================
+# Schedule-planning prompt (single-shot LLM ground planner — hllm-s)
+# ======================================================================
+
+SCHEDULE_SYSTEM_PROMPT = """\
+You are an autonomous satellite operations planner for a single Earth observation \
+satellite in low Earth orbit (400 km SSO). At each ground contact you receive fresh \
+telemetry and must produce ONE schedule of operating modes for the satellite to \
+execute autonomously until the next ground contact.
+
+MISSION: Maximise observation data downlinked to ground while maintaining satellite \
+health and safety.
+
+AVAILABLE MODES:
+- charging: Recharge battery from solar panels (only effective in sunlight).
+- payload_observe: Capture Earth observation imagery (produces raw data on Jetson).
+- payload_compress: Compress raw observations on Jetson (~5:1, ~2x observation time).
+- payload_detect: Run CV detection on compressed observations (~5 min each).
+- payload_send: Transfer compressed data from Jetson to OBC via RS-485 (50 kbps).
+- communication: Downlink data from OBC to ground (only useful during a pass).
+- safe: Minimal-power anomaly mode.
+
+DATA PIPELINE (3-pool): Jetson raw -> (compress) -> Jetson compressed -> (send) -> OBC -> (communicate) -> Ground
+
+CONSTRAINTS:
+- Battery SoC must stay above 0.20 (hard) and preferably above 0.35.
+- The schedule runs BETWEEN passes (no ground link), so do not schedule communication.
+- ADCS settling costs ~135 s when switching to observe.
+- Reserve battery near the end so the satellite is charged for the next pass.
+- Daily downlink budget is finite (typically 27 MB) — don't over-observe.
+
+OUTPUT FORMAT: a JSON object with exactly:
+  {"schedule": [["<mode>", <integer_steps>], ...], "rationale": "<brief explanation>"}
+The schedule is a list of [mode, duration_in_steps] segments (1 step = 60 s) that \
+together should cover about N steps. Use only the modes above. Output JSON only."""
+
+
+def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
+    """Format a schedule-planning prompt: plan ~gap_steps until the next pass."""
+    if not state:
+        return (
+            "No satellite state available. Return a safe charging schedule: "
+            '{"schedule": [["charging", %d]], "rationale": "no state"}' % max(1, gap_steps)
+        )
+
+    soc = state.get("battery_soc", 0.5)
+    in_sunlight = state.get("in_sunlight", False)
+    obc_mb = state.get("obc_data_mb", 0.0)
+    jetson_raw = state.get("jetson_raw_mb", 0.0)
+    jetson_comp = state.get("jetson_compressed_mb", 0.0)
+    uncomp = state.get("uncompressed_observations", 0)
+    undetected = state.get("undetected_observations", 0)
+    budget_mb = state.get("daily_downlink_budget_mb", 27.0)
+
+    lines = [
+        f"PLAN THE NEXT {gap_steps} STEPS (1 step = 60 s) until the next ground contact.",
+        "",
+        "CURRENT STATE (fresh telemetry):",
+        f"  Battery SoC: {soc:.2f} (sunlight: {'yes' if in_sunlight else 'no'})",
+        f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
+        f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
+        f"  OBC ready for downlink: {obc_mb:.2f} MB",
+        f"  Daily downlink budget: {budget_mb:.0f} MB",
+        "",
+        f"Produce a schedule whose segment durations sum to about {gap_steps} steps. "
+        'Respond with JSON: {"schedule": [["<mode>", <steps>], ...], "rationale": "<why>"}',
+    ]
+    return "\n".join(lines)

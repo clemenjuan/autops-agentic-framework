@@ -11,7 +11,6 @@ from src.behaviour.controller import BehaviourController
 from src.orchestration.config_loader import ExperimentConfig
 from src.representation.placeholder_schedulers import (
     AgenticSchedulerEventSat,
-    LLMSchedulerEventSat,
     SubsymbolicSchedulerEventSat,
 )
 
@@ -36,7 +35,6 @@ def _fresh_pass_state():
 
 PLACEHOLDERS = [
     (SubsymbolicSchedulerEventSat, "subsymbolic_scheduler_eventsat", "subsymbolic"),
-    (LLMSchedulerEventSat, "llm_scheduler_eventsat", "llm"),
     (AgenticSchedulerEventSat, "agentic_scheduler_eventsat", "agentic"),
 ]
 
