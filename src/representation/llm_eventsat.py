@@ -216,7 +216,7 @@ class LLMEventSat(Representation):
 
         self._last_parse_retries = retries
 
-        # Substrate integrity (decision_matrix §7): an LLM cell whose calls fail
+        # Substrate integrity: an LLM cell whose calls fail
         # must FAIL the episode — substituting a symbolic decision silently turns
         # the run into a mixed-substrate measurement (user decision 2026-06-11).
         if mode is None:

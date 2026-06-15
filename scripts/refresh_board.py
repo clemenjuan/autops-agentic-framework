@@ -16,7 +16,7 @@ KEYS = ["utility","data_downlink_efficiency","observation_hours","downlinked_mb"
 EXCLUDED_EPISODES = {
     # run_id -> {episode indices excluded by substrate-integrity screening}.
     # Append-only, evidence required. (Cleared at the 2026-06-13 rename; the old
-    # 122B hyre runs are superseded by the clean-named qwen3.6:35b campaign.)
+    # superseded runs cleared at the 2026-06-13 rename.)
 }
 ex_mtime = EXTRACT.stat().st_mtime
 data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
@@ -52,6 +52,11 @@ for rid, bad in EXCLUDED_EPISODES.items():
     d["flag"] = f"episodes {sorted(bad)} excluded by substrate screening"
     if json.dumps(d, sort_keys=True) != before:
         changed += 1
+# Prune entries whose result directory no longer exists (removed / renamed runs)
+# so the board never resolves stale ids.
+for rid in [k for k in data if not (Path("data/results") / k / "results.json").exists()]:
+    del data[rid]
+    changed += 1
 if changed:
     EXTRACT.write_text(json.dumps(list(data.values())))
 subprocess.run([sys.executable, "scripts/extract_telemetry.py"], check=True)

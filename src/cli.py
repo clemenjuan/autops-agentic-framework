@@ -3,14 +3,14 @@ AUTOPS CLI — unified entry point for running experiments and analysis.
 
 Usage::
 
-    uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml
-    uv run autops run configs/experiments/eventsat_sas_symbolic_ah.yaml --episodes 3 --analyze
+    uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml
+    uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml --episodes 3 --analyze
     uv run autops batch configs/experiments/generated/
     uv run autops generate --template configs/experiments/template.yaml
-    uv run autops analyze data/results/eventsat_sas_symbolic_ah/
+    uv run autops analyze data/results/eventsat_sas_ah_symb_symb/
 
-    # Config name = eventsat_<org>_<substrate>_<paradigm>  (decision_matrix §3.1a)
-    uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml               # PPO
+    # Config name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
+    uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml               # PPO
 """
 
 from __future__ import annotations
@@ -311,7 +311,7 @@ def main() -> None:
         "train",
         help="Train a learned-emergence representation (PPO / prompt-optimized / writable-CoALA)",
     )
-    p_train.add_argument("config", help="Path to a *_le_* or *_lep_* or *_lec_* experiment YAML")
+    p_train.add_argument("config", help="Path to an RL (ppo) or writable_coala experiment YAML")
     p_train.add_argument("--timesteps", type=int,
                          help="Override PPO training timesteps (subsymbolic only)")
     p_train.add_argument("--source-dir",

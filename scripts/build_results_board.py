@@ -1,11 +1,15 @@
-"""AUTOPS results board v4 — navigable M×O×T instrument.
+"""AUTOPS results board — EventSat operations-system (O) framework.
 
-Every SSP of the M space is selectable (SS-A…SS-E); for the selected profile the
-full valid O-cell slate is enumerated client-side (mirroring the §3.2 gates) and
-each cell shows its true state: measured (values) · running · excluded · gated
-(with the rule) · not yet run. Leads with EventSat results plots (§3) on the
-measured metric set; the full 14-metric registry is rendered, the T-axis test
-catalogue is parked (2026-06-13 scope). Publication-style figures.
+A navigable instrument over the EventSat experiment matrix
+(`docs/morphological_matrix.md`): the framework cells (paradigm × representation)
+with their measured state and the 14-metric registry, plus publication-style
+results plots. Architectures that have not yet been run show as such; nothing is
+zero-filled. The earlier M×O×T tradespace navigator (SSP selectors, the test
+catalogue, the surrogate neighbourhood) was dropped in the EventSat refocus.
+
+Data comes from `data/figures/extract.json` (built by refresh_board.py). Where a
+framework cell's campaign currently lives under a legacy run-id, LEGACY_ALIAS
+resolves it.
 
 Usage:  uv run python scripts/build_results_board.py
 """
@@ -17,12 +21,58 @@ import statistics as st
 from pathlib import Path
 
 EXTRACT = Path("data/figures/extract.json")
+OUT = Path("data/figures/results_board.html")
+
+# Framework experiment matrix (morphological_matrix.md §4). The cells shipped in
+# the first remap increment; the matrix grows toward 32 as the remaining cells
+# (hrl / llm-a, the ground LLM schedulers, the 21 ah_<onboard>_<ground> pairs)
+# land. Each row: framework_id, paradigm, representation label, legacy alias.
+FRAMEWORK = [
+    ("eventsat_sas_conventional_symb", "Conventional",       "symbolic",                            "eventsat_sas_symbolic_cg"),
+    ("eventsat_sas_ag_symb",           "Autonomous Ground",  "symbolic",                            "eventsat_sas_symbolic_ag"),
+    ("eventsat_sas_ag_rl",             "Autonomous Ground",  "RL (ground scheduler)",               None),
+    ("eventsat_sas_ag_llm-s",          "Autonomous Ground",  "single-shot LLM",                     None),
+    ("eventsat_sas_ag_hllm-a",         "Autonomous Ground",  "agentic hybrid LLM",                  None),
+    ("eventsat_sas_ao_symb",           "Autonomous Onboard", "symbolic",                            "eventsat_sas_symbolic_ao"),
+    ("eventsat_sas_ao_rl",             "Autonomous Onboard", "RL (PPO)",                            None),
+    ("eventsat_sas_ah_symb_symb",      "Autonomous Hybrid",  "symbolic onboard · symbolic ground",  "eventsat_sas_symbolic_ah"),
+    ("eventsat_sas_ah_rl_rl",          "Autonomous Hybrid",  "RL onboard · RL ground",              None),
+]
+
+# Honesty annotations carried forward verbatim (versioned in code).
+NOTES = {
+    "eventsat_sas_ag_symb": "review: ground-schedule playback at full episode length (passes vs ADCS settling).",
+    "eventsat_sas_conventional_symb": "review: same ground-schedule playback caveat as AG.",
+}
+
+# 14-metric registry (morphological_matrix.md §6). status: measured | deferred.
+METRICS = [
+    ("M-01", "Mission Utility",           "utility",                  "measured",                 "weighted EventSat objective achievement, target-normalised"),
+    ("M-02", "Mean Age of Information",   None,                       "deferred",                 "AoI collector pending"),
+    ("M-03", "Peak Age of Information",   None,                       "deferred",                 "same field as M-02"),
+    ("M-04", "Autonomous Recovery Eff.",  None,                       "deferred",                 "persistent-anomaly collector pending"),
+    ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                 "environment-veto fraction; operator-intervention proxy"),
+    ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured",                 "utility per normalised energy"),
+    ("M-07", "Decision Latency",          "mean_latency_s",           "measured",                 "mean wall-clock per decision cycle (live calls)"),
+    ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence)",      "rationale-presence floor; faithfulness scorer deferred"),
+    ("M-09", "Robustness (CV)",           None,                       "measured (≥30 ep)",        "cross-episode CV of utility"),
+    ("M-10", "Scale Efficiency",          None,                       "deferred",                 "multi-satellite scenario"),
+    ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                 "delivered / max-achievable through S-band"),
+    ("M-12", "Value-of-Information",      None,                       "deferred",                 "per-product value weights pending"),
+    ("M-13", "Constraint-Violation Rate", None,                       "deferred",                 "constraint ledger pending"),
+    ("M-14", "Commanding Effort",         None,                       "deferred",                 "command ledger pending"),
+]
+
+VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
+              "explainability_score", "data_downlink_efficiency",
+              "observation_hours", "downlinked_mb"]
 
 
 def _episode_steps(rid: str) -> int | None:
-    """Episode length (steps) for a run, head-streamed from its config so we
-    never load the multi-GB pre-compaction results.json. config.max_steps sits
-    in the first KB; fall back to episodes[0].num_steps via a wider read."""
+    """Episode length (steps), head-streamed from the run's config so we never
+    load the whole results.json."""
+    if not rid:
+        return None
     p = Path(f"data/results/{rid}/results.json")
     if not p.exists():
         return None
@@ -32,105 +82,49 @@ def _episode_steps(rid: str) -> int | None:
         return int(m.group(1))
     m = re.search(r'"num_steps":\s*(\d+)', head)
     return int(m.group(1)) if m else None
-OUT = Path("data/figures/results_board.html")
-
-# run-id -> (SSP code, cell key, status, note). cell key: PARADIGM|onboard|ground
-# run_id -> (SSP, cell key PARADIGM|onboard[|ground], status, note). Clean
-# naming per decision_matrix §3.1a. Symbolic anchors at 7-day; LLM/agentic
-# cells run qwen3.6:35b at 7-day (campaign pending).
-MEASURED = {
-    "eventsat_sas_symbolic_ao": ("A1|B1|C1|D1|E0", "AO|symbolic",          "valid",   "100 episodes × 10080 steps (7 days)."),
-    "eventsat_sas_symbolic_ah": ("A1|B1|C1|D1|E0", "AH|symbolic|symbolic", "valid",   "100 episodes × 10080 steps (7 days)."),
-    "eventsat_sas_symbolic_ag": ("A1|B1|C1|D1|E0", "AG|symbolic",          "valid",   "100 episodes × 10080 steps (7 days)."),
-    "eventsat_sas_symbolic_cg": ("A1|B1|C1|D1|E0", "CG|symbolic",          "valid",   "100 episodes × 10080 steps (7 days) — conventional-ops anchor."),
-    "eventsat_sas_llm_ah":      ("A1|B1|C1|D1|E0", "AH|llm|symbolic",      "running", "LLM·reactive onboard (qwen3.6:35b), 7-day — campaign pending."),
-    "eventsat_sas_agentic_ah":  ("A1|B1|C1|D1|E0", "AH|agentic|symbolic",  "running", "LLM·agentic onboard (qwen3.6:35b), 7-day — campaign pending."),
-}
-
-# Active = the measured EventSat set (2026-06-13 scope). Deferred rows kept
-# visible but marked, so the extension is drop-in (decision_matrix §5.2).
-METRICS = [
-    ("M-01", "Mission Utility",           "utility",                  "measured",                    "raw A1 instance, unclamped"),
-    ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                    "environment-veto fraction; operator proxy for CG/AG"),
-    ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured (raw)",              "min–max normalised per M-slice at matrix build"),
-    ("M-07", "Decision Latency",          "mean_latency_s",           "measured (live calls only)",  "live probe: 122B median 38 s · symbolic 12 µs; cached runs measure cache reads"),
-    ("M-08", "Explainability (presence)", "explainability_score",     "measured (presence only)",    "presence floor; faithfulness scorer deferred (§5)"),
-    ("M-09", "Robustness (CV)",           None, "measured for 100-ep runs",    "cross-episode; N/A below 30 episodes"),
-    ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                    "delivered / max-achievable"),
-    ("M-02", "Mean Age of Information",   None, "deferred (§5)",               "out of scope; AoI clock-at-capture instrument"),
-    ("M-03", "Peak Age of Information",   None, "deferred (§5)",               "out of scope; same field as M-02"),
-    ("M-04", "Autonomous Recovery Eff.",  None, "deferred (§5)",               "out of scope; persistent-anomaly collector"),
-    ("M-10", "Scale Efficiency",          None, "deferred (§5)",               "out of scope; multi-sat (Flamingo)"),
-    ("M-12", "Value-of-Information",      None, "deferred (§5)",               "out of scope; per-product value weights"),
-    ("M-13", "Constraint-Violation Rate", None, "deferred (§5)",               "out of scope; constraint ledger + pass^k"),
-    ("M-14", "Commanding Effort",         None, "deferred (§5)",               "out of scope; command ledger"),
-]
-
-TESTS = [
-    ("MC.01", "Decision-cycle latency",           "M-07",            "runnable now",                    "live-call latencies only"),
-    ("MC.02", "Telemetry continuity in blackout", "M-04 + M-01",     "needs env feature",               "ground-outage windows (§7)"),
-    ("MC.03", "Command execution verification",   "d_cmd",           "needs env feature",               "uplink-command model + execution ledger (§7)"),
-    ("MC.04", "Detection-triggered retasking",    "completion",      "needs env feature",               "event injection + per-product tracking (§7)"),
-    ("MC.05", "Fleet-status monitoring",          "TBD",             "to define (approved 2026-06-11)", "C3+; fault-localization time"),
-    ("AU.01", "Safe-mode entry (gate)",           "p_safemode",      "runnable (DEBUG traces)",         "correctness gate, must equal 1.0"),
-    ("AU.02", "Autonomous recovery w/o pass",     "M-04",            "needs env feature + collector",   "gap-timed anomaly + recovery-task fault (§7)"),
-    ("AU.03", "Predictive FDIR",                  "p_avoid",         "needs env feature",               "mitigable degradation (§7)"),
-    ("AU.04", "Contact-window utilisation",       "M-11",            "runnable now",                    "measured — see metric registry"),
-    ("AU.05", "Preemptive rescheduling",          "M-01 (HP)",       "needs env feature",               "priority-event injection (§7)"),
-    ("AU.06", "Lights-out endurance",             "M-01, M-09",      "needs env feature",               "extended outage windows (§7)"),
-    ("AU.07", "Fleet automation endurance",       "M-14",            "to define (approved 2026-06-11)", "C3+"),
-    ("PL.01", "Schedule optimality",              "M-01",            "raw only",                        "scoring needs the U_max helper (§7)"),
-    ("PL.02", "Reactive replanning",              "M-01 ratio",      "needs env feature",               "scheduled anomaly timing (§7)"),
-    ("PL.03", "Multi-objective trade-off",        "M-06 · M-05 · M-08", "needs env feature",            "resource-conflict scenario (§7)"),
-    ("PL.04", "Pass deconfliction",               "mean M-11",       "multi-sat (Flamingo)",            "C2+"),
-    ("PL.05", "Distributed task allocation",      "M-10",            "multi-sat (Flamingo)",            "C2+, E2+"),
-    ("PL.06", "Consensus under ISL failure",      "p_conflict",      "multi-sat (Flamingo)",            "C2+, E2+"),
-    ("PL.07", "MARL generalisation to new N",     "TR",              "multi-sat (Flamingo)",            "C4+, E3+"),
-    ("FD.01", "Propagation under GPS denial",     "timing error",    "needs env feature",               "GPS-denial mechanism (§7)"),
-    ("FD.02", "Collision avoidance",              "binary × M-05",   "needs env feature",               "conjunction injection (§7)"),
-    ("DP.01", "AoI-optimal scheduling",           "M-02",            "not instrumented",                "per-product age field (§7)"),
-    ("DP.02", "VoI downlink triage",              "M-12",            "not instrumented",                "headline H-tier test; value weights (§7)"),
-    ("DP.03", "Storage overflow prevention",      "r_ovf",           "runnable (at-cap proxy)",         "loss accounting pending (§7)"),
-    ("AN.01", "Explainability of reports",        "M-08",            "runnable (L-rung)",               "presence only; quality scorer pending"),
-    ("AN.02", "Nominal trend reporting",          "lead time",       "to define (approved 2026-06-11)", "C1+"),
-]
-
-VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
-              "explainability_score", "data_downlink_efficiency",
-              "observation_hours", "downlinked_mb"]
 
 
 def main() -> None:
     data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
-    cells: dict = {}
-    for rid, (ssp, cell, status, note) in MEASURED.items():
-        d = data.get(rid, {})
-        cells.setdefault(ssp, {})[cell] = {
-            "id": rid, "status": status, "note": note, "n": d.get("n", 0),
-            "steps": _episode_steps(rid),
-            "mean": {k: d.get("mean", {}).get(k) for k in VALUE_KEYS},
-            "per_ep_utility": d.get("per_ep", {}).get("utility", []),
-        }
-    ao = [v for v in data.get("eventsat_sas_symbolic_ao", {}).get("per_ep", {}).get("utility", []) if v is not None]
-    ah = [v for v in data.get("eventsat_sas_symbolic_ah", {}).get("per_ep", {}).get("utility", []) if v is not None]
+    cells = []
+    for fid, paradigm, rep, alias in FRAMEWORK:
+        rec = data.get(fid)
+        src = fid
+        if (rec is None or not rec.get("n")) and alias:
+            rec = data.get(alias)
+            src = alias
+        rec = rec or {}
+        has = bool(rec.get("n"))
+        cells.append({
+            "id": fid, "paradigm": paradigm, "rep": rep,
+            "status": "measured" if has else "notrun",
+            "note": NOTES.get(fid, ""),
+            "source": src if (has and src != fid) else "",
+            "n": rec.get("n", 0),
+            "steps": _episode_steps(rec.get("id", "")) if has else None,
+            "mean": {k: rec.get("mean", {}).get(k) for k in VALUE_KEYS},
+            "per_ep_utility": rec.get("per_ep", {}).get("utility", []),
+        })
+    by_id = {c["id"]: c for c in cells}
+    ao = [v for v in by_id["eventsat_sas_ao_symb"]["per_ep_utility"] if v is not None]
+    ah = [v for v in by_id["eventsat_sas_ah_symb_symb"]["per_ep_utility"] if v is not None]
     n = min(len(ao), len(ah))
-    tele_path = Path("data/figures/telemetry.json")
-    telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
     rho = round(st.correlation(ao[:n], ah[:n]), 3) if n >= 2 else 0.79
     sigma = round(st.stdev(ao[:n] + ah[:n]), 3) if n >= 2 else 0.0
-    payload = {"cells": cells, "metrics": METRICS, "tests": TESTS, "telemetry": telemetry,
+    tele_path = Path("data/figures/telemetry.json")
+    telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
+    payload = {"cells": cells, "metrics": METRICS, "telemetry": telemetry,
                "rho": rho, "sigma": sigma}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
-    print(f"wrote {OUT}: {sum(len(v) for v in cells.values())} cell records, "
-          f"{len(METRICS)} metrics, {len(TESTS)} tests")
+    measured = sum(1 for c in cells if c["status"] == "measured")
+    print(f"wrote {OUT}: {measured}/{len(cells)} cells measured, {len(METRICS)} metrics")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>AUTOPS — M×O×T instrument</title>
+<html><head><meta charset="utf-8"><title>AUTOPS — EventSat O-framework</title>
 <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/aaaakshat/cm-web-fonts@latest/fonts.css">
 <style>
- /* LaTeX-style typography: Computer Modern with Georgia fallback; TUM blue accents */
  body { background:#fff; color:#111; margin:0; font-family:'Computer Modern Serif',Georgia,'Times New Roman',serif; }
  header { padding:34px 56px 16px; border-bottom:2px solid #0065BD; }
  h1 { margin:0; font-size:26px; font-weight:600; color:#0065BD; }
@@ -144,15 +138,11 @@ TEMPLATE = r"""<!DOCTYPE html>
  tr:last-child td { border-bottom:2px solid #111; }
  .num { text-align:right; font-variant-numeric:tabular-nums; }
  .st { font-size:11px; padding:1px 7px; border:1px solid; border-radius:2px; white-space:nowrap; font-family:'Computer Modern Sans',Arial,sans-serif; }
- .st.valid    { color:#1e6b34; border-color:#1e6b34; } .kpi b { color:#0065BD !important; }
- .st.invalid  { color:#a13026; border-color:#a13026; }
- .st.running  { color:#9a6200; border-color:#9a6200; }
- .st.gated    { color:#666;    border-color:#999; }
+ .st.measured { color:#1e6b34; border-color:#1e6b34; }
  .st.notrun   { color:#999;    border-color:#ccc; }
- .sel { display:flex; gap:18px; flex-wrap:wrap; margin:10px 0 14px; font-family:'Computer Modern Sans',Arial,sans-serif; font-size:13px; }
- .sel label { color:#444; } select { font-size:13px; padding:2px 6px; }
- .kpis { display:flex; gap:26px; margin:6px 0 4px; font-family:'Computer Modern Serif',Georgia,serif; }
- .kpi b { font-size:21px; display:block; color:#111; } .kpi { font-size:12px; color:#555; }
+ .st.deferred { color:#9a6200; border-color:#9a6200; }
+ .kpis { display:flex; gap:26px; margin:10px 0 4px; }
+ .kpi b { font-size:21px; display:block; color:#0065BD; } .kpi { font-size:12px; color:#555; }
  .guide { border-left:3px solid #0065BD; background:#f5f8fb; padding:10px 16px; font-size:13.5px; margin:8px 0; }
  .plot { width:100%; height:380px; }
  .twocol { display:grid; grid-template-columns:1fr 1fr; gap:30px; }
@@ -160,25 +150,24 @@ TEMPLATE = r"""<!DOCTYPE html>
 </style></head><body>
 <header>
  <h1>AUTOPS — EventSat architecture comparison</h1>
- <div class="sub">A controlled comparison of operations architectures (symbolic / RL / LLM / LLM-agentic,
- across the CG&middot;AG&middot;AO&middot;AH paradigms) on the <b>EventSat</b> event-camera CubeSat mission, on the
- <b>measured metric set</b> — mission utility, downlink, observation hours, decision latency, safety
- overrides, resource efficiency, explainability-presence. Values appear only for verified runs. The broader
- M&thinsp;&times;&thinsp;O&thinsp;&times;&thinsp;T tradespace and the CCSDS-520 test catalogue are the
- method/extension (deferred) &mdash; full specification: <i>docs/decision_matrix.md</i>.</div>
+ <div class="sub">A controlled comparison of operations-system architectures on the <b>EventSat</b>
+ event-camera CubeSat. An architecture is organisation &times; representation (cognitive substrate &times;
+ action space) &times; operational paradigm; for EventSat the organisation is fixed at SAS and the
+ comparison varies the <b>7 representation cells</b> across the <b>conventional&middot;ag&middot;ao&middot;ah</b>
+ paradigms (32-experiment matrix). Values appear only for verified runs. Full spec:
+ <i>docs/morphological_matrix.md</i>.</div>
 </header>
 
 <section>
- <h2>1&emsp;Satellite-System Profile (M)</h2>
- <div class="sel" id="sel"></div>
+ <h2>1&emsp;Experiment matrix (O)</h2>
+ <div class="caption">Framework cells grouped by operational paradigm. AH cells name both cores
+ (onboard &middot; ground). Cells not yet run are marked; nothing is zero-filled.</div>
  <div class="kpis" id="kpis"></div>
- <h2 id="otitle">2&emsp;Operations-system cells (O) for the selected profile</h2>
- <div class="caption">AH cells are ⟨onboard | ground-planner⟩ pairs. Gated cells name their rule; nothing is zero-filled.</div>
- <div id="ocells"></div>
+ <div id="matrix"></div>
 </section>
 
 <section>
- <h2>3&emsp;Results — EventSat (A1 anchor)</h2>
+ <h2>2&emsp;Results — EventSat</h2>
  <div class="caption" id="res-prov"></div>
  <div class="twocol">
   <div id="gradient" class="plot" style="height:330px"></div>
@@ -191,25 +180,21 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>4&emsp;Measured utility distributions (verified runs, all profiles)</h2>
+ <h2>3&emsp;Measured utility distributions (verified runs)</h2>
  <div id="dist" class="plot"></div>
 </section>
 
 <section>
- <h2>5&emsp;Test catalogue — deferred</h2>
- <div id="tests" class="caption"></div>
-</section>
-
-<section>
- <h2>6&emsp;Metric registry — M-01 &hellip; M-14 (measured set populated; deferred marked)</h2>
+ <h2>4&emsp;Metric registry — M-01 &hellip; M-14</h2>
+ <div class="caption">Measured set populated from verified runs; deferred metrics marked.</div>
  <table id="mx"></table>
 </section>
 
 <section>
- <h2>7&emsp;Architecture comparison (verified runs)</h2>
- <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown runs
- (1 = best of this set — relative, not absolute). Right: paired per-episode utility differences
- (shared launch-lottery seeds), the basis of the &sect;5.6 statistics.</div>
+ <h2>5&emsp;Architecture comparison (verified runs)</h2>
+ <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown
+ runs (1 = best of this set — relative). Right: paired per-episode utility differences (shared
+ launch-lottery seeds).</div>
  <div class="twocol">
   <div id="radar" class="plot" style="height:420px"></div>
   <div id="paired" class="plot" style="height:420px"></div>
@@ -217,180 +202,155 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>8&emsp;Episode inspector — simulation telemetry</h2>
- <div class="caption">One simulated week, step by step: battery state of charge, data stored on board and
- downlinked, ground-contact windows (grey bands), anomaly-forced safe periods (red bands), and the
- operating mode chosen at every step. For verifying that the simulation behaves physically, not just
- that the aggregate numbers look right.</div>
- <div class="sel"><label>episode&nbsp; <select id="teleSel"></select></label></div>
+ <h2>6&emsp;Episode inspector — simulation telemetry</h2>
+ <div class="caption">One simulated week, step by step: battery state of charge, data stored and
+ downlinked, ground-contact windows (grey), anomaly-forced safe periods (red), and the operating mode
+ at every step.</div>
+ <div class="kpis"><label style="font-size:13px;font-family:'Computer Modern Sans',Arial,sans-serif">episode&nbsp; <select id="teleSel"></select></label></div>
  <div id="teleA" class="plot" style="height:330px"></div>
  <div id="teleB" class="plot" style="height:150px"></div>
 </section>
 
 <section>
- <h2>9&emsp;Statistical adequacy (&sect;5.6, pre-registered)</h2>
+ <h2>7&emsp;Statistical adequacy (pre-registered)</h2>
  <div class="guide" id="guide"></div>
  <div class="twocol">
   <div id="powcurve" class="plot" style="height:290px"></div>
   <div style="font-size:13.5px">
-   <p><b>Pre-registered rule:</b> n<sub>pairs</sub> = (z<sub>1−α/2m</sub> + z<sub>0.8</sub>)² · 2(1−ρ) / d² ÷ 0.955 (Wilcoxon ARE).</p>
-   <p><b>Measured inputs</b> (symbolic AO/AH, 100 episodes, shared launch-lottery seeds): ρ = <span id="rhoval"></span>, σ<sub>U</sub> = <span id="sigval"></span>.</p>
-   <p><b>Recommendation in force:</b> 100 episodes per confirmatory cell — sufficient for d ≥ 0.25 at α = 0.05, power 0.8, Bonferroni m ≤ 10. Cells under 30 episodes are screening pilots and never support confirmatory claims. ρ, σ re-estimated per substrate family and per SSP.</p>
+   <p><b>Pre-registered rule:</b> n<sub>pairs</sub> = (z<sub>1&minus;&alpha;/2m</sub> + z<sub>0.8</sub>)&sup2; &middot; 2(1&minus;&rho;) / d&sup2; &divide; 0.955 (Wilcoxon ARE).</p>
+   <p><b>Measured inputs</b> (symbolic AO/AH, shared launch-lottery seeds): &rho; = <span id="rhoval"></span>, &sigma;<sub>U</sub> = <span id="sigval"></span>.</p>
+   <p><b>In force:</b> 100 episodes per confirmatory cell — sufficient for d &ge; 0.25 at &alpha; = 0.05, power 0.8, Bonferroni m &le; 10. Cells under 30 episodes are screening pilots.</p>
   </div>
  </div>
 </section>
 <script>
 const P = __PAYLOAD__;
-const DIM = { A:["A1 EO","A2 Comms","A3 Nav","A4 Science","A5 SSA","A6 Planetary","A7 TechDemo"],
-              B:["B1 CubeSat","B2 SmallSat","B3 MedBus","B4 LargePlt"],
-              C:["C1 (1)","C2 (2–10)","C3 (10–100)","C4 (100–1k)","C5 (>1k)"],
-              D:["D1 LEO","D2 GEO","D3 Lunar","D4 Mars","D5 Deep space"],
-              E:["E0 none","E1 intra-plane","E2 planned","E3 full-mesh"] };
-const CORE = { symbolic:"symbolic rules", rl:"reinforcement learning", llm:"LLM (single-shot)",
-               llm_agentic:"LLM (agentic, no tools)", hybrid:"hybrid (RL + rules)", agentic:"agentic (LLM + tools)" };
-const DIMLABEL = { A:"Mission function", B:"Platform class", C:"Constellation size", D:"Comms latency", E:"Inter-satellite links" };
-const GROUND = ["symbolic","rl","llm","llm_agentic","hybrid","agentic"];
+const CELLS = {}; P.cells.forEach(c => CELLS[c.id] = c);
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
+const PARADIGMS = ["Conventional","Autonomous Ground","Autonomous Onboard","Autonomous Hybrid"];
 
-function onboardCells(b){ const o=["symbolic","rl"]; if(b>=2)o.push("llm","hybrid"); if(b>=3)o.push("llm_agentic","agentic"); return o; }
-function gatedOnboard(b){ const g={}; if(b<2){g.llm="R-COMPUTE1 (needs B2+)";g.hybrid="R-COMPUTE1";} if(b<3){g.llm_agentic="R-COMPUTE2 (needs B3+)";g.agentic="R-COMPUTE2";} return g; }
-
-// selectors
-const sel = {A:0,B:0,C:0,D:0,E:0};
-document.getElementById("sel").innerHTML = Object.keys(DIM).map(k =>
- `<label title="SS-${k}">${DIMLABEL[k]}&nbsp; <select id="s${k}">${DIM[k].map((v,i)=>`<option value="${i}">${v}</option>`).join("")}</select></label>`).join("");
-Object.keys(DIM).forEach(k => document.getElementById("s"+k).addEventListener("change", e => { sel[k]=+e.target.value; render(); }));
-
-function cellState(sspKey, cellKey){
-  const rec = (P.cells[sspKey]||{})[cellKey];
-  return rec || null;
-}
-function row(label, cellKey, sspKey, gateNote){
-  const rec = cellState(sspKey, cellKey);
-  let st, note, n="—", u="—", state="notrun";
-  if (rec){ st = stc(rec.status); note = rec.note; n = rec.n||"—"; u = rec.status==="valid"?fmt(rec.mean.utility):"—"; state = rec.status; }
-  else if (gateNote){ st = stc("gated","gated"); note = gateNote; state = "gated"; }
-  else { st = stc("notrun","not yet run"); note = ""; }
-  return { state, html:`<tr><td>${label}</td><td>${st}</td><td class="num">${n}</td><td class="num">${u}</td><td style="color:#666;font-size:12px">${note}</td></tr>` };
-}
-function group(title, expl, rows){
-  const active = rows.filter(r=>["valid","running","invalid"].includes(r.state)).length;
-  const counts = `${rows.filter(r=>r.state==="valid").length} measured · ${rows.filter(r=>r.state==="running").length} running · ${rows.length} cells`;
-  return `<details ${active?"open":""}><summary style="cursor:pointer;padding:6px 0"><b>${title}</b> — ${expl} &nbsp;<span style="color:#666;font-size:12px">(${counts})</span></summary>
-   <table><tr><th>architecture</th><th>state</th><th class="num">episodes</th><th class="num">U mean</th><th>note</th></tr>${rows.map(r=>r.html).join("")}</table></details>`;
-}
-function render(){
-  const code = `A${sel.A+1}|B${sel.B+1}|C${sel.C+1}|D${sel.D+1}|E${sel.E}`;
-  const b=sel.B+1, c=sel.C+1, e=sel.E;
-  document.getElementById("otitle").innerHTML = `2&emsp;Operations-system cells (O) — profile <i>${code.replaceAll("|","/")}</i>`;
-  if (e>0 && c<2){
-    document.getElementById("ocells").innerHTML =
-      `<div style="padding:10px 0">Profile invalid: <b>R-ISL</b> — inter-satellite links require at least 2 satellites.</div>`;
-    document.getElementById("kpis").innerHTML = ""; return;
+// ---- 1: matrix
+(function(){
+  let h = "";
+  for (const par of PARADIGMS){
+    const rows = P.cells.filter(c=>c.paradigm===par);
+    const meas = rows.filter(r=>r.status==="measured").length;
+    h += `<details ${meas?"open":""}><summary style="cursor:pointer;padding:6px 0">`+
+         `<b>${par}</b> <span style="color:#666;font-size:12px">(${meas}/${rows.length} measured)</span></summary>`+
+         `<table><tr><th>representation</th><th>state</th><th class="num">episodes</th>`+
+         `<th class="num">U mean</th><th>note</th></tr>`;
+    for (const r of rows){
+      const u = r.status==="measured" ? fmt(r.mean.utility) : "—";
+      const note = r.note + (r.source ? `<span style="color:#999"> [data: ${r.source}]</span>` : "");
+      h += `<tr><td>${r.rep}</td><td>${stc(r.status, r.status==="notrun"?"not yet run":"measured")}</td>`+
+           `<td class="num">${r.n||"—"}</td><td class="num">${u}</td>`+
+           `<td style="color:#666;font-size:12px">${note}</td></tr>`;
+    }
+    h += "</table></details>";
   }
-  const gates = gatedOnboard(b);
-  const ALL = ["symbolic","rl","llm","llm_agentic","hybrid","agentic"];
-  let h = group("Conventional Ground (CG)", "operators plan the schedule on ground; uplinked once per contact",
-                GROUND.map(g=>row(`⟨${CORE[g]} planner⟩`, `CG|${g}`, code, null)));
-  h += group("Autonomous Ground (AG)", "a ground planner plans autonomously; uplinked per contact",
-             GROUND.map(g=>row(`⟨${CORE[g]} planner⟩`, `AG|${g}`, code, null)));
-  h += group("Autonomous Onboard (AO)", "all decisions made on the satellite, every step",
-             ALL.map(o=>row(`⟨${CORE[o]}⟩`, `AO|${o}`, code, gates[o]||null)));
-  h += group("Autonomous Hybrid (AH)", "an onboard per-step core paired with a ground planner",
-             ALL.flatMap(o=>GROUND.map(g=>row(`⟨${CORE[o]} onboard | ${CORE[g]} planner⟩`, `AH|${o}|${g}`, code, gates[o]||null))));
-  // organisation availability summary
-  let orgs = "sas: valid";
-  orgs += c>=2 ? " · cmas: valid (AH only)" : " · cmas: identified with SAS·AH at C1 (R-ORG1)";
-  orgs += c>=3 ? ` · imas/hmas: valid · dmas: ${e>=1?"valid":"gated (R-ORG3 — needs ISL)"}` : " · dmas/imas/hmas: gated (R-ORG2 — need C3+)";
-  h += `<div style="color:#555;font-size:12.5px;margin-top:8px">Organisations at this profile — ${orgs}. Cells above are the single-satellite slate; multi-agent organisations repeat it per organisation (§3.4).</div>`;
-  document.getElementById("ocells").innerHTML = h;
-  const here = Object.values(P.cells[code]||{});
+  document.getElementById("matrix").innerHTML = h;
+  const meas = P.cells.filter(c=>c.status==="measured").length;
   document.getElementById("kpis").innerHTML =
-    `<div class="kpi"><b>${here.filter(r=>r.status==="valid").length}</b>measured (verified) at this profile</div>` +
-    `<div class="kpi"><b>${here.filter(r=>r.status==="running").length}</b>running</div>` +
-    `<div class="kpi"><b>${here.filter(r=>r.status==="invalid").length}</b>excluded by verification</div>` +
-    `<div class="kpi"><b>${Object.values(P.cells).flatMap(Object.values).filter(r=>r.status==="valid").length} / 364,980</b>measured across the whole M×O space</div>`;
-}
-render();
-// preset to EventSat profile is the default (A1/B1/C1/D1/E0 = indices 0)
+    `<div class="kpi"><b>${meas}</b>measured cells</div>`+
+    `<div class="kpi"><b>${P.cells.length}</b>cells shipped</div>`+
+    `<div class="kpi"><b>32</b>full matrix (target)</div>`;
+})();
 
-// distributions
-const dists = [];
-for (const [ssp, cs] of Object.entries(P.cells))
-  for (const [ck, r] of Object.entries(cs))
-    if (r.status==="valid" && r.per_ep_utility.some(v=>v!=null))
-      dists.push({y:r.per_ep_utility, x:Array(r.n).fill(`${ck.replaceAll("|"," · ")}  @ ${ssp.replaceAll("|","/")}`),
-        type:"box", boxpoints:"all", jitter:0.5, pointpos:0, marker:{color:"#333",size:4,opacity:0.7},
-        line:{color:"#111"}, fillcolor:"#eee", name:ck,
-        hovertext:r.per_ep_utility.map((v,i)=>`ep ${i}: ${fmt(v)}`), hoverinfo:"text"});
+// ---- 2: results plots (publication style)
+(function(){
+  const FONT = {family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:14, color:"#1a1a1a"};
+  const BAR = "#4878a6";
+  const OK = ["#0072B2","#D55E00","#009E73","#E69F00","#56B4E9","#CC79A7","#000000"];
+  const axx = t => ({title:{text:t, font:{size:14}}, showline:true, linecolor:"#444", linewidth:1,
+                     ticks:"outside", tickcolor:"#444", ticklen:5, gridcolor:"#ededed", zeroline:false, automargin:true});
+  const LAY = (xt, yt, extra) => Object.assign(
+    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:FONT,
+     xaxis:axx(xt), yaxis:axx(yt), margin:{t:12,b:60,l:70,r:16}, showlegend:false}, extra||{});
+  const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
+  const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
+    const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
+  const peps = c => (c.per_ep_utility||[]).filter(v=>v!=null);
+  // Symbolic paradigm ladder (the cells with verified data).
+  const ladder = [["eventsat_sas_conventional_symb","Conventional"],["eventsat_sas_ag_symb","AG"],
+                  ["eventsat_sas_ao_symb","AO"],["eventsat_sas_ah_symb_symb","AH"]];
+  const rows = ladder.map(([id,nm])=>{ const c=CELLS[id];
+    return (c&&c.status==="measured")?{nm,c}:null; }).filter(Boolean);
+  const xs = rows.map(d=>`${d.nm}<br><span style="font-size:10px;color:#888">n=${d.c.n}</span>`);
+
+  if (rows.length){
+    const S = rows[0].c.steps, dd = S ? S*60/86400 : null;
+    const days = dd!=null ? (dd%1 ? dd.toFixed(1) : dd.toFixed(0)) : null;
+    document.getElementById("res-prov").innerHTML =
+      `Symbolic paradigm ladder at a matched <b>${S?S.toLocaleString():"—"}-step</b> episode`+
+      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)`:"")+`, shared launch-lottery seeds. `+
+      `Bars show mean &plusmn; 95% CI; utility is target-normalised.`;
+    Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.utility),
+      error_y:{type:"data", array:rows.map(d=>ci95(peps(d.c))), visible:true, color:"#333", thickness:1.3, width:5},
+      marker:{color:BAR}, width:0.62}], LAY("architecture","mission utility"), {displayModeBar:false});
+    Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.observation_hours),
+      marker:{color:BAR}, width:0.62}], LAY("architecture","observation time (h / episode)"), {displayModeBar:false});
+    Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.downlinked_mb),
+      marker:{color:BAR}, width:0.62}], LAY("architecture","delivered data (MB / episode)"), {displayModeBar:false});
+  }
+  const cog = P.cells.filter(c=>c.status==="measured" && c.mean.utility!=null && c.mean.mean_latency_s>0)
+    .map(c=>({nm:`${c.rep} (n=${c.n})`, x:c.mean.mean_latency_s, y:c.mean.utility}));
+  if (cog.length){
+    Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
+      x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
+      LAY("decision latency  (s, log scale)","mission utility",
+          {xaxis:Object.assign(axx("decision latency  (s, log scale)"),{type:"log"}),
+           showlegend:true, legend:{font:{size:12}, x:0.02, y:0.98, bgcolor:"rgba(255,255,255,0.6)"}}),
+      {displayModeBar:false});
+  }
+})();
+
+// ---- 3: distributions
+const dists = P.cells.filter(c=>c.status==="measured" && c.per_ep_utility.some(v=>v!=null)).map(c=>({
+  y:c.per_ep_utility, x:Array(c.n).fill(`${c.paradigm} · ${c.rep}`), type:"box", boxpoints:"all",
+  jitter:0.5, pointpos:0, marker:{color:"#333",size:4,opacity:0.7}, line:{color:"#111"}, fillcolor:"#eee",
+  hovertext:c.per_ep_utility.map((v,i)=>`ep ${i}: ${fmt(v)}`), hoverinfo:"text"}));
 Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showlegend:false,
-  font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13,color:"#111"}, yaxis:{title:"utility",gridcolor:"#eee"},
-  margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:22}});
+  font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13,color:"#111"},
+  yaxis:{title:"utility",gridcolor:"#eee"}, margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:18}});
 
-// tests — parked (2026-06-13 scope decision; see decision_matrix §5 banner)
-document.getElementById("tests").innerHTML =
- `The full ${P.tests.length}-test CCSDS-520 catalogue is <b>deferred</b> — out of current scope. ` +
- `The focus is the EventSat empirical comparison on the measured metric set (&sect;5 below). ` +
- `The standards-grounded test framework is retained in <code>decision_matrix.md &sect;5.4</code> ` +
- `as the publishable extension, not the current deliverable.`;
-
-// metric registry (columns = verified runs)
-const vcols = [];
-for (const [ssp, cs] of Object.entries(P.cells))
-  for (const [ck, r] of Object.entries(cs)) if (r.status==="valid") vcols.push([ssp,ck,r]);
+// ---- 4: metric registry
+const vcols = P.cells.filter(c=>c.status==="measured");
 document.getElementById("mx").innerHTML =
- "<tr><th>metric</th><th>status</th>" + vcols.map(([s,c])=>`<th class="num">${c.replaceAll("|","·")}<br><span style="font-weight:400;color:#777">${s.replaceAll("|","/")}</span></th>`).join("") + "<th>note</th></tr>" +
+ "<tr><th>metric</th><th>status</th>" + vcols.map(c=>`<th class="num">${c.rep}<br><span style="font-weight:400;color:#777">${c.paradigm}</span></th>`).join("") + "<th>note</th></tr>" +
  P.metrics.map(([id,nm,key,s,note])=>{
-  const cls = s.startsWith("measured")?"valid":s.includes("adopted")||s.includes("pending")?"running":"notrun";
+  const cls = s.startsWith("measured")?"measured":"deferred";
   return `<tr><td><b>${id}</b> ${nm}</td><td>${stc(cls,s)}</td>` +
-    vcols.map(([,,r])=>`<td class="num">${key?fmt(r.mean[key]):"—"}</td>`).join("") +
+    vcols.map(c=>`<td class="num">${key?fmt(c.mean[key]):"—"}</td>`).join("") +
     `<td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
 
-// statistics
-document.getElementById("rhoval").textContent = P.rho;
-document.getElementById("sigval").textContent = P.sigma;
-document.getElementById("guide").innerHTML =
- `<b>How to read:</b> a difference between two cells is confirmable when the paired-episode count meets
- the curve for the effect size of interest. With measured ρ = ${P.rho}: d = 0.5 → <b>14 paired episodes</b>;
- d = 0.3 → <b>38</b>; the pre-registered default (100) covers d ≥ 0.25 under Bonferroni m = 10.`;
-const za=2.807, zb=0.8416, ds=[...Array(19)].map((_,i)=>0.1+i*0.05);
-Plotly.newPlot("powcurve",[
- {x:ds,y:ds.map(d=>Math.ceil((za+zb)**2*2*(1-P.rho)/d/d/0.955)),name:"paired (measured ρ)",line:{color:"#111"}},
- {x:ds,y:ds.map(d=>Math.ceil(2*(za+zb)**2/d/d/0.955)),name:"unpaired / group",line:{color:"#999",dash:"dot"}}],
- {paper_bgcolor:"#fff",plot_bgcolor:"#fff",font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13},
-  xaxis:{title:"minimum detectable effect d",gridcolor:"#eee"},
-  yaxis:{title:"episodes required",type:"log",gridcolor:"#eee"},margin:{t:8,b:45,l:60,r:10},legend:{x:0.55,y:0.95}});
-
-// ---- 6a: radar (min-max normalised over shown runs)
+// ---- 5a: radar
 const RMETRICS = [["utility","mission utility"],["data_downlink_efficiency","downlink efficiency"],
  ["explainability_score","explainability (presence)"],["operator_load","override rate (inverted)"]];
-const rruns = vcols;  // [ssp, cell, rec]
-if (rruns.length){
+if (vcols.length){
   const vals = {};
-  for (const [k] of RMETRICS) {
-    let xs = rruns.map(([,,r])=> k==="operator_load" ? 1-(r.mean[k]??0) : (r.mean[k]??0));
+  for (const [k] of RMETRICS){
+    let xs = vcols.map(c=> k==="operator_load" ? 1-(c.mean[k]??0) : (c.mean[k]??0));
     const mn=Math.min(...xs), mx=Math.max(...xs);
     vals[k] = xs.map(v => mx>mn ? (v-mn)/(mx-mn) : 1);
   }
-  Plotly.newPlot("radar", rruns.map(([ssp,ck],i)=>({
-    type:"scatterpolar", fill:"toself", opacity:0.55, name:`${ck.replaceAll("|","·")} @${ssp.replaceAll("|","/")}`,
+  Plotly.newPlot("radar", vcols.map((c,i)=>({
+    type:"scatterpolar", fill:"toself", opacity:0.55, name:`${c.paradigm} · ${c.rep}`,
     theta:RMETRICS.map(m=>m[1]).concat(RMETRICS[0][1]),
     r:RMETRICS.map(([k])=>vals[k][i]).concat(vals[RMETRICS[0][0]][i])
   })), {paper_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
        polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
 }
-// ---- 6b: paired differences (AH - AO at the anchor)
-const aoR = cellState("A1|B1|C1|D1|E0","AO|symbolic"), ahR = cellState("A1|B1|C1|D1|E0","AH|symbolic|symbolic");
-if (aoR && ahR){
+// ---- 5b: paired differences (AH - AO, symbolic)
+const aoR = CELLS["eventsat_sas_ao_symb"], ahR = CELLS["eventsat_sas_ah_symb_symb"];
+if (aoR && ahR && aoR.status==="measured" && ahR.status==="measured"){
   const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
   const diffs = [...Array(k)].map((_,i)=>ahR.per_ep_utility[i]-aoR.per_ep_utility[i]).filter(v=>v!=null);
   const mu = diffs.reduce((a,b)=>a+b,0)/diffs.length;
   const wins = diffs.filter(v=>v>0).length;
-  Plotly.newPlot("paired", [
-   {x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}}],
+  Plotly.newPlot("paired", [{x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}}],
    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
-    xaxis:{title:"per-orbit utility gain from adding the ground plan (AH − AO, same 100 orbits)", gridcolor:"#eee"},
+    xaxis:{title:"per-orbit utility gain from adding the ground plan (AH − AO, same orbits)", gridcolor:"#eee"},
     yaxis:{title:"orbits", gridcolor:"#eee"}, showlegend:false, margin:{t:34,b:50,l:55,r:10},
     shapes:[{type:"line", x0:0, x1:0, yref:"paper", y0:0, y1:1, line:{color:"#a13026", dash:"dash"}},
             {type:"line", x0:mu, x1:mu, yref:"paper", y0:0, y1:0.92, line:{color:"#9a6200", width:2}}],
@@ -400,84 +360,8 @@ if (aoR && ahR){
      {xref:"paper", x:0.98, yref:"paper", y:0.85, text:`ground plan better in ${wins}/${diffs.length} orbits →`,
       showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
 }
-// ---- 3: results plots (A1 anchor) — publication style, results only ----
-(function(){
-  const A1 = "A1|B1|C1|D1|E0";
-  // Journal figure style: neutral sans, visible axis lines, outside ticks,
-  // restrained colourblind-safe palette (Okabe–Ito). No titles, no annotations.
-  const FONT = {family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:14, color:"#1a1a1a"};
-  const BAR = "#4878a6";              // single muted steel-blue for bar series
-  const OK = ["#0072B2","#D55E00","#009E73","#E69F00","#56B4E9","#CC79A7","#000000"];
-  const axx = t => ({title:{text:t, font:{size:14}}, showline:true, linecolor:"#444", linewidth:1,
-                     ticks:"outside", tickcolor:"#444", ticklen:5, gridcolor:"#ededed", zeroline:false,
-                     automargin:true});
-  const LAY = (xt, yt, extra) => Object.assign(
-    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:FONT,
-     xaxis:axx(xt), yaxis:axx(yt), margin:{t:12,b:60,l:70,r:16}, showlegend:false}, extra||{});
-  const mean = a => a.reduce((x,y)=>x+y,0)/a.length;
-  const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
-    const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
-  const peps = r => (r.per_ep_utility||[]).filter(v=>v!=null);
-  // Symbolic paradigm ladder + the LLM onboard cell, all at the matched 1-day
-  // length. 'llm' rows are coloured distinctly.
-  const ladder = [["CG|symbolic","CG","sym"],["AG|symbolic","AG","sym"],["AO|symbolic","AO","sym"],
-                  ["AH|symbolic|symbolic","AH","sym"],["AH|llm|symbolic","AH·LLM","llm"]];
-  const rows = ladder.map(([ck,nm,sub])=>{ const r=cellState(A1,ck);
-    return (r&&r.status==="valid")?{nm,r,sub}:null; }).filter(Boolean);
-  const LLMC = "#D55E00";
-  const xs = rows.map(d=>`${d.nm}<br><span style="font-size:10px;color:#888">n=${d.r.n}</span>`);
-  const cols = rows.map(d=>d.sub==="llm"?LLMC:BAR);
 
-  // provenance — episode length + per-bar n (symbolic n=100, LLM n=2)
-  if (rows.length){
-    const S = rows[0].r.steps, dd = S ? S*60/86400 : null;
-    const days = dd!=null ? (dd%1 ? dd.toFixed(1) : dd.toFixed(0)) : null;
-    document.getElementById("res-prov").innerHTML =
-      `All cells at a matched <b>${S?S.toLocaleString():"—"}-step</b> episode`+
-      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)` : "")+`, shared launch-lottery seeds; `+
-      `n per bar. Bars show mean &plusmn; 95% CI. Utility is target-normalised; note that a 1-day `+
-      `segment starts on a full battery, so absolute levels run higher than a full-week mission.`;
-  }
-
-  // 3a — mission utility (mean ± 95% CI); LLM cell in orange
-  if (rows.length){
-    Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.utility),
-      error_y:{type:"data", array:rows.map(d=>ci95(peps(d.r))), visible:true, color:"#333", thickness:1.3, width:5},
-      marker:{color:cols}, width:0.62}],
-      LAY("architecture", "mission utility"), {displayModeBar:false});
-  }
-
-  // 3b — decision latency vs mission utility (log x; one marker per architecture).
-  // Includes the LLM cell — utility is normalised so this axis is fair; the
-  // legend carries each cell's n so the thin LLM sample is explicit.
-  const cog = Object.entries(P.cells[A1]||{})
-    .filter(([,r])=>r.status==="valid" && r.mean.utility!=null && r.mean.mean_latency_s>0)
-    .map(([ck,r],i)=>({nm:`${ck.replaceAll("|","·")} (n=${r.n})`, x:r.mean.mean_latency_s, y:r.mean.utility}));
-  if (cog.length){
-    Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
-      x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
-      LAY("decision latency  (s, log scale)", "mission utility",
-          {xaxis:Object.assign(axx("decision latency  (s, log scale)"), {type:"log"}),
-           showlegend:true, legend:{font:{size:12}, x:0.02, y:0.98, bgcolor:"rgba(255,255,255,0.6)"},
-           margin:{t:12,b:60,l:70,r:16}}), {displayModeBar:false});
-  }
-
-  // 3c — observation time (matched 1-day episode; LLM cell in orange)
-  if (rows.length){
-    Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.observation_hours),
-      marker:{color:cols}, width:0.62}],
-      LAY("architecture", "observation time (h / episode)"), {displayModeBar:false});
-  }
-
-  // 3d — delivered data (matched 1-day episode; LLM cell in orange)
-  if (rows.length){
-    Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.r.mean.downlinked_mb),
-      marker:{color:cols}, width:0.62}],
-      LAY("architecture", "delivered data (MB / episode)"), {displayModeBar:false});
-  }
-})();
-
-// ---- 7: episode inspector
+// ---- 6: episode inspector
 const T = P.telemetry, tids = Object.keys(T);
 const tsel = document.getElementById("teleSel");
 tsel.innerHTML = tids.map(id=>`<option value="${id}">${T[id].label}</option>`).join("");
@@ -513,6 +397,21 @@ function renderTele(){
     yaxis:{visible:false}, showlegend:false, margin:{t:4,b:40,l:55,r:55}});
 }
 if (tids.length){ tsel.addEventListener("change", renderTele); renderTele(); }
+
+// ---- 7: statistics
+document.getElementById("rhoval").textContent = P.rho;
+document.getElementById("sigval").textContent = P.sigma;
+document.getElementById("guide").innerHTML =
+ `<b>How to read:</b> a difference between two cells is confirmable when the paired-episode count meets
+ the curve for the effect size of interest. With measured ρ = ${P.rho}: d = 0.5 → <b>14 paired episodes</b>;
+ d = 0.3 → <b>38</b>; the pre-registered default (100) covers d ≥ 0.25 under Bonferroni m = 10.`;
+const za=2.807, zb=0.8416, ds=[...Array(19)].map((_,i)=>0.1+i*0.05);
+Plotly.newPlot("powcurve",[
+ {x:ds,y:ds.map(d=>Math.ceil((za+zb)**2*2*(1-P.rho)/d/d/0.955)),name:"paired (measured ρ)",line:{color:"#111"}},
+ {x:ds,y:ds.map(d=>Math.ceil(2*(za+zb)**2/d/d/0.955)),name:"unpaired / group",line:{color:"#999",dash:"dot"}}],
+ {paper_bgcolor:"#fff",plot_bgcolor:"#fff",font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13},
+  xaxis:{title:"minimum detectable effect d",gridcolor:"#eee"},
+  yaxis:{title:"episodes required",type:"log",gridcolor:"#eee"},margin:{t:8,b:45,l:60,r:10},legend:{x:0.55,y:0.95}});
 </script></body></html>
 """
 

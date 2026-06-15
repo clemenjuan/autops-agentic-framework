@@ -268,7 +268,7 @@ class ExperimentRunner:
     def _create_memory(self) -> Any:
         """Factory for the agent memory system.
 
-        Returns a ``WritableMemory`` for ``writable_coala`` (``_lec_``)
+        Returns a ``WritableMemory`` for ``writable_coala``
         configs and a ``FixedMemory`` for everything else. This runner is
         the single source of truth for the memory object — it is injected
         into every ``DecisionContext`` by the decision loops, so the

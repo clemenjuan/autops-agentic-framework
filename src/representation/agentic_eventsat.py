@@ -501,7 +501,7 @@ class AgenticEventSat(Representation):
             except Exception as e:
                 logger.warning("Agentic forced-decide step failed: %s", e)
 
-        # Substrate integrity (decision_matrix §7): an agentic cell that cannot
+        # Substrate integrity: an agentic cell that cannot
         # produce a valid decision must FAIL the episode — substituting a
         # symbolic decision silently turns the run into a mixed-substrate
         # measurement (user decision 2026-06-11; ec1b83b covered the llm/rl

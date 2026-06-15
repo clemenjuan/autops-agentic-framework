@@ -14,7 +14,7 @@ Usage::
     from src.orchestration.animation import animate_ground_track
     from src.orchestration.results_loader import load_results, results_to_step_df
 
-    results_raw = load_results("data/results/eventsat_cen_sda_symb_hd_ah/results.json")
+    results_raw = load_results("data/results/eventsat_sas_ah_symb_symb/results.json")
     step_df = results_to_step_df(results_raw)
 
     anim = animate_ground_track(

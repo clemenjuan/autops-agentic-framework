@@ -12,15 +12,15 @@ Writes data/figures/telemetry.json:
 import json
 from pathlib import Path
 
-# run_id -> inspector label. Embedded-telemetry runs are preferred; the
-# legacy telemetry_* single-episode DEBUG runs remain as a fallback source.
+# result-dir -> inspector label (O-framework names). The symbolic campaign
+# currently lives under the legacy eventsat_sas_symbolic_* dirs; labels use the
+# framework cell names. Embedded telemetry is preferred; the legacy telemetry_*
+# single-episode DEBUG runs remain as a fallback source.
 SOURCES = {
-    "eventsat_sas_symbolic_ah": "Symbolic · AH — EventSat (ep0)",
-    "eventsat_sas_symbolic_ao": "Symbolic · AO — EventSat (ep0)",
-    "eventsat_sas_symbolic_ag": "Symbolic · AG — EventSat (ep0)",
-    "eventsat_sas_symbolic_cg": "Symbolic · CG — EventSat (ep0)",
-    "eventsat_sas_llm_ah": "LLM · AH — EventSat (ep0)",
-    "eventsat_sas_agentic_ah": "Agentic · AH — EventSat (ep0)",
+    "eventsat_sas_symbolic_ah": "AH · symb onboard · symb ground — EventSat (ep0)",
+    "eventsat_sas_symbolic_ao": "AO · symb — EventSat (ep0)",
+    "eventsat_sas_symbolic_ag": "AG · symb — EventSat (ep0)",
+    "eventsat_sas_symbolic_cg": "Conventional · symb — EventSat (ep0)",
 }
 MAX_POINTS = 1500
 
@@ -76,10 +76,6 @@ def main() -> None:
     out = {}
     for rid, label in SOURCES.items():
         series = _from_embedded(rid) or _from_debug_trace(rid)
-        # Final fallback: the legacy dedicated single-episode telemetry_* run.
-        if series is None:
-            legacy = rid.replace("eventsat_sas_sda_", "telemetry_").replace("_hd_", "_hd_")
-            series = _from_debug_trace(legacy)
         if series is None:
             continue
         out[rid] = {"label": label, **series}

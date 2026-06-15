@@ -6,7 +6,7 @@ saving checkpoints to data/trained_models/subsymbolic/.
 
 Usage:
     uv run python scripts/train_subsymbolic.py
-    uv run python scripts/train_subsymbolic.py --config configs/experiments/eventsat_cen_sda_subm_le_ah.yaml
+    uv run python scripts/train_subsymbolic.py --config configs/experiments/eventsat_sas_ao_rl.yaml
     uv run python scripts/train_subsymbolic.py --episodes 1000 --seed 0 --checkpoint-freq 100
 
 Design:
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/experiments/eventsat_cen_sda_subm_le_ah.yaml",
+        default="configs/experiments/eventsat_sas_ao_rl.yaml",
         help="Path to experiment YAML config.",
     )
     parser.add_argument("--episodes", type=int, default=None,
