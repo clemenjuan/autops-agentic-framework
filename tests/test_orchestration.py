@@ -634,6 +634,83 @@ class TestRepresentationVocabulary:
         assert cfg.representation_cell is None
 
 
+class TestDualCoreAH:
+    """Dual-core AH: independent onboard + ground core blocks (the ah_<onboard>_<ground>
+    pairs). Onboard ∈ {symb, rl, hrl}; ground ∈ the 7 cells."""
+
+    def _cfg(self, **kw):
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            return ExperimentConfig(operations_paradigm="autonomous_hybrid", **kw)
+
+    @pytest.mark.parametrize(
+        "onboard_rep, ground_rep, exp_onboard, exp_ground, jetson",
+        [
+            ("rl",   "symb",   "subsymbolic_eventsat", "schedule_based_eventsat",    True),
+            ("symb", "hllm-a", "rule_based_eventsat",  "agentic_scheduler_eventsat", False),
+            ("symb", "hllm-s", "rule_based_eventsat",  "llm_scheduler_eventsat",     False),
+            ("hrl",  "rl",     "hrl_onboard_eventsat", "subsymbolic_scheduler_eventsat", True),
+        ],
+    )
+    def test_dual_core_resolution(self, onboard_rep, ground_rep, exp_onboard, exp_ground, jetson) -> None:
+        cfg = self._cfg(onboard={"representation": onboard_rep},
+                        ground={"representation": ground_rep})
+        assert cfg.resolved_onboard_type == exp_onboard
+        assert cfg.resolved_ground_planner_type == exp_ground
+        assert cfg.onboard_uses_jetson is jetson
+
+    def test_per_core_configs_independent(self) -> None:
+        cfg = self._cfg(
+            onboard={"representation": "rl", "representation_config": {"rl_mock": True}},
+            ground={"representation": "hllm-a", "representation_config": {"llm_model": "x"}},
+        )
+        assert cfg.onboard_representation_config == {"rl_mock": True}
+        assert cfg.ground_representation_config.get("llm_model") == "x"
+        assert cfg.ground_representation_config.get("action_space") == "agentic"  # injected from cell
+
+    def test_llm_onboard_rejected(self) -> None:
+        with pytest.raises(ValueError, match="onboard-feasible"):
+            self._cfg(onboard={"representation": "hllm-a"}, ground={"representation": "symb"})
+
+    def test_cores_require_autonomous_hybrid(self) -> None:
+        with pytest.raises(ValueError, match="autonomous_hybrid"):
+            ExperimentConfig(operations_paradigm="autonomous_ground",
+                             onboard={"representation": "symb"}, ground={"representation": "symb"})
+
+    def test_both_cores_required(self) -> None:
+        with pytest.raises(ValueError, match="BOTH"):
+            self._cfg(onboard={"representation": "symb"})
+
+    def test_ppo_mechanism_valid_with_rl_onboard(self) -> None:
+        cfg = self._cfg(
+            behaviour="emergent",
+            onboard={"representation": "rl", "representation_config": {"rl_mock": True}},
+            ground={"representation": "symb"},
+            behaviour_config={"mechanism": "ppo"},
+        )
+        assert cfg.behaviour_config["mechanism"] == "ppo"
+
+    def test_single_rep_ah_backward_compatible(self) -> None:
+        cfg = self._cfg(representation="symb")
+        assert cfg.resolved_onboard_type == "rule_based_eventsat"
+        assert cfg.resolved_ground_planner_type == "schedule_based_eventsat"
+        assert cfg.onboard is None and cfg.ground is None
+
+    def test_example_configs_load(self) -> None:
+        from src.orchestration.config_loader import load_config
+        from pathlib import Path
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            a = load_config(Path("configs/experiments/eventsat_sas_ah_rl_symb.yaml"))
+            b = load_config(Path("configs/experiments/eventsat_sas_ah_symb_hllm-a.yaml"))
+        assert a.resolved_onboard_type == "subsymbolic_eventsat"
+        assert a.resolved_ground_planner_type == "schedule_based_eventsat"
+        assert b.resolved_onboard_type == "rule_based_eventsat"
+        assert b.resolved_ground_planner_type == "agentic_scheduler_eventsat"
+
+
 class TestAutonomousHybridArbitration:
     """Dual-slot AH: plan-default between passes, onboard override on safety modes."""
 

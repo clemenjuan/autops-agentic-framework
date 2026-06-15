@@ -355,7 +355,7 @@ class ExperimentRunner:
         )
         representation = emergence.get_representation(
             repr_type=repr_type,
-            repr_config=self.config.representation_config,
+            repr_config=self.config.onboard_representation_config,
         )
         # Seed stochastic representations for reproducibility
         if hasattr(representation, "seed"):
@@ -410,7 +410,7 @@ class ExperimentRunner:
         ):
             gp_rep = emergence.get_representation(
                 repr_type=self.config.resolved_ground_planner_type,
-                repr_config=self.config.representation_config,
+                repr_config=self.config.ground_representation_config,
             )
             if hasattr(gp_rep, "seed"):
                 gp_rep.seed(self.config.seed)

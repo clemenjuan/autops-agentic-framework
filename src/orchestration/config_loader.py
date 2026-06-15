@@ -28,6 +28,39 @@ from pydantic import (
 # Pydantic configuration models
 # ======================================================================
 
+# 7-cell framework vocabulary (morphological_matrix.md §2) → internal
+# (substrate, action_space). A config — or a nested onboard/ground core block —
+# may declare `representation: hllm-a` etc.; ``_expand_cell`` rewrites it to the
+# legacy substrate + action_space so every downstream consumer (resolution,
+# jetson flag) keeps seeing the substrate it already understands.
+_CELL_TO_LEGACY: Dict[str, Any] = {
+    "symb": ("symbolic", None),
+    "rl": ("rl", None),
+    "hrl": ("hybrid-rl", None),
+    "llm-s": ("llm", "reactive"),
+    "llm-a": ("llm", "agentic"),
+    "hllm-s": ("hybrid", "reactive"),
+    "hllm-a": ("hybrid", "agentic"),
+}
+
+
+def _expand_cell(data: Any) -> Any:
+    """Expand a 7-cell ``representation`` token in a config dict to the internal
+    substrate + action_space, recording ``representation_cell``. No-op for legacy
+    substrate values or non-dict input. Used by both ``ExperimentConfig`` and the
+    nested ``CoreConfig`` (onboard/ground) normalizers."""
+    if isinstance(data, dict):
+        rep = data.get("representation")
+        if rep in _CELL_TO_LEGACY:
+            substrate, action_space = _CELL_TO_LEGACY[rep]
+            data["representation_cell"] = rep
+            data["representation"] = substrate
+            if action_space is not None:
+                rc = dict(data.get("representation_config") or {})
+                rc.setdefault("action_space", action_space)
+                data["representation_config"] = rc
+    return data
+
 
 class MetricsConfig(BaseModel):
     """Metrics collection configuration."""
@@ -74,6 +107,22 @@ class EnvironmentConfig(BaseModel):
     scenario_config: Dict[str, Any] = Field(default_factory=dict)
 
 
+class CoreConfig(BaseModel):
+    """One reasoning core of a dual-core AH architecture — an onboard core or a
+    ground planner — carrying its own representation and config. The
+    ``representation`` accepts a 7-cell token or a legacy substrate value (same
+    vocabulary as ``ExperimentConfig.representation``)."""
+
+    representation: str = Field(default="symbolic")
+    representation_cell: Optional[str] = Field(default=None)
+    representation_config: Dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_cell(cls, data: Any) -> Any:
+        return _expand_cell(data)
+
+
 class ExperimentConfig(BaseModel):
     """Top-level experiment configuration.
 
@@ -107,6 +156,13 @@ class ExperimentConfig(BaseModel):
     representation_config: Dict[str, Any] = Field(default_factory=dict)
     behaviour_config: Dict[str, Any] = Field(default_factory=dict)
     operations_paradigm_config: Dict[str, Any] = Field(default_factory=dict)
+
+    # Dual-core AH: independent onboard + ground cores, each with its own
+    # representation + config (morphological_matrix.md §3 — the ah_<onboard>_<ground>
+    # pairs). When both are set they drive the two cores; when absent the single
+    # `representation` drives both (backward-compatible single-rep AH / AO / AG / CG).
+    onboard: Optional[CoreConfig] = Field(default=None)
+    ground: Optional[CoreConfig] = Field(default=None)
 
     # Environment
     environment: EnvironmentConfig = Field(default_factory=EnvironmentConfig)
@@ -169,35 +225,12 @@ class ExperimentConfig(BaseModel):
                 )
         return data
 
-    # 7-cell framework vocabulary (morphological_matrix.md §2) → internal
-    # (substrate, action_space). Lets a config declare `representation: hllm-a`
-    # etc.; the normalizer expands it so every downstream consumer (resolution,
-    # jetson flag) keeps seeing the legacy substrate it already understands.
-    _CELL_TO_LEGACY: ClassVar[Dict[str, Any]] = {
-        "symb": ("symbolic", None),
-        "rl": ("rl", None),
-        "hrl": ("hybrid-rl", None),
-        "llm-s": ("llm", "reactive"),
-        "llm-a": ("llm", "agentic"),
-        "hllm-s": ("hybrid", "reactive"),
-        "hllm-a": ("hybrid", "agentic"),
-    }
-
     @model_validator(mode="before")
     @classmethod
     def _normalize_representation_cell(cls, data: Any) -> Any:
-        """Expand a 7-cell representation token into substrate + action_space."""
-        if isinstance(data, dict):
-            rep = data.get("representation")
-            if rep in cls._CELL_TO_LEGACY:
-                substrate, action_space = cls._CELL_TO_LEGACY[rep]
-                data["representation_cell"] = rep
-                data["representation"] = substrate
-                if action_space is not None:
-                    rc = dict(data.get("representation_config") or {})
-                    rc.setdefault("action_space", action_space)
-                    data["representation_config"] = rc
-        return data
+        """Expand the top-level 7-cell representation token (the nested onboard/
+        ground cores are expanded by ``CoreConfig``'s own normalizer)."""
+        return _expand_cell(data)
 
     @field_validator("agent_organization")
     @classmethod
@@ -361,31 +394,45 @@ class ExperimentConfig(BaseModel):
             self.operations_paradigm,
         )
 
+    def _onboard_core(self) -> tuple[str, Optional[str]]:
+        """Effective (substrate, action_space) of the onboard core: the dual-core
+        ``onboard`` block when set, else the single top-level representation."""
+        if self.onboard is not None:
+            return self.onboard.representation, self.onboard.representation_config.get("action_space")
+        return self.representation, self.representation_config.get("action_space")
+
+    def _ground_core(self) -> tuple[str, Optional[str]]:
+        """Effective (substrate, action_space) of the ground core: the dual-core
+        ``ground`` block when set, else the single top-level representation."""
+        if self.ground is not None:
+            return self.ground.representation, self.ground.representation_config.get("action_space")
+        return self.representation, self.representation_config.get("action_space")
+
     @property
     def resolved_onboard_type(self) -> Optional[str]:
         """Onboard per-step core, for paradigms with an onboard slot (AO, AH).
 
-        The onboard core follows the configured substrate (morphological_matrix.md §2 —
-        the O-cell is substrate × action *per active core*): symbolic→rule_based,
-        subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive (hllm-s)→llm_eventsat
-        (per-step LLM + symbolic guard), hybrid·agentic (hllm-a)→agentic_eventsat.
-        The pure-LLM cells (llm-s/llm-a) and hrl have no real core yet → placeholders.
-        None for AG/CG. The substrate is never silently substituted by a different one.
+        Follows the onboard core's substrate (morphological_matrix.md §2 — substrate
+        × action *per active core*): symbolic→rule_based, subsymbolic·RL→
+        subsymbolic_eventsat, hybrid·reactive (hllm-s)→llm_eventsat, hybrid·agentic
+        (hllm-a)→agentic_eventsat. The pure-LLM cells (llm-s/llm-a) and hrl have no
+        real core yet → placeholders. None for AG/CG.
         """
         if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
             return None
-        if self.representation == "symbolic":
+        substrate, action_space = self._onboard_core()
+        if substrate == "symbolic":
             return "rule_based_eventsat"
-        if self.representation in ("subsymbolic", "rl"):
+        if substrate in ("subsymbolic", "rl"):
             return "subsymbolic_eventsat"
-        if self.representation == "hybrid-rl":
+        if substrate == "hybrid-rl":
             return "hrl_onboard_eventsat"  # hrl cell placeholder
-        if self.representation == "llm":  # pure LLM (no symbolic layer) → placeholders
-            if self.representation_config.get("action_space") == "agentic":
+        if substrate == "llm":  # pure LLM (no symbolic layer) → placeholders
+            if action_space == "agentic":
                 return "llm_agentic_onboard_eventsat"  # llm-a cell placeholder
             return "llm_single_onboard_eventsat"  # llm-s cell placeholder
         # hybrid (LLM + symbolic): reactive (hllm-s) -> llm_eventsat; agentic (hllm-a) -> agentic_eventsat
-        if self.representation_config.get("action_space") == "agentic":
+        if action_space == "agentic":
             return "agentic_eventsat"
         return "llm_eventsat"
 
@@ -393,18 +440,16 @@ class ExperimentConfig(BaseModel):
     def resolved_ground_planner_type(self) -> Optional[str]:
         """Ground full-pass planner (schedule producer), for AH/AG/CG. None for AO.
 
-        AH shares AG's *algorithmic* ground planner (same artifact across AH & AG);
-        CG uses its human-realistic planner.
+        AH shares AG's *algorithmic* ground planner; CG uses its human-realistic
+        planner. Follows the ground core's substrate (the ``ground`` block for
+        dual-core AH, else the single representation).
         """
         ops = self.operations_paradigm
         if ops == "autonomous_onboard":
             return None
         ground_ops = "autonomous_ground" if ops == "autonomous_hybrid" else ops
-        return self._resolve_repr_type(
-            self.representation,
-            self.representation_config.get("action_space"),
-            ground_ops,
-        )
+        substrate, action_space = self._ground_core()
+        return self._resolve_repr_type(substrate, action_space, ground_ops)
 
     @property
     def onboard_uses_jetson(self) -> bool:
@@ -413,12 +458,49 @@ class ExperimentConfig(BaseModel):
         True only when an onboard slot is active (AO/AH) **and** the onboard core is
         Jetson-based (subsymbolic RL, or hybrid whose onboard is the RL policy).
         Symbolic onboard rules run on the OBC (3.3 V, sub-watt) → no Jetson overhead.
-        Drives `env.onboard_compute_active`.
+        Drives `env.onboard_compute_active`. Keys off the *onboard* core's substrate.
         """
-        return (
-            self.operations_paradigm in ("autonomous_onboard", "autonomous_hybrid")
-            and self.representation in ("subsymbolic", "hybrid", "hybrid-rl")
-        )
+        if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
+            return False
+        substrate, _ = self._onboard_core()
+        return substrate in ("subsymbolic", "rl", "hybrid", "hybrid-rl")
+
+    @property
+    def onboard_representation_config(self) -> Dict[str, Any]:
+        """Representation config for the onboard core (the ``onboard`` block when
+        dual-core, else the shared ``representation_config``)."""
+        return self.onboard.representation_config if self.onboard is not None else self.representation_config
+
+    @property
+    def ground_representation_config(self) -> Dict[str, Any]:
+        """Representation config for the ground core (the ``ground`` block when
+        dual-core, else the shared ``representation_config``)."""
+        return self.ground.representation_config if self.ground is not None else self.representation_config
+
+    @model_validator(mode="after")
+    def _validate_dual_core(self) -> "ExperimentConfig":
+        """Dual-core onboard/ground blocks: AH-only, both-or-neither, no LLM onboard."""
+        if self.onboard is None and self.ground is None:
+            return self
+        if self.operations_paradigm != "autonomous_hybrid":
+            raise ValueError(
+                "onboard/ground core blocks are only valid with "
+                f"operations_paradigm='autonomous_hybrid', got '{self.operations_paradigm}'."
+            )
+        if (self.onboard is None) != (self.ground is None):
+            raise ValueError(
+                "dual-core AH requires BOTH 'onboard' and 'ground' core blocks "
+                "(or neither, to drive both cores from the single 'representation')."
+            )
+        # No per-step LLM onboard (morphological_matrix.md §3): onboard ∈ {symb, rl, hrl}.
+        if self.onboard.representation not in ("symbolic", "subsymbolic", "rl", "hybrid-rl"):
+            cell = self.onboard.representation_cell or self.onboard.representation
+            raise ValueError(
+                f"onboard core '{cell}' is not onboard-feasible — AH onboard must be "
+                f"symb, rl, or hrl (no per-step LLM onboard); the LLM cells belong in "
+                f"the ground slot (morphological_matrix.md §3)."
+            )
+        return self
 
     @model_validator(mode="after")
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
@@ -530,17 +612,29 @@ class ExperimentConfig(BaseModel):
                     f"{self.VALID_MECHANISMS}, got '{mechanism}'"
                 )
             allowed_reps = self._MECHANISM_REPRESENTATION_RULES[mechanism]
-            if self.representation not in allowed_reps:
+            # The mechanism trains whichever core matches; for dual-core AH it may be
+            # the onboard (ppo on rl) or ground (writable_coala on agentic) core.
+            substrates = {self.representation}
+            if self.onboard is not None:
+                substrates.add(self.onboard.representation)
+            if self.ground is not None:
+                substrates.add(self.ground.representation)
+            if not (substrates & allowed_reps):
                 raise ValueError(
                     f"behaviour_config.mechanism='{mechanism}' is only valid with "
-                    f"representation in {allowed_reps}, got '{self.representation}'"
+                    f"representation in {allowed_reps}, got {sorted(substrates)}"
                 )
             if mechanism == "writable_coala":
-                if rep_type not in self._WRITABLE_COALA_REPR_TYPES:
+                # The agentic core that carries writable memory may be the top-level
+                # rep (single) or, for dual-core AH, the ground planner.
+                core_types = {rep_type}
+                if self.onboard is not None or self.ground is not None:
+                    core_types |= {self.resolved_onboard_type, self.resolved_ground_planner_type}
+                if not (core_types & self._WRITABLE_COALA_REPR_TYPES):
                     raise ValueError(
-                        f"behaviour_config.mechanism='writable_coala' requires "
-                        f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
-                        f"got '{rep_type}'"
+                        f"behaviour_config.mechanism='writable_coala' requires an agentic "
+                        f"core type in {self._WRITABLE_COALA_REPR_TYPES}, "
+                        f"got {sorted(t for t in core_types if t)}"
                     )
                 # emergent·memory is gated by the agentic action space (writing is
                 # an action). If action_space is declared it must be agentic.
