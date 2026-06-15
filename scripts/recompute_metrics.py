@@ -9,8 +9,8 @@ numbers without re-rolling expensive LLM episodes.
 
 Usage::
 
-    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_sda_hybr_hd_ah/
-    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_*_hybr_*/
+    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_ag_llm-s/
+    uv run python scripts/recompute_metrics.py data/results/eventsat_sas_ah_*/
 """
 
 from __future__ import annotations

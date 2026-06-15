@@ -14,7 +14,9 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ---
 
-## Adding a New Decision Loop
+## Adding a New Decision Procedure
+
+*(The `src/decision_procedure/` module implements the per-step decision driver. It is held fixed in the EventSat benchmark — not a framework component; see [`morphological_matrix.md`](morphological_matrix.md).)*
 
 ### Prerequisites
 - Read and understand the source paper thoroughly.
@@ -22,12 +24,12 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ### Steps
 
-1. **Create the module** at `src/decision_loop/<loop_name>.py`.
+1. **Create the module** at `src/decision_procedure/<loop_name>.py`.
 
 2. **Cite the paper** in the module docstring:
    ```python
    """
-   <Loop Name> Decision Loop.
+   <Name> Decision Procedure.
 
    Implementation following:
        <Authors> (<Year>). "<Title>". <Venue>.
@@ -35,7 +37,7 @@ Step-by-step guide for implementing new components in the experimental framework
    """
    ```
 
-3. **Subclass `DecisionLoop`** from `src/decision_loop/base.py`.
+3. **Subclass `DecisionProcedure`** from `src/decision_procedure/base.py`.
 
 4. **Implement `process()`**: Map the paper's algorithm steps into the
    `process(observation, memory) → (action, memory)` signature.
@@ -50,11 +52,16 @@ Step-by-step guide for implementing new components in the experimental framework
 7. **Register in configuration**: Ensure the experiment runner's factory
    can instantiate the new loop from YAML config.
 
-8. **Document**: Update `src/decision_loop/README.md`.
+8. **Document**: Update `src/decision_procedure/README.md`.
 
 ---
 
 ## Adding a New Representation
+
+*Representation = **substrate** only (symbolic/subsymbolic/hybrid). Two things are **not** new
+representations: (1) action-space richness — single-shot vs agentic exists only on LLM-bearing cells; (2)
+learned/online behaviour — `ppo` (RL training) and `writable_coala` (agentic online learning) are
+wired via `behaviour_config`, not separate classes. See [`morphological_matrix.md`](morphological_matrix.md).*
 
 ### Steps
 
@@ -69,9 +76,9 @@ Step-by-step guide for implementing new components in the experimental framework
 
 5. **For learned variants**: Also implement `update()` for training.
 
-6. **Register** with the `EmergenceController` using the `@register()` decorator:
+6. **Register** with the `BehaviourController` using the `@register()` decorator:
    ```python
-   from src.emergence.controller import register
+   from src.behaviour.controller import register
 
    @register("my_symbolic_rules")
    class MySymbolicRepresentation(Representation):
@@ -166,9 +173,8 @@ uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 10
 
 ### Training Learned-Emergence Variants
 ```bash
-uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml    # PPO
-uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml   # prompt-opt
-uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml   # writable CoALA
+uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml      # PPO (RL onboard)
+uv run autops train configs/experiments/eventsat_sas_ag_llm-a.yaml   # writable CoALA (agentic online learning)
 ```
 
 ### Batch Experiments

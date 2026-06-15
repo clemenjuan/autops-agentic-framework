@@ -3,17 +3,14 @@ AUTOPS CLI — unified entry point for running experiments and analysis.
 
 Usage::
 
-    uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml
-    uv run autops run configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml --episodes 3 --analyze
+    uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml
+    uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml --episodes 3 --analyze
     uv run autops batch configs/experiments/generated/
     uv run autops generate --template configs/experiments/template.yaml
-    uv run autops analyze data/results/eventsat_sas_sda_symb_hd_ah/
+    uv run autops analyze data/results/eventsat_sas_ah_symb_symb/
 
-    # Training learned-emergence variants
-    uv run autops train configs/experiments/eventsat_sas_sda_subm_le_ah.yaml      # PPO
-    uv run autops train configs/experiments/eventsat_sas_sda_hybr_lep_ah.yaml     # prompt-optimized
-    uv run autops train configs/experiments/eventsat_sas_sda_agnt_lep_ah.yaml     # agentic prompt-opt
-    uv run autops train configs/experiments/eventsat_sas_sda_agnt_lec_ah.yaml     # writable CoALA
+    # Config name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
+    uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml               # PPO
 """
 
 from __future__ import annotations
@@ -116,7 +113,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 def cmd_train(args: argparse.Namespace) -> None:
     """Train a learned-emergence representation for the given config.
 
-    Dispatches based on ``representation`` × ``emergence_config.mechanism``:
+    Dispatches based on ``representation`` × ``behaviour_config.mechanism``:
 
     - subsymbolic + ppo         → PPOTrainer (writes policy.pt)
     - hybrid    + prompt_optimized → PromptOptimizer (writes prompt.txt)
@@ -128,7 +125,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     cfg = apply_overrides(cfg, seed=args.seed, output_dir=args.output_dir)
 
     representation = cfg.representation
-    mechanism = cfg.emergence_config.get("mechanism", "")
+    mechanism = cfg.behaviour_config.get("mechanism", "")
     experiment_id = cfg.experiment_id
 
     print(f"Training: {experiment_id}")
@@ -162,7 +159,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PPOTrainer for subsymbolic representation."""
     try:
-        from src.emergence.training_pipeline import PPOTrainer
+        from src.behaviour.training_pipeline import PPOTrainer
     except ImportError as e:
         print(
             f"ERROR: PPO training requires torch. Install with:\n"
@@ -171,7 +168,7 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    training_cfg = cfg.emergence_config.get("training_config", {})
+    training_cfg = cfg.behaviour_config.get("training_config", {})
     timesteps = args.timesteps or training_cfg.get("timesteps", 50_000)
     checkpoint_dir = f"data/trained_models/{cfg.experiment_id}"
 
@@ -194,7 +191,7 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PromptOptimizer for prompt_optimized LLM/agentic representations."""
-    from src.emergence.prompt_optimizer import PromptOptimizer
+    from src.behaviour.prompt_optimizer import PromptOptimizer
 
     # Derive the baseline source dir (hand-designed sibling)
     source_dir = args.source_dir or ""
@@ -203,7 +200,7 @@ def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     opt_config = {
         "experiment_id": cfg.experiment_id,
         "representation_config": cfg.representation_config,
-        "emergence_config": cfg.emergence_config,
+        "behaviour_config": cfg.behaviour_config,
         "output_dir": "data/trained_prompts",
         **{k: v for k, v in (cfg.model_dump() if hasattr(cfg, "model_dump") else vars(cfg)).items()
            if k in ("llm_host", "llm_model", "llm_mock")},
@@ -314,7 +311,7 @@ def main() -> None:
         "train",
         help="Train a learned-emergence representation (PPO / prompt-optimized / writable-CoALA)",
     )
-    p_train.add_argument("config", help="Path to a *_le_* or *_lep_* or *_lec_* experiment YAML")
+    p_train.add_argument("config", help="Path to an RL (ppo) or writable_coala experiment YAML")
     p_train.add_argument("--timesteps", type=int,
                          help="Override PPO training timesteps (subsymbolic only)")
     p_train.add_argument("--source-dir",

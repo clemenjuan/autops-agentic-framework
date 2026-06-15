@@ -61,6 +61,17 @@ power:
     max_soc: 1.0
     charge_efficiency: 0.9
 
+  # Onboard-compute (Jetson) power overhead (Watts). A Jetson-based onboard core
+  # (subsymbolic / hybrid onboard, paradigms AO/AH) keeps the Jetson powered (~7 W;
+  # inference itself is microseconds → no compute energy). ADDED to modes where the
+  # Jetson would otherwise be off (charging, communication, safe), but NOT to the
+  # Jetson-on payload modes below (their per-mode figure already includes the powered
+  # Jetson — observe drives the event camera, which hangs off the Jetson). Symbolic
+  # onboard runs on the OBC (sub-watt) → no overhead; ground paradigms (AG/CG) → none.
+  onboard_compute_w: 7.0
+  # Modes whose consumption already includes the powered Jetson (no overhead added).
+  jetson_active_modes: [payload_observe, payload_compress, payload_detect, payload_send]
+
   # Consumption by mode (total Watts from PDR Table 6.2)
   consumption:
     charging:

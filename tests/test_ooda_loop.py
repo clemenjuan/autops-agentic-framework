@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.decision_loop.ooda_loop import (
+from src.decision_procedure.ooda_loop import (
     SITUATION_ANOMALY,
     SITUATION_BATTERY_CRITICAL,
     SITUATION_DATA_PIPELINE,
@@ -22,7 +22,7 @@ from src.decision_loop.ooda_loop import (
     SITUATION_STORAGE_CRITICAL,
     OODALoop,
 )
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.memory.fixed_memory import FixedMemory
 from src.representation.base import Representation
 
@@ -498,11 +498,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_test_ah",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={
+            decision_procedure_config={
                 "orient_history_window": 10,
                 "max_orient_iterations": 1,
             },
@@ -533,11 +533,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_test_cg",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="conventional_ground",
-            decision_loop_config={
+            decision_procedure_config={
                 "orient_history_window": 10,
                 "max_orient_iterations": 1,
             },
@@ -569,11 +569,11 @@ class TestExperimentRunnerOODAIntegration:
         cfg = ExperimentConfig(
             experiment_id="ooda_metrics_test",
             agent_organization="sas",
-            decision_loop="ooda",
+            decision_procedure="ooda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={"orient_history_window": 5},
+            decision_procedure_config={"orient_history_window": 5},
             representation_config={"type": "rule_based_eventsat"},
             environment={
                 "constellation_size": 1,

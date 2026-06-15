@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.emergence.prompt_optimizer import PromptOptimizer, _load_step_records
+from src.behaviour.prompt_optimizer import PromptOptimizer, _load_step_records
 
 
 # ======================================================================
@@ -162,7 +162,7 @@ class TestPromptOptimizer:
         optimizer = PromptOptimizer(config={
             "experiment_id": "score_exp",
             "llm_mock": True,
-            "emergence_config": {"num_candidates": 2},
+            "behaviour_config": {"num_candidates": 2},
             "output_dir": str(tmp_path / "trained_prompts"),
         })
         optimizer.optimize(source_results_dir=source_dir)
@@ -185,7 +185,7 @@ class TestLLMEventSatPromptOptimized:
 
         rep = LLMEventSat(config={
             "llm_mock": True,
-            "emergence_config": {
+            "behaviour_config": {
                 "mechanism": "prompt_optimized",
                 "trained_prompt_path": str(prompt_path),
             },
@@ -209,7 +209,7 @@ class TestLLMEventSatPromptOptimized:
             rep = LLMEventSat(config={
                 "llm_mock": True,
                 "experiment_id": "missing_exp",
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             })
         assert rep._system_prompt == SYSTEM_PROMPT
         assert any("trained prompt not found" in str(warning.message) for warning in w)

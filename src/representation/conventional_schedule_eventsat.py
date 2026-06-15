@@ -48,7 +48,7 @@ from __future__ import annotations
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.schedule_based_eventsat import ScheduleBasedEventSat, _merge_schedule
 
 

@@ -6,7 +6,7 @@ saving checkpoints to data/trained_models/subsymbolic/.
 
 Usage:
     uv run python scripts/train_subsymbolic.py
-    uv run python scripts/train_subsymbolic.py --config configs/experiments/eventsat_cen_sda_subm_le_ah.yaml
+    uv run python scripts/train_subsymbolic.py --config configs/experiments/eventsat_sas_ao_rl.yaml
     uv run python scripts/train_subsymbolic.py --episodes 1000 --seed 0 --checkpoint-freq 100
 
 Design:
@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         type=str,
-        default="configs/experiments/eventsat_cen_sda_subm_le_ah.yaml",
+        default="configs/experiments/eventsat_sas_ao_rl.yaml",
         help="Path to experiment YAML config.",
     )
     parser.add_argument("--episodes", type=int, default=None,
@@ -141,13 +141,13 @@ def main() -> None:
 
     # --- Build policy + trainer ---
     from src.representation.neural_policy import ActorCritic
-    from src.emergence.rollout_buffer import RolloutBuffer
-    from src.emergence.training_pipeline import PPOTrainer
+    from src.behaviour.rollout_buffer import RolloutBuffer
+    from src.behaviour.training_pipeline import PPOTrainer
 
     policy = ActorCritic()
-    rollout_fragment = config.emergence_config.get("rollout_fragment", 128)
+    rollout_fragment = config.behaviour_config.get("rollout_fragment", 128)
     buffer = RolloutBuffer(buffer_size=rollout_fragment)
-    trainer = PPOTrainer(policy=policy, config=config.emergence_config)
+    trainer = PPOTrainer(policy=policy, config=config.behaviour_config)
 
     # Load checkpoint if specified
     checkpoint_path = config.representation_config.get("checkpoint_path", "")

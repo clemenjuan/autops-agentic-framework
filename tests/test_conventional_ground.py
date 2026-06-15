@@ -148,6 +148,8 @@ class TestOnPassDelay:
             {"eventsat_0": {"mode": "communication", "schedule": [("payload_compress", 2)]}},
             step=100, ground_pass_active=True
         )
+        # Link established (runner fires this on the resolved comm step)
+        paradigm.update_ground_knowledge(_make_observation(step=100), step=100)
 
         # Between passes 2 and 3: NOW the pass-1 schedule plays back
         result = paradigm.process_action({}, step=101, ground_pass_active=False)
@@ -172,6 +174,7 @@ class TestOnPassDelay:
             {"eventsat_0": {"mode": "communication", "schedule": [("payload_detect", 4)]}},
             step=5, ground_pass_active=True
         )
+        paradigm.update_ground_knowledge(_make_observation(step=5), step=5)
         # Gap 2-3: schedule A plays back
         r = paradigm.process_action({}, step=6, ground_pass_active=False)
         assert r == {"eventsat_0": {"mode": "payload_compress"}}
@@ -186,6 +189,7 @@ class TestOnPassDelay:
             {"eventsat_0": {"mode": "communication", "schedule": []}},
             step=10, ground_pass_active=True
         )
+        paradigm.update_ground_knowledge(_make_observation(step=10), step=10)
         # Gap 3-4: schedule B plays back
         r = paradigm.process_action({}, step=11, ground_pass_active=False)
         assert r == {"eventsat_0": {"mode": "payload_detect"}}
@@ -231,11 +235,12 @@ class TestTwoBufferManagement:
         # Between passes (required to reset _last_pass_active)
         paradigm.process_action({}, step=1, ground_pass_active=False)
 
-        # Pass 2: plan A → active, plan B stored
+        # Pass 2: plan A → active (once the link is up), plan B stored
         paradigm.process_action(
             {"eventsat_0": {"mode": "communication", "schedule": [("payload_observe", 5)]}},
             step=100, ground_pass_active=True
         )
+        paradigm.update_ground_knowledge(_make_observation(step=100), step=100)
         assert paradigm._active_schedule[0][0] == "charging"
         assert paradigm._planned_schedule is not None
         assert paradigm._planned_schedule[0][0] == "payload_observe"
@@ -256,6 +261,7 @@ class TestTwoBufferManagement:
             {"eventsat_0": {"mode": "communication", "schedule": []}},
             step=100, ground_pass_active=True
         )
+        paradigm.update_ground_knowledge(_make_observation(step=100), step=100)
         # Gap: one step of payload_compress, then default
         r1 = paradigm.process_action({}, step=101, ground_pass_active=False)
         assert r1 == {"eventsat_0": {"mode": "payload_compress"}}
@@ -329,9 +335,9 @@ class TestConventionalGroundIntegration:
         cfg = ExperimentConfig(
             experiment_id="cg_test_conventional_schedule",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="conventional_ground",
             operations_paradigm_config={"orbital_period_steps": 93},
             representation_config={"type": "conventional_schedule_eventsat"},

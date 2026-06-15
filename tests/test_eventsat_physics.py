@@ -5,7 +5,7 @@ Tests P1 (multi-step compression), P2 (mode transition overhead),
 P3 (3-pool data pipeline), and thermal model removal.
 """
 import pytest
-from src.decision_loop.context import DecisionContext
+from src.decision_procedure.context import DecisionContext
 from src.environment.scenarios.eventsat_env import EventSatEnvironment
 
 
@@ -819,3 +819,43 @@ class TestAnomalyForcedSafe:
 
         result = env.step({"eventsat_0": {"mode": "charging"}})
         assert result.info.get("anomaly_forced_safe") == 0.0
+
+
+class TestOnboardComputeOverhead:
+    """Jetson-on is +7W ADDED to non-Jetson modes; not added during Jetson-compute modes."""
+
+    def _soc_after(self, env, mode, compute_active):
+        env.battery_soc = 0.8
+        env.onboard_compute_active = compute_active
+        env._update_battery(mode, in_sun=False)  # eclipse: pure consumption
+        return env.battery_soc
+
+    def test_overhead_added_when_idle(self):
+        env = _make_env()
+        env.consumption = {"charging": {"eclipse_w": 4.72}}
+        env.onboard_compute_w = 7.0
+        step_frac = env.step_duration_s / 3600.0
+        soc_ground = self._soc_after(env, "charging", False)
+        soc_onboard = self._soc_after(env, "charging", True)
+        assert soc_onboard < soc_ground
+        # full +7W added on top of charging
+        expected = 7.0 * step_frac / env.battery_capacity_wh
+        assert abs((soc_ground - soc_onboard) - expected) < 1e-9
+
+    def test_no_overhead_during_jetson_compute_mode(self):
+        env = _make_env()
+        env.consumption = {"payload_compress": {"eclipse_w": 12.77}}
+        env.onboard_compute_w = 7.0
+        # compress already includes the working Jetson → no add (no double-count)
+        soc_ground = self._soc_after(env, "payload_compress", False)
+        soc_onboard = self._soc_after(env, "payload_compress", True)
+        assert abs(soc_ground - soc_onboard) < 1e-12
+
+    def test_no_overhead_when_ground(self):
+        env = _make_env()
+        env.consumption = {"charging": {"eclipse_w": 4.72}}
+        env.battery_soc = 0.8
+        env.onboard_compute_active = False
+        env._update_battery("charging", in_sun=False)
+        expected_soc = 0.8 - 4.72 * (env.step_duration_s / 3600.0) / env.battery_capacity_wh
+        assert abs(env.battery_soc - expected_soc) < 1e-9

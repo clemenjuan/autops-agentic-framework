@@ -8,7 +8,7 @@ metrics from it so we can verify the raw-telemetry pipeline.
 
 Usage::
 
-    uv run python scripts/smoke_llm.py configs/experiments/eventsat_sas_sda_hybr_hd_ah.yaml
+    uv run python scripts/smoke_llm.py configs/experiments/eventsat_sas_ag_llm-s.yaml
 """
 
 from __future__ import annotations

@@ -1,12 +1,12 @@
 # Operational Scenarios
 
-**Status:** EventSat implemented. Flamingo and Space Data Centers planned for later phases.
+**Status:** EventSat implemented (the benchmark scenario). A multi-satellite scenario is planned later.
 
 ---
 
 ## Overview
 
-Three concrete scenarios have been selected to cover the 2D scalability space of RQ3: *constellation size* × *structural complexity*. Each scenario is implemented sequentially, building on the environment abstraction defined in `src/environment/`.
+EventSat is the implemented benchmark scenario; a multi-satellite scenario is planned later. Each scenario builds on the environment abstraction in `src/environment/`.
 
 The scenario choice does **not** affect the cognitive architecture comparison methodology — the same morphological matrix dimensions are evaluated across all scenarios.
 
@@ -32,7 +32,7 @@ TUM's own EventSat satellite. Full access to subsystem models and mission data e
 ### Constraints
 
 - Orbit-dependent visibility windows to targets and ground stations (400 km SSO).
-- Power budget (solar charging vs. consumption duty cycle; 84 Wh battery, 24 W solar).
+- Power budget (solar charging vs. consumption duty cycle; 84 Wh battery, 24 W solar). Jetson-based onboard cores (subsymbolic/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to modes where the Jetson would otherwise be off (charging/communication/safe), but not to the Jetson-on payload modes (observe/compress/detect/send already include the powered Jetson); symbolic onboard (OBC rules) and ground paradigms (AG/CG) have no such overhead.
 - 3-pool data pipeline with RS-485 bottleneck (50 kbps Jetson→OBC).
 - Daily downlink budget (27 MB with GSaaS; configurable).
 - Multi-step processing: compression (2× obs time), detection (5 min), send (rate-limited).
@@ -53,10 +53,10 @@ Internal TUM/AUTOPS mission data — high confidence in accurate subsystem model
 
 **Environment:** `src/environment/scenarios/eventsat_env.py`
 **Scenario config:** `configs/scenarios/eventsat.yaml`
-**Experiment configs:** `configs/experiments/eventsat_sas_sda_symb_hd_ah.yaml` (autonomous hybrid), `configs/experiments/eventsat_sas_sda_symb_hd_cg.yaml` (conventional ground)
+**Experiment configs:** `configs/experiments/eventsat_sas_ah_symb_symb.yaml` (autonomous hybrid, symbolic both cores), `configs/experiments/eventsat_sas_conventional_symb.yaml` (conventional, symbolic)
 **Metrics collector:** `src/orchestration/eventsat_metrics.py`
 **Representation:** `src/representation/rule_based_eventsat.py`
-**Decision loop:** `src/decision_loop/sda_loop.py`
+**Decision loop:** `src/decision_procedure/sda_loop.py`
 
 ### Satellite Modes
 
@@ -129,13 +129,13 @@ The EventSat baseline runs with `autonomous_hybrid` (agent has full real-time st
 
 ---
 
-## Scenario 2: Vyoma Flamingo Constellation
+## Scenario 2: Multi-satellite (future)
 
-**Phase:** 3 | **Scale:** up to 12 satellites | **Complexity:** medium (multi-agent, hierarchical/distributed topologies)
+**Status:** planned, not implemented | **Scale:** small constellation (~12 satellites)
 
 ### Description
 
-Vyoma's Flamingo constellation — AUTOPS project partners. Planned to reach 12 satellites total, making it a natural medium-scale use case. The AUTOPS collaboration provides access to realistic mission parameters and operational requirements. This scenario is the primary arena for comparing agent organization variants (centralized vs. hierarchical vs. distributed) under RQ2.
+A future multi-satellite scenario (e.g. a small constellation such as Vyoma's Flamingo — AUTOPS project partners — or similar). This is where the **organisation** component opens up: comparing agent-organisation variants (centralised vs. hierarchical vs. distributed). Out of scope for the current EventSat benchmark; recorded here so the scenario specs have a home.
 
 ### Mission Domain
 
@@ -162,7 +162,7 @@ Space Situational Awareness (SSA): tracking resident space objects (RSOs), cover
 - Robustness: performance under satellite failures or link drops.
 - Operator load: coordination complexity vs. autonomy benefit.
 - Scale & complexity: how metrics evolve from 3 → 6 → 12 satellites.
-- Explainability: multi-agent decisions are harder to trace — key RQ2 question.
+- Explainability: multi-agent decisions are harder to trace.
 
 ### Data Sources
 
@@ -172,55 +172,6 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 
 **File:** `src/environment/scenarios/flamingo.py`
 **Config:** `configs/scenarios/flamingo.yaml`
-
----
-
-## Scenario 3: Large-Scale Constellation
-
-**Phase:** 3–4 | **Scale:** 100+ satellites | **Complexity:** high (fully distributed, heterogeneous)
-
-### Description
-
-A large-scale constellation scenario at the high end of the scalability spectrum. Represents the high-scale, high-complexity endpoint of the scalability study. The specific mission type will be determined during Phase 2. Less mission-specific data is available at this stage; the scenario will be modeled using published literature and synthetic parameters, with fidelity to be refined as the field matures.
-
-This scenario is the primary arena for RQ3 scaling law derivation and composability limit analysis.
-
-### Tasks
-
-To be defined based on selected mission type (candidates include resource scheduling, coordination, coverage optimisation).
-
-### Constraints
-
-- Power budget per satellite.
-- ISL bandwidth.
-- Orbital position determines latency to ground.
-- Fleet heterogeneity (different hardware generations).
-
-### Metrics Emphasis
-
-- Mission utility, resource efficiency, coordination overhead, explainability.
-- Scale & complexity: this scenario is the stress test for scaling law derivation.
-
-### Data Sources
-
-Literature-based modeling (lower fidelity than Scenarios 1–2); to be refined as the field matures.
-
-### Implementation
-
-**File:** TBD (Phase 2)
-**Config:** `configs/scenarios/space_data_centers.yaml`
-
----
-
-## Progression Strategy
-
-| Scenario             | Phase | Satellites | Complexity Index | Primary RQ  |
-|----------------------|-------|-----------|-----------------|-------------|
-| EventSat             | 2     | 1         | 0 (centralized) | RQ1         |
-| Flamingo             | 3     | 3–12      | 1–2 (hier./dist.) | RQ1, RQ2  |
-| Space Data Centers   | 3–4   | 50–500    | 2 (distributed) | RQ2, RQ3   |
-
-The three scenarios together sweep the 2D scalability space, enabling joint scaling law derivation over constellation size × structural complexity for RQ3.
 
 ---
 

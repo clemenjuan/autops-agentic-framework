@@ -37,7 +37,19 @@ class ExperimentRunner:
     Attributes:
         config: Validated experiment configuration.
         output_dir: Path where results and logs are saved.
+
+    Class constants:
+        TELEMETRY_SAMPLE_EPISODES: how many leading episodes keep a compact,
+            downsampled per-step telemetry block in results.json (for graphs /
+            the Episode inspector / presentations). The full per-step trace is
+            never kept in results.json (it ballooned the file to multi-GB); this
+            block is small (~1.5k points × a handful of scalar fields) and, unlike
+            decisions_ep*.jsonl, is written regardless of log level.
+        TELEMETRY_MAX_POINTS: downsample target per episode.
     """
+
+    TELEMETRY_SAMPLE_EPISODES: int = 3
+    TELEMETRY_MAX_POINTS: int = 1500
 
     def __init__(
         self,
@@ -69,10 +81,11 @@ class ExperimentRunner:
         self._environment: Any = None
         self._organization: Any = None
         self._decision_loops: Dict[str, Any] = {}  # agent_id → loop
+        self._ground_planner_loops: Dict[str, Any] = {}  # AH only: agent_id → ground-planner loop
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
-        # RL training components (populated if emergence_mode == "learned")
+        # RL training components (populated if behaviour == "emergent")
         self._representation: Any = None
         self._rollout_buffer: Any = None
         # Decision trace writer (active when log_level == DEBUG)
@@ -105,10 +118,29 @@ class ExperimentRunner:
         for episode in range(self.config.num_episodes):
             logger.info("Episode %d / %d", episode + 1, self.config.num_episodes)
             episode_result = self._run_episode(episode)
-            all_episode_metrics.append(episode_result)
 
             if self.config.save_checkpoints:
                 self._save_checkpoint(episode, episode_result)
+
+            # Bound resident memory for long / parallel runs. The raw per-step
+            # data (full ConstellationState observations + the per-step metric
+            # list) is stripped at save anyway and is only needed in-memory for
+            # the telemetry-sample episodes (and the tests that inspect the first
+            # few). Drop it eagerly for the rest instead of holding every
+            # episode's GB-scale steps until the end. Clearing
+            # episode_metrics.step_metrics in place also frees the metrics
+            # collector's shared reference (same object).
+            if episode >= self.TELEMETRY_SAMPLE_EPISODES:
+                episode_result.pop("steps", None)
+                em = episode_result.get("episode_metrics")
+                if (
+                    em is not None
+                    and dataclasses.is_dataclass(em)
+                    and not isinstance(em, type)
+                ):
+                    em.step_metrics = []
+
+            all_episode_metrics.append(episode_result)
 
         results = self._compile_results(all_episode_metrics)
         self._save_results(results)
@@ -173,9 +205,9 @@ class ExperimentRunner:
         logger.info(
             "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s, ops=%s",
             self.config.agent_organization,
-            self.config.decision_loop,
+            self.config.decision_procedure,
             self.config.representation,
-            self.config.emergence_mode,
+            self.config.behaviour,
             self.config.operations_paradigm,
         )
 
@@ -198,6 +230,14 @@ class ExperimentRunner:
 
         # Operations paradigm (5th dimension)
         self._operations_paradigm = self._create_operations_paradigm()
+
+        # A Jetson-based onboard core (subsymbolic/hybrid onboard, AO/AH) keeps the
+        # Jetson powered every step → extra power draw. Symbolic onboard rules run on
+        # the OBC (no overhead); ground paradigms decide on the ground (no overhead).
+        if self._environment is not None and hasattr(
+            self._environment, "onboard_compute_active"
+        ):
+            self._environment.onboard_compute_active = self.config.onboard_uses_jetson
 
         # Metrics collector
         self._metrics_collector = self._create_metrics_collector()
@@ -228,7 +268,7 @@ class ExperimentRunner:
     def _create_memory(self) -> Any:
         """Factory for the agent memory system.
 
-        Returns a ``WritableMemory`` for ``writable_coala`` (``_lec_``)
+        Returns a ``WritableMemory`` for ``writable_coala``
         configs and a ``FixedMemory`` for everything else. This runner is
         the single source of truth for the memory object — it is injected
         into every ``DecisionContext`` by the decision loops, so the
@@ -240,7 +280,7 @@ class ExperimentRunner:
         Returns:
             An initialised ``WritableMemory`` or ``FixedMemory`` instance.
         """
-        mechanism = self.config.emergence_config.get("mechanism")
+        mechanism = self.config.behaviour_config.get("mechanism")
         if mechanism == "writable_coala":
             from src.memory.writable_memory import WritableMemory
 
@@ -297,7 +337,7 @@ class ExperimentRunner:
 
     def _create_decision_loops(self):
         """Factory for decision loop instances (one per agent)."""
-        from src.emergence.controller import EmergenceController
+        from src.behaviour.controller import BehaviourController
         import src.representation.rule_based_eventsat  # register representations
         import src.representation.schedule_based_eventsat  # register schedule planner
         import src.representation.conventional_schedule_eventsat  # register human schedule planner
@@ -305,8 +345,14 @@ class ExperimentRunner:
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
-        emergence = EmergenceController(config=self.config.emergence_config)
-        repr_type = self.config.representation_config.get('type', 'rule_based_eventsat')
+        import src.representation.placeholder_cells  # register hrl / llm-a placeholder cells
+        emergence = BehaviourController(config=self.config.behaviour_config)
+        # Primary per-step core: the onboard core for paradigms with an onboard
+        # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
+        repr_type = (
+            self.config.resolved_onboard_type
+            or self.config.resolved_representation_type
+        )
         representation = emergence.get_representation(
             repr_type=repr_type,
             repr_config=self.config.representation_config,
@@ -318,42 +364,61 @@ class ExperimentRunner:
         self._representation = representation
         # Set up PPO training components if learned mode
         if (
-            self.config.emergence_mode == "learned"
+            self.config.behaviour == "emergent"
             and hasattr(representation, "set_trainer")
             and not self.config.representation_config.get("rl_mock", False)
         ):
             try:
-                from src.emergence.rollout_buffer import RolloutBuffer
-                from src.emergence.training_pipeline import PPOTrainer
-                rollout_size = self.config.emergence_config.get("rollout_fragment", 128)
+                from src.behaviour.rollout_buffer import RolloutBuffer
+                from src.behaviour.training_pipeline import PPOTrainer
+                rollout_size = self.config.behaviour_config.get("rollout_fragment", 128)
                 self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
                 trainer = PPOTrainer(
                     policy=representation._policy,
-                    config=self.config.emergence_config,
+                    config=self.config.behaviour_config,
                 )
                 representation.set_trainer(trainer)
                 logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
             except ImportError as e:
                 logger.warning("Could not initialise PPO trainer: %s", e)
-        loop_type = self.config.decision_loop
+        loop_type = self.config.decision_procedure
         if loop_type == 'sda':
-            from src.decision_loop.sda_loop import SDALoop
+            from src.decision_procedure.sda_loop import SDALoop
             loop_cls = SDALoop
         elif loop_type == 'ooda':
-            from src.decision_loop.ooda_loop import OODALoop
+            from src.decision_procedure.ooda_loop import OODALoop
             loop_cls = OODALoop
         elif loop_type == 'react':
-            from src.decision_loop.react_loop import ReActLoop
+            from src.decision_procedure.react_loop import ReActLoop
             loop_cls = ReActLoop
         else:
-            raise ValueError(f"Unknown decision_loop: '{loop_type}'")
+            raise ValueError(f"Unknown decision_procedure: '{loop_type}'")
         agents = self._organization.get_agents() if self._organization else ['central_agent']
         loops = {}
         for agent_id in agents:
             loops[agent_id] = loop_cls(
-                config=self.config.decision_loop_config,
+                config=self.config.decision_procedure_config,
                 representation=representation,
             )
+
+        # Dual-slot AH: build the ground-planner core (runs at passes on the stale
+        # view to refresh the uplinked plan; onboard loop above runs every step).
+        self._ground_planner_loops = {}
+        if (
+            self.config.operations_paradigm == "autonomous_hybrid"
+            and self.config.resolved_ground_planner_type is not None
+        ):
+            gp_rep = emergence.get_representation(
+                repr_type=self.config.resolved_ground_planner_type,
+                repr_config=self.config.representation_config,
+            )
+            if hasattr(gp_rep, "seed"):
+                gp_rep.seed(self.config.seed)
+            for agent_id in agents:
+                self._ground_planner_loops[agent_id] = loop_cls(
+                    config=self.config.decision_procedure_config,
+                    representation=gp_rep,
+                )
         return loops
 
     def _create_operations_paradigm(self) -> Any:
@@ -361,7 +426,10 @@ class ExperimentRunner:
         paradigm_type = self.config.operations_paradigm
         paradigm_config = self.config.operations_paradigm_config
 
-        if paradigm_type == "autonomous_hybrid":
+        if paradigm_type == "autonomous_onboard":
+            from src.operations.autonomous_onboard import AutonomousOnboard
+            return AutonomousOnboard(config=paradigm_config)
+        elif paradigm_type == "autonomous_hybrid":
             from src.operations.autonomous_hybrid import AutonomousHybrid
             return AutonomousHybrid(config=paradigm_config)
         elif paradigm_type == "autonomous_ground":
@@ -476,11 +544,19 @@ class ExperimentRunner:
         if self._metrics_collector is not None:
             episode_metrics = self._metrics_collector.finalise_episode(episode_id)
 
+        # Paradigm-level metrics (e.g. AH onboard_overrides) — captured before the
+        # next episode's reset() clears them.
+        paradigm_metrics = (
+            self._operations_paradigm.get_metrics()
+            if self._operations_paradigm is not None else {}
+        )
+
         return {
             "episode_id": episode_id,
             "num_steps": len(step_data),
             "wall_clock_seconds": episode_duration,
             "episode_metrics": episode_metrics,
+            "paradigm_metrics": paradigm_metrics,
             "orbital_elements": episode_orbit,
             "ground_passes": episode_ground_passes,
             "steps": step_data,
@@ -577,11 +653,27 @@ class ExperimentRunner:
                 "inference_skipped": True,
             })
 
-        # 5. Collect actions
+        # 5. Collect actions (the onboard core's per-step action)
         if self._organization is not None:
             env_actions = self._organization.collect_actions(agent_actions)
         else:
             env_actions = {}
+
+        # 5b. Dual-slot AH: at ground passes, refresh the uplinked plan by running
+        # the ground planner on the stale ground view; the onboard action above is
+        # then arbitrated against this plan in process_action.
+        if self._ground_planner_loops and ground_pass_active and observation is not None:
+            stale_obs = self._operations_paradigm.ground_planner_view(observation, step)
+            gp_obs = (
+                self._organization.distribute_observation(stale_obs)
+                if (self._organization is not None and stale_obs is not None)
+                else {}
+            )
+            for agent_id, gp_loop in self._ground_planner_loops.items():
+                gp_action, self._memory = gp_loop.process(
+                    gp_obs.get(agent_id), self._memory
+                )
+                self._operations_paradigm.set_uplinked_plan(gp_action)
 
         # 6. Process actions through operations paradigm (may buffer/gate)
         if self._operations_paradigm is not None:
@@ -726,9 +818,9 @@ class ExperimentRunner:
                     self.config.agent_organization, 0
                 ),
                 "agent_organization": self.config.agent_organization,
-                "decision_loop": self.config.decision_loop,
+                "decision_procedure": self.config.decision_procedure,
                 "representation": self.config.representation,
-                "emergence_mode": self.config.emergence_mode,
+                "behaviour": self.config.behaviour,
                 "operations_paradigm": self.config.operations_paradigm,
                 # Flag placeholder schedule-producers (ground-paradigm stand-ins)
                 # so analysis can exclude them from headline comparisons until the
@@ -758,8 +850,14 @@ class ExperimentRunner:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         results_file = self.output_dir / "results.json"
 
-        # Remove non-serialisable observation objects from step data
-        serialisable = self._make_serialisable(results)
+        # results.json is the compact, experiment-level artifact. Strip the raw
+        # per-step payloads (multi-GB constellation_state snapshots + per-step
+        # metric lists) before serialising — they live only in
+        # decisions_ep*.jsonl (DEBUG). Keeps experiment_statistics and per-episode
+        # AGGREGATED metrics. See _strip_per_step_data.
+        serialisable = self._make_serialisable(
+            self._strip_per_step_data(results)
+        )
 
         with open(results_file, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
@@ -786,9 +884,116 @@ class ExperimentRunner:
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
         checkpoint_file = checkpoint_dir / f"episode_{episode_id:04d}.json"
 
-        serialisable = self._make_serialisable(episode_result)
+        serialisable = self._make_serialisable(
+            self._strip_episode_for_disk(episode_result, with_telemetry=True)
+        )
         with open(checkpoint_file, "w", encoding="utf-8") as f:
             json.dump(serialisable, f, indent=2, default=str)
+
+    # Critical per-step fields kept in the compact telemetry block. Names match
+    # what scripts/extract_telemetry.py and the board's Episode inspector read.
+    _TELEMETRY_FIELDS = (
+        ("soc", "battery_soc", 4),
+        ("stored", "data_stored_mb", 2),
+        ("downlinked", "data_downlinked_mb", 2),
+        ("jetson_raw", "jetson_raw_mb", 2),
+        ("obc", "obc_data_mb", 2),
+    )
+
+    @classmethod
+    def _compact_telemetry(cls, steps: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Downsampled, scalar-only per-step telemetry for graphs / inspector.
+
+        Pulls the critical fields (battery, mode, data pools, ground-pass,
+        anomaly) from each step's ``info`` dict, downsampled to at most
+        ``TELEMETRY_MAX_POINTS`` evenly-spaced points. Tens of KB per episode,
+        vs the multi-GB raw observation dump it replaces.
+        """
+        if not steps:
+            return {}
+        k = max(1, len(steps) // cls.TELEMETRY_MAX_POINTS)
+        rows = steps[::k]
+        infos = [r.get("info", {}) or {} for r in rows]
+        tel: Dict[str, Any] = {
+            "steps": [r.get("step") for r in rows],
+            "mode": [i.get("resolved_mode", "?") for i in infos],
+            "gpass": [int(bool(i.get("ground_pass_active"))) for i in infos],
+            "sunlight": [int(bool(i.get("in_sunlight"))) for i in infos],
+            "anomaly": [int(bool(i.get("anomaly_forced_safe"))) for i in infos],
+        }
+        for out_key, info_key, ndigits in cls._TELEMETRY_FIELDS:
+            tel[out_key] = [round(i.get(info_key) or 0.0, ndigits) for i in infos]
+        return tel
+
+    @classmethod
+    def _strip_episode_for_disk(
+        cls, episode: Dict[str, Any], with_telemetry: bool = False
+    ) -> Dict[str, Any]:
+        """Drop raw per-step payloads from one episode result dict.
+
+        Removes the multi-GB raw observation snapshots (``steps`` — each entry
+        carries a full ``ConstellationState`` with every satellite's metadata)
+        and the per-step metric list (``episode_metrics.step_metrics``), keeping
+        only the per-episode AGGREGATED metrics. The full per-step trace lives
+        only in ``decisions_ep*.jsonl`` (written when ``log_level == DEBUG``).
+
+        When ``with_telemetry`` is set, a compact downsampled ``telemetry`` block
+        of the critical scalar fields is attached before the raw steps are
+        dropped — small enough for results.json, enough for graphs / the Episode
+        inspector, and present regardless of log level.
+        """
+        out = {k: v for k, v in episode.items() if k != "steps"}
+        if with_telemetry:
+            tel = cls._compact_telemetry(episode.get("steps", []) or [])
+            if tel:
+                out["telemetry"] = tel
+        em = out.get("episode_metrics")
+        if (
+            em is not None
+            and dataclasses.is_dataclass(em)
+            and not isinstance(em, type)
+        ):
+            out["episode_metrics"] = dataclasses.replace(em, step_metrics=[])
+        return out
+
+    @staticmethod
+    def _strip_per_step_data(results: Dict[str, Any]) -> Dict[str, Any]:
+        """Return a copy of the full results with raw per-step data removed.
+
+        results.json is the compact, experiment-level artifact: experiment_id,
+        config, timestamp, num_episodes, experiment_statistics and per-episode
+        AGGREGATED metrics. Raw per-step observation/state snapshots are excluded
+        by design — they balloon the file to multi-GB and merely duplicate the
+        per-step ``decisions_ep*.jsonl`` trace (see scripts/recompute_metrics.py,
+        which reads that trace, not this file). Three leak sites are pruned:
+
+        1. ``episodes[].steps`` — raw ``ConstellationState`` observation dumps.
+        2. ``episodes[].episode_metrics.step_metrics`` — per-step scalar list.
+        3. ``experiment_statistics.raw_episodes[].step_metrics`` — same list again.
+        """
+        out = dict(results)
+
+        stats = out.get("experiment_statistics")
+        if (
+            stats is not None
+            and dataclasses.is_dataclass(stats)
+            and not isinstance(stats, type)
+        ):
+            out["experiment_statistics"] = dataclasses.replace(
+                stats,
+                raw_episodes=[
+                    dataclasses.replace(em, step_metrics=[])
+                    for em in stats.raw_episodes
+                ],
+            )
+
+        out["episodes"] = [
+            ExperimentRunner._strip_episode_for_disk(
+                ep, with_telemetry=(i < ExperimentRunner.TELEMETRY_SAMPLE_EPISODES)
+            )
+            for i, ep in enumerate(out.get("episodes", []))
+        ]
+        return out
 
     @staticmethod
     def _make_serialisable(obj: Any) -> Any:

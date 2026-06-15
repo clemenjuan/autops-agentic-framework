@@ -10,6 +10,7 @@ from src.environment.satellite_env import (
 from src.operations.autonomous_ground import AutonomousGround
 from src.operations.base import GroundKnowledge, OperationsParadigm
 from src.operations.autonomous_hybrid import AutonomousHybrid
+from src.operations.conventional_ground import ConventionalGround
 
 
 # -----------------------------------------------------------------
@@ -320,9 +321,9 @@ class TestExperimentRunnerIntegration:
         cfg = ExperimentConfig(
             experiment_id="ops_test_onboard",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
             representation_config={"type": "rule_based_eventsat"},
             environment={"constellation_size": 1, "timestep_seconds": 60,
@@ -352,9 +353,9 @@ class TestExperimentRunnerIntegration:
             ExperimentConfig(
                 experiment_id="ops_test_ground_rule",
                 agent_organization="sas",
-                decision_loop="sda",
+                decision_procedure="sda",
                 representation="symbolic",
-                emergence_mode="hand_designed",
+                behaviour="hand_designed",
                 operations_paradigm="conventional_ground",
                 representation_config={"type": "rule_based_eventsat"},
                 environment={"constellation_size": 1, "timestep_seconds": 60,
@@ -375,9 +376,9 @@ class TestExperimentRunnerIntegration:
         cfg = ExperimentConfig(
             experiment_id="ops_test_ground_schedule",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="conventional_ground",
             operations_paradigm_config={"orbital_period_steps": 93},
             representation_config={"type": "schedule_based_eventsat"},
@@ -403,9 +404,9 @@ class TestExperimentRunnerIntegration:
         cfg = ExperimentConfig(
             experiment_id="ops_test_ag_schedule",
             agent_organization="sas",
-            decision_loop="sda",
+            decision_procedure="sda",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_ground",
             operations_paradigm_config={"orbital_period_steps": 93},
             representation_config={"type": "schedule_based_eventsat"},
@@ -462,3 +463,134 @@ class TestInferenceGating:
         """Base class default returns True (backward compatible)."""
         ah = AutonomousHybrid()
         assert ah.should_allow_inference(0, ground_pass_active=False) is True
+
+
+# -----------------------------------------------------------------
+# Ground-segment gap estimate (true pass-table horizon)
+# -----------------------------------------------------------------
+
+
+def _make_observation_with_lookahead(
+    step=10,
+    ground_pass_active=True,
+    time_to_next_pass=700,
+    remaining_pass_duration=4,
+    following_gap_steps=650,
+):
+    obs = _make_observation(step=step, ground_pass_active=ground_pass_active)
+    sat = obs.constellation_state.satellites["eventsat_0"]
+    sat.metadata["time_to_next_pass"] = time_to_next_pass
+    sat.metadata["remaining_pass_duration"] = remaining_pass_duration
+    sat.metadata["following_gap_steps"] = following_gap_steps
+    return obs
+
+
+class TestGroundSegmentGapEstimate:
+    """estimated_gap_steps comes from the env pass table, not one orbit.
+
+    Pass prediction is deterministic ground-segment capability (Sellmaier
+    et al. 2022 §16.4). Pre-fix, the hardcoded one-orbit value capped every
+    ground schedule at 93 steps inside 92-764-step real gaps.
+    """
+
+    def test_ag_gap_is_pass_end_to_next_pass_start(self):
+        ag = AutonomousGround(config={"orbital_period_steps": 93})
+        obs = _make_observation_with_lookahead(
+            time_to_next_pass=700, remaining_pass_duration=4
+        )
+        filtered = ag.filter_observation(obs, step=10)
+        sat = filtered.constellation_state.satellites["eventsat_0"]
+        assert sat.metadata["estimated_gap_steps"] == 696
+
+    def test_ag_falls_back_to_orbital_period_without_lookahead(self):
+        ag = AutonomousGround(config={"orbital_period_steps": 93})
+        obs = _make_observation(step=10, ground_pass_active=True)
+        filtered = ag.filter_observation(obs, step=10)
+        sat = filtered.constellation_state.satellites["eventsat_0"]
+        assert sat.metadata["estimated_gap_steps"] == 93
+
+    def test_cg_gap_is_the_following_gap(self):
+        """CG's schedule executes one pass later, so it plans the gap after next."""
+        cg = ConventionalGround(config={"orbital_period_steps": 93})
+        obs = _make_observation_with_lookahead(following_gap_steps=650)
+        filtered = cg.filter_observation(obs, step=10)
+        sat = filtered.constellation_state.satellites["eventsat_0"]
+        assert sat.metadata["estimated_gap_steps"] == 650
+
+    def test_cg_falls_back_to_next_gap_then_orbital_period(self):
+        cg = ConventionalGround(config={"orbital_period_steps": 93})
+        obs = _make_observation_with_lookahead(
+            time_to_next_pass=700, remaining_pass_duration=4, following_gap_steps=None
+        )
+        sat_meta = obs.constellation_state.satellites["eventsat_0"].metadata
+        sat_meta["following_gap_steps"] = None
+        filtered = cg.filter_observation(obs, step=10)
+        sat = filtered.constellation_state.satellites["eventsat_0"]
+        assert sat.metadata["estimated_gap_steps"] == 696
+
+        obs_bare = _make_observation(step=10, ground_pass_active=True)
+        filtered = cg.filter_observation(obs_bare, step=10)
+        sat = filtered.constellation_state.satellites["eventsat_0"]
+        assert sat.metadata["estimated_gap_steps"] == 93
+
+
+# -----------------------------------------------------------------
+# ConventionalGround link-gated uplink
+# -----------------------------------------------------------------
+
+
+class TestConventionalGroundLinkGating:
+    """Schedule uplink requires an actually-established comm link.
+
+    A pass too short for ADCS settling to complete never reaches
+    communication mode: nothing is transferred in either direction
+    (observed at step 3441 of the 2026-06-12 CG probe trace, where a
+    schedule was 'uploaded' over a link that never existed).
+    """
+
+    def _action(self, schedule=None):
+        sat = {"mode": "communication"}
+        if schedule is not None:
+            sat["schedule"] = schedule
+        return {"eventsat_0": sat}
+
+    def test_promotion_requires_link(self):
+        """Pass with established comm: schedule promotes when telemetry flows."""
+        cg = ConventionalGround()
+        cg._planned_schedule = [["payload_observe", 3], ["charging", 90]]
+
+        # Pass starts: schedule staged, not yet active
+        cg.process_action(self._action(), step=100, ground_pass_active=True)
+        assert cg._upload_candidate is not None
+        assert cg._active_schedule == []
+
+        # Link established mid-pass (runner fires this on resolved comm mode)
+        cg.update_ground_knowledge(_make_observation(step=101), step=101)
+        assert cg._upload_candidate is None
+
+        # Between passes: the uplinked schedule executes
+        result = cg.process_action(self._action(), step=103, ground_pass_active=False)
+        assert result == {"eventsat_0": {"mode": "payload_observe"}}
+
+    def test_no_link_returns_schedule_to_planned(self):
+        """Settling-swallowed pass: nothing transfers; ops team retries next pass."""
+        cg = ConventionalGround()
+        planned = [["payload_observe", 3], ["charging", 90]]
+        cg._planned_schedule = [list(e) for e in planned]
+
+        # 2-step pass, comm never established (no update_ground_knowledge)
+        cg.process_action(self._action(), step=100, ground_pass_active=True)
+        cg.process_action(self._action(), step=101, ground_pass_active=True)
+
+        # Pass ends: satellite has no schedule, executes default mode
+        result = cg.process_action(self._action(), step=102, ground_pass_active=False)
+        assert result == {"eventsat_0": {"mode": "charging"}}
+        assert cg._active_schedule == []
+        # The schedule is back in planned, staged for the next contact
+        assert cg._planned_schedule == planned
+
+        # Next pass with a real link: it finally uplinks and executes
+        cg.process_action(self._action(), step=200, ground_pass_active=True)
+        cg.update_ground_knowledge(_make_observation(step=201), step=201)
+        result = cg.process_action(self._action(), step=205, ground_pass_active=False)
+        assert result == {"eventsat_0": {"mode": "payload_observe"}}

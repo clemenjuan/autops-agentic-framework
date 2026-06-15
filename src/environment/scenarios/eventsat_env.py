@@ -82,6 +82,23 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.max_soc = bat.get("max_soc", 1.0)
         self.charge_efficiency = bat.get("charge_efficiency", 0.9)
         self.consumption = pwr.get("consumption", {})
+        # Onboard-compute (Jetson) power overhead: a *Jetson-based* onboard core
+        # (subsymbolic / hybrid onboard, paradigms AO/AH) needs the Jetson powered on
+        # to run per-step inference. Jetson-on draws ~7 W (inference itself is
+        # microseconds → no extra compute energy). This is ADDED to modes where the
+        # Jetson would otherwise be off (charging, communication, safe). It is
+        # NOT added during the Jetson-on payload modes (observe — the event camera hangs
+        # off the Jetson — compress / detect / send), whose
+        # per-mode consumption already includes the working Jetson — there the inference
+        # simply runs before the task, no double-count. Symbolic onboard runs on the OBC
+        # (sub-watt) and ground paradigms decide on the ground → no overhead. Set
+        # per-episode by the runner via `onboard_compute_active`.
+        self.onboard_compute_w = pwr.get("onboard_compute_w", 7.0)
+        self.onboard_compute_active = False
+        # Modes whose consumption already includes the working Jetson (no overhead added).
+        self.jetson_active_modes = set(pwr.get("jetson_active_modes", [
+            "payload_observe", "payload_compress", "payload_detect", "payload_send",
+        ]))
 
         # Storage (3-pool pipeline)
         stor = self.scenario.get("storage", {})
@@ -454,6 +471,10 @@ class EventSatEnvironment(SatelliteEnvironment):
     def _update_battery(self, mode, in_sun):
         phase = "sun_w" if in_sun else "eclipse_w"
         consumption_w = self.consumption.get(mode, {}).get(phase, 5.0)
+        # A Jetson-based onboard core keeps the Jetson powered (+~7W), added to modes
+        # where it would otherwise be off; the Jetson-compute modes already include it.
+        if self.onboard_compute_active and mode not in self.jetson_active_modes:
+            consumption_w += self.onboard_compute_w
         generation_w = self.solar_generation_w if in_sun else 0.0
         net_power_w = generation_w - consumption_w
         energy_delta_wh = net_power_w * (self.step_duration_s / 3600.0)
@@ -676,7 +697,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         Gymnasium wrapper normalizes them to [0, 1].
 
         Returns dict with keys: orbital_phase, time_to_next_eclipse,
-        time_to_next_pass, remaining_pass_duration.
+        time_to_next_pass, remaining_pass_duration, following_gap_steps.
         """
         step = self.current_step
         orbital_period_steps = self.orbital_period_steps
@@ -684,24 +705,35 @@ class EventSatEnvironment(SatelliteEnvironment):
         # Orbital phase ∈ [0, 1): position within current orbit
         orbital_phase = (step % orbital_period_steps) / orbital_period_steps
 
+        following_gap_steps = orbital_period_steps
         if self._orbital_ctx is not None:
             # Eclipse lookahead
             # If currently in eclipse, next eclipse = next eclipse entry after current one
             time_to_next_eclipse = self._compute_time_to_next_event(step, self._orbital_ctx.eclipses)
 
             # Ground pass lookahead
+            future_passes = sorted(
+                (p for p in self._orbital_ctx.ground_passes if p.start_step > step),
+                key=lambda p: p.start_step,
+            )
             current_pass = self._orbital_ctx.get_current_pass(step)
             if current_pass is not None:
                 remaining_pass_duration = max(0, current_pass.end_step - step)
-                # Next pass starts after current pass ends
-                future_passes = [p for p in self._orbital_ctx.ground_passes if p.start_step > step]
                 time_to_next_pass = (
-                    min(p.start_step - step for p in future_passes)
+                    future_passes[0].start_step - step
                     if future_passes else orbital_period_steps
                 )
             else:
                 remaining_pass_duration = 0
                 time_to_next_pass = self._compute_time_to_next_event(step, self._orbital_ctx.ground_passes)
+            # Gap AFTER the next contact (next-pass end → subsequent-pass start):
+            # the window a schedule uploaded at the next pass actually covers.
+            # Pass prediction is deterministic ground-segment capability, so
+            # ConventionalGround's one-pass-delayed planner may know it.
+            if len(future_passes) >= 2:
+                following_gap_steps = max(
+                    1, future_passes[1].start_step - future_passes[0].end_step
+                )
         else:
             # _orbital_ctx is None only before the first reset(); return safe defaults
             time_to_next_eclipse = orbital_period_steps
@@ -713,6 +745,7 @@ class EventSatEnvironment(SatelliteEnvironment):
             "time_to_next_eclipse": time_to_next_eclipse,
             "time_to_next_pass": time_to_next_pass,
             "remaining_pass_duration": remaining_pass_duration,
+            "following_gap_steps": following_gap_steps,
         }
 
     def _generate_tasks(self, in_sun, pass_active):

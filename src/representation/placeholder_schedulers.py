@@ -26,11 +26,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Dict
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.schedule_based_eventsat import ScheduleBasedEventSat
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 
 class _PlaceholderScheduler(ScheduleBasedEventSat):

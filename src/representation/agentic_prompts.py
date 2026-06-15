@@ -220,6 +220,42 @@ def format_tool_result_prompt(
     return "\n".join(lines)
 
 
+def format_forced_decision_prompt(
+    accumulated_context: List[Dict[str, Any]],
+) -> str:
+    """Terminal Decide-phase prompt — tool budget exhausted, decision required.
+
+    A bounded agentic loop must close with an answer-extraction step (ReAct,
+    Yao et al. 2023): the reflect prompt always offers a tool option, so a
+    tool-hungry model can ride the budget to exhaustion without ever deciding.
+    This prompt offers no tool option.
+    """
+    prior_lines = []
+    for entry in accumulated_context:
+        step_type = entry.get("step", "unknown")
+        if step_type == "plan":
+            prior_lines.append(f"  PLAN: {entry.get('content', '')[:200]}")
+        elif step_type == "tool":
+            prior_lines.append(
+                f"  TOOL ({entry.get('name', '?')}): {_summarize_result(entry.get('result', {}))}"
+            )
+        elif step_type == "reflect":
+            prior_lines.append(f"  REFLECT: {entry.get('content', '')[:200]}")
+
+    lines = []
+    if prior_lines:
+        lines.append("REASONING SO FAR:")
+        lines.extend(prior_lines)
+        lines.append("")
+    lines.append(
+        "Your tool budget is exhausted. Decide the operating mode NOW using only "
+        "the information above.\n"
+        "Respond with ONLY the decision JSON — tool calls are not available:\n"
+        '{"decision": {"mode": "<mode>", "rationale": "<why>"}}'
+    )
+    return "\n".join(lines)
+
+
 def _summarize_result(result: Dict[str, Any]) -> str:
     """One-line summary of a tool result for context."""
     if "error" in result:

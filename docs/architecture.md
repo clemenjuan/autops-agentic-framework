@@ -7,28 +7,28 @@
 
 ## Overview
 
-This framework enables systematic comparison of cognitive architectures for autonomous satellite constellation management. The design follows a **morphological matrix** approach, where each experimental dimension (agent organization, decision loop, representation, emergence mode, operations paradigm) is an orthogonal axis that can be varied independently.
+This framework is the **engine** for the EventSat **operations-system (O) benchmark**. An architecture is organisation × representation (cognitive substrate × action space) × operational paradigm. Full definition: [`morphological_matrix.md`](morphological_matrix.md). This document covers only the *system* view — data flow, component interactions, and directory layout.
 
 ## Architecture Diagram
 
 ![AUTOPS overall system architecture diagram](images/autops-overall-system-architecture.svg)
 
-## Layered View (Parallel to 5D Matrix)
+## Layered View (Parallel to the Matrix)
 
 Bhati (2026) [Z5TF79HY] proposes a six-layer reference architecture for **agentic
 software engineering** systems. The autops framework is positioned as a **parallel
 reference architecture** in a sibling domain (autonomous satellite operations), not
-a structural adoption. The layered view below is complementary to the 5D
+a structural adoption. The layered view below is complementary to the
 morphological matrix (which remains canonical) and to the diagram above; it makes
 the autops architectural choices legible to the broader agentic-AI literature. For
-the framing see [`FOUNDATION_SPEC.md` §2.1](FOUNDATION_SPEC.md#21-parallel-reference-architectures);
+the framing see [`morphological_matrix.md`](morphological_matrix.md);
 for the per-component mapping see
 [`implementations.md` → Layer Mapping](implementations.md#layer-mapping-bhati-2026).
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  L5  Governance & Safety                                                │
-│      src/operations/  (AH / AG / CG)                                    │
+│      src/operations/  (AO / AH / AG / CG)                               │
 │      env-enforced safe mode (eventsat_env.py)                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L4  Orchestration                                                      │
@@ -42,15 +42,19 @@ for the per-component mapping see
 │      src/tools/  (BaseTool + scenario action defs)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L1  Reasoning · Memory · Self-Reflection                               │
-│      src/decision_loop/  (SDA / OODA / ReAct)                           │
+│      src/decision_procedure/  (SDA / OODA / ReAct)                           │
 │      src/memory/  (FixedMemory / WritableMemory)                        │
-│      src/emergence/  (EmergenceController, PPO, PromptOptimizer)        │
+│      src/behaviour/  (BehaviourController, PPO, PromptOptimizer)        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L0  Foundation Model    [gap for symbolic variants]                    │
 │      src/representation/llm_client.py  (LLM backend)                    │
 │      subsymbolic policy network  (RL substrate)                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
+
+The `src/decision_procedure/` loops (SDA / OODA / ReAct) at L1 are **held fixed** in
+the EventSat benchmark — they are not a framework component (see
+[`morphological_matrix.md`](morphological_matrix.md)).
 
 **Dependency runs upward; feedback flows downward.** Each layer depends on those
 below it (orchestration uses environment + tools; reasoning operates over memory and
@@ -59,12 +63,12 @@ ground-pass gating in CG/AG — reach into all layers from L5 downward, matching
 semantics of Bhati's Figure 3.
 
 **L0 asymmetry.** Pure-symbolic variants (`symb`) have no L0 substrate; they sit at
-L1 directly. This is by design: it isolates the cognitive-paradigm effect that RQ1
-targets while keeping L2–L5 fixed across the 5D matrix.
+L1 directly. This is by design: it isolates the cognitive-substrate effect while
+keeping L2–L5 fixed across the framework.
 
 ## Design Principles
 
-1. **Orthogonality**: Each dimension (organization, loop, representation, emergence, operations paradigm) is independent.
+1. **Per-core representation**: each active core (onboard and/or ground) carries a representation = cognitive substrate × action space; the action space (single-shot vs agentic) is richer only for LLM-bearing cores. Full rationale: [`morphological_matrix.md`](morphological_matrix.md).
 2. **Modularity**: Components can be swapped without affecting others.
 3. **Reproducibility**: Configuration-driven experiments with seed control.
 4. **Fair Comparison**: Same environment and metrics for all variants.
@@ -98,12 +102,32 @@ Environment → Observation → OperationsParadigm.filter_observation()
                                               ↓
                             Organization → AgentObservation
                                               ↓
-                                        DecisionLoop.process()
+                                        DecisionProcedure.process()
                                               ↓
               AgentAction → Organization → OperationsParadigm.process_action()
                                               ↓
                                      Environment.step()
 ```
+
+### Output Artifacts
+
+Each run writes to `data/results/<experiment_id>/` (git-ignored):
+
+- **`results.json`** — the compact, experiment-level artifact: `config`, `timestamp`,
+  `experiment_statistics` (means/std), and per-episode **aggregated** metrics. It deliberately
+  does **not** embed raw per-step observation/state snapshots — those ballooned the file to
+  multi-GB on long symbolic runs (`e3ac71f`). The board (`scripts/refresh_board.py`) reads only
+  this file.
+- **Embedded telemetry** — the first `ExperimentRunner.TELEMETRY_SAMPLE_EPISODES` (3) episodes
+  carry a compact, downsampled (≤1500-point) scalar-only `telemetry` block in `results.json`:
+  battery, mode, data pools (stored/downlinked/jetson_raw/obc), ground-pass, sunlight, anomaly.
+  Written regardless of log level; ~tens of KB/episode. Powers the board's Episode inspector and
+  presentation graphs (`scripts/extract_telemetry.py`, `45cefce`).
+- **`decisions_ep<N>.jsonl`** — the full per-step decision trace (rationale + raw telemetry),
+  written **only when `log_level: DEBUG`**. `scripts/recompute_metrics.py` recomputes research
+  metrics offline from this trace; the embedded telemetry block is the lighter, always-on subset.
+- **`config.json`** — the resolved configuration; **`checkpoints/`** — per-episode snapshots
+  when `save_checkpoints: true`.
 
 ### Orbital Context
 
@@ -121,11 +145,11 @@ Two computation backends are supported:
 | `src/environment/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
 | `src/environment/scenarios/` | Scenario environments (EventSat, Flamingo, ...) |
 | `src/agent_organization/` | Agent coordination patterns |
-| `src/decision_loop/` | Decision-making temporal patterns |
+| `src/decision_procedure/` | Decision-making temporal patterns |
 | `src/representation/` | Knowledge & decision representations |
-| `src/memory/` | `FixedMemory` (all variants, default); `WritableMemory` (`_lec_` only — CoALA §3) |
-| `src/emergence/` | Emergence controller (`@register`), `PPOTrainer`, `PromptOptimizer` |
-| `src/operations/` | Operations paradigm (autonomous hybrid, conventional ground) |
+| `src/memory/` | `FixedMemory` (all cells, default); `WritableMemory` (agentic online-learning — CoALA §3) |
+| `src/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
 | `src/tools/` | Action interfaces per scenario |
 | `src/orchestration/` | Experiment runner, config, metrics, analysis |
 | `configs/` | YAML experiment configurations |
@@ -138,7 +162,7 @@ Two computation backends are supported:
 
 All architecture variants access the **same** `FixedMemory` structure by default to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
 
-**Exception**: `_lec_` configs (`emergence_config.mechanism = "writable_coala"`) use `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — these variants are compared against the hand-designed agentic baseline only, not against other representation types. See `src/memory/writable_memory.py` and CLAUDE.md for the rationale.
+**Exception**: the agentic online-learning variant (`behaviour_config.mechanism = "writable_coala"`) uses `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — it is compared against the same agentic cell with fixed memory, not against other cells. See `src/memory/writable_memory.py` and CLAUDE.md.
 
 ### Why YAML Configuration?
 

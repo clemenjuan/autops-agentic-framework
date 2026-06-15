@@ -81,7 +81,7 @@ class ExperimentStatistics:
         min_val: Minimum value of each metric across episodes.
         max_val: Maximum value of each metric across episodes.
         metadata: Non-numeric context (constellation_size, complexity_index,
-            agent_organization, decision_loop, …) for cross-experiment
+            agent_organization, decision_procedure, …) for cross-experiment
             comparison and scaling-law analysis.
         raw_episodes: Optional list of per-episode metrics.
     """

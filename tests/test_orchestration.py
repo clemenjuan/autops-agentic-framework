@@ -32,9 +32,9 @@ class TestExperimentConfig:
         cfg = ExperimentConfig()
         assert cfg.seed == 42
         assert cfg.agent_organization == "sas"
-        assert cfg.decision_loop == "sda"
+        assert cfg.decision_procedure == "sda"
         assert cfg.representation == "symbolic"
-        assert cfg.emergence_mode == "hand_designed"
+        assert cfg.behaviour == "hand_designed"
         assert cfg.num_episodes == 100
 
     def test_invalid_organization_raises(self) -> None:
@@ -46,8 +46,8 @@ class TestExperimentConfig:
             ExperimentConfig(representation="quantum")
 
     def test_invalid_emergence_mode_raises(self) -> None:
-        with pytest.raises(ValueError, match="emergence_mode"):
-            ExperimentConfig(emergence_mode="magic")
+        with pytest.raises(ValueError, match="behaviour"):
+            ExperimentConfig(behaviour="magic")
 
     def test_invalid_log_level_raises(self) -> None:
         with pytest.raises(ValueError, match="log_level"):
@@ -59,7 +59,7 @@ class TestCombinationGuardrails:
 
     def _make_cfg(self, loop: str, ops: str, rep_type: str) -> ExperimentConfig:
         return ExperimentConfig(
-            decision_loop=loop,
+            decision_procedure=loop,
             operations_paradigm=ops,
             representation_config={"type": rep_type},
         )
@@ -116,12 +116,12 @@ class TestCombinationGuardrails:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             cfg = self._make_cfg("react", "conventional_ground", "schedule_based_eventsat")
-        assert cfg.decision_loop == "react"
+        assert cfg.decision_procedure == "react"
         assert cfg.operations_paradigm == "conventional_ground"
 
 
 class TestEmergenceMechanism:
-    """Validation of emergence_config.mechanism cross-field constraints."""
+    """Validation of behaviour_config.mechanism cross-field constraints."""
 
     def _make_learned(
         self,
@@ -130,29 +130,29 @@ class TestEmergenceMechanism:
         mechanism: str | None,
     ) -> ExperimentConfig:
         import warnings
-        emergence_config: dict = {"mode": "learned"}
+        behaviour_config: dict = {"mode": "emergent"}
         if mechanism is not None:
-            emergence_config["mechanism"] = mechanism
+            behaviour_config["mechanism"] = mechanism
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             return ExperimentConfig(
                 representation=representation,
                 representation_config={"type": repr_type},
-                emergence_mode="learned",
-                emergence_config=emergence_config,
+                behaviour="emergent",
+                behaviour_config=behaviour_config,
             )
 
     def test_ppo_with_subsymbolic_valid(self) -> None:
         cfg = self._make_learned("subsymbolic", "subsymbolic_eventsat", "ppo")
-        assert cfg.emergence_config["mechanism"] == "ppo"
+        assert cfg.behaviour_config["mechanism"] == "ppo"
 
     def test_prompt_optimized_with_hybrid_valid(self) -> None:
         cfg = self._make_learned("hybrid", "llm_eventsat", "prompt_optimized")
-        assert cfg.emergence_config["mechanism"] == "prompt_optimized"
+        assert cfg.behaviour_config["mechanism"] == "prompt_optimized"
 
     def test_writable_coala_with_agentic_valid(self) -> None:
         cfg = self._make_learned("hybrid", "agentic_eventsat", "writable_coala")
-        assert cfg.emergence_config["mechanism"] == "writable_coala"
+        assert cfg.behaviour_config["mechanism"] == "writable_coala"
 
     def test_invalid_mechanism_raises(self) -> None:
         with pytest.raises(ValueError, match="mechanism"):
@@ -166,10 +166,10 @@ class TestEmergenceMechanism:
             cfg = ExperimentConfig(
                 representation="symbolic",
                 representation_config={"type": "rule_based_eventsat"},
-                emergence_mode="hand_designed",
-                emergence_config={"mode": "hand_designed", "mechanism": "hand_designed"},
+                behaviour="hand_designed",
+                behaviour_config={"mode": "hand_designed", "mechanism": "hand_designed"},
             )
-        assert cfg.emergence_config["mechanism"] == "hand_designed"
+        assert cfg.behaviour_config["mechanism"] == "hand_designed"
 
     def test_ppo_with_hybrid_raises(self) -> None:
         with pytest.raises(ValueError, match="mechanism.*ppo"):
@@ -188,8 +188,8 @@ class TestEmergenceMechanism:
             ExperimentConfig(
                 representation="hybrid",
                 representation_config={"type": "llm_eventsat"},
-                emergence_mode="learned",
-                emergence_config={"mode": "learned"},
+                behaviour="emergent",
+                behaviour_config={"mode": "emergent"},
             )
 
     def test_hand_designed_no_mechanism_no_warning(self) -> None:
@@ -199,8 +199,8 @@ class TestEmergenceMechanism:
             ExperimentConfig(
                 representation="hybrid",
                 representation_config={"type": "llm_eventsat"},
-                emergence_mode="hand_designed",
-                emergence_config={"mode": "hand_designed"},
+                behaviour="hand_designed",
+                behaviour_config={"mode": "hand_designed"},
             )
 
 
@@ -210,6 +210,7 @@ class TestConfigLoaderSaveLoad:
             experiment_id="test_round_trip",
             seed=123,
             agent_organization="decentralized_mas",
+            environment={"constellation_size": 12},
         )
         yaml_path = tmp_path / "test.yaml"
         save_config(original, yaml_path)
@@ -361,8 +362,8 @@ class TestRunnerMemoryWiring:
             output_dir=str(tmp_path),
             representation="hybrid",
             representation_config={"type": "agentic_eventsat"},
-            emergence_mode="learned",
-            emergence_config={"mode": "learned", "mechanism": "writable_coala"},
+            behaviour="emergent",
+            behaviour_config={"mode": "emergent", "mechanism": "writable_coala"},
         )
         runner = ExperimentRunner(config=cfg)
         mem = runner._create_memory()
@@ -394,7 +395,310 @@ class TestDeferredOrganizationGuard:
             max_steps=2,
             output_dir=str(tmp_path),
             agent_organization=org,
+            environment={"constellation_size": 12},
         )
         runner = ExperimentRunner(config=cfg)
         with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
             runner._create_organization()
+
+
+class TestMatrixRestructureNaming:
+    """New axis names + action_space semantics; legacy aliases during migration."""
+
+    def test_new_field_names(self) -> None:
+        cfg = ExperimentConfig(decision_procedure="ooda", behaviour="emergent",
+                               representation="subsymbolic",
+                               representation_config={"type": "subsymbolic_eventsat"},
+                               behaviour_config={"mechanism": "ppo"})
+        assert cfg.decision_procedure == "ooda"
+        assert cfg.behaviour == "emergent"
+
+    @pytest.mark.parametrize(
+        "legacy_kwargs",
+        [
+            {"decision_loop": "react"},
+            {"emergence_mode": "hand_designed"},
+            {"emergence_config": {"mode": "hand_designed"}},
+            {"decision_loop_config": {"x": 1}},
+        ],
+    )
+    def test_legacy_field_names_rejected(self, legacy_kwargs: dict) -> None:
+        """Old field names no longer accepted (extra='forbid')."""
+        with pytest.raises(ValueError):
+            ExperimentConfig(**legacy_kwargs)
+
+    def test_action_space_valid(self) -> None:
+        cfg = ExperimentConfig(representation="hybrid",
+                               representation_config={"type": "agentic_eventsat",
+                                                      "action_space": "agentic"})
+        assert cfg.action_space == "agentic"
+
+    def test_action_space_invalid_value_raises(self) -> None:
+        with pytest.raises(ValueError, match="action_space"):
+            ExperimentConfig(representation="hybrid",
+                             representation_config={"action_space": "reflexive"})
+
+    def test_agentic_requires_hybrid(self) -> None:
+        with pytest.raises(ValueError, match="agentic.*hybrid"):
+            ExperimentConfig(representation="subsymbolic",
+                             representation_config={"action_space": "agentic"})
+
+    def test_action_space_must_agree_with_type(self) -> None:
+        with pytest.raises(ValueError, match="reactive.*action_space"):
+            ExperimentConfig(representation="hybrid",
+                             representation_config={"type": "llm_eventsat",
+                                                    "action_space": "agentic"})
+
+    def test_action_space_derived_from_type_when_absent(self) -> None:
+        assert ExperimentConfig(representation="hybrid",
+                                representation_config={"type": "llm_eventsat"}).action_space == "reactive"
+        assert ExperimentConfig(representation="hybrid",
+                                representation_config={"type": "agentic_eventsat"}).action_space == "agentic"
+        assert ExperimentConfig(representation="symbolic",
+                                representation_config={"type": "rule_based_eventsat"}).action_space is None
+
+    def test_writable_coala_requires_agentic_action_space(self) -> None:
+        import warnings
+        # agentic type + agentic action_space + writable_coala is valid
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation="hybrid", behaviour="emergent",
+                                   representation_config={"type": "agentic_eventsat",
+                                                          "action_space": "agentic"},
+                                   behaviour_config={"mechanism": "writable_coala"})
+        assert cfg.behaviour_config["mechanism"] == "writable_coala"
+
+
+class TestRepresentationResolution:
+    """`type` is resolved from (representation, action_space, ops); explicit type overrides."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, expected",
+        [
+            ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat"),
+            ("symbolic", None, "autonomous_ground", "schedule_based_eventsat"),
+            ("symbolic", None, "conventional_ground", "conventional_schedule_eventsat"),
+            ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat"),
+            ("subsymbolic", None, "autonomous_ground", "subsymbolic_scheduler_eventsat"),
+            ("hybrid", "reactive", "autonomous_hybrid", "llm_eventsat"),
+            ("hybrid", "reactive", "conventional_ground", "llm_scheduler_eventsat"),
+            ("hybrid", "agentic", "autonomous_hybrid", "agentic_eventsat"),
+            ("hybrid", "agentic", "autonomous_ground", "agentic_scheduler_eventsat"),
+        ],
+    )
+    def test_resolution(self, rep, action_space, ops, expected) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.resolved_representation_type == expected
+
+    def test_hybrid_without_action_space_raises(self) -> None:
+        with pytest.raises(ValueError, match="action_space"):
+            ExperimentConfig(representation="hybrid", operations_paradigm="autonomous_hybrid")
+
+    def test_explicit_type_overrides(self) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation="symbolic",
+                                   operations_paradigm="conventional_ground",
+                                   representation_config={"type": "schedule_based_eventsat"})
+        assert cfg.resolved_representation_type == "schedule_based_eventsat"  # not conventional_*
+
+
+class TestAutonomousOnboard:
+    """autonomous_onboard paradigm: onboard-only, resolves to the per-step core."""
+
+    @pytest.mark.parametrize("rep, expected", [
+        ("symbolic", "rule_based_eventsat"),
+        ("subsymbolic", "subsymbolic_eventsat"),
+    ])
+    def test_ao_resolves_onboard_core(self, rep, expected) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm="autonomous_onboard")
+        assert cfg.resolved_representation_type == expected
+
+    def test_hybrid_onboard_excluded(self) -> None:
+        with pytest.raises(ValueError, match="autonomous_onboard"):
+            ExperimentConfig(representation="hybrid", operations_paradigm="autonomous_onboard",
+                             representation_config={"action_space": "agentic"})
+
+    def test_paradigm_is_passthrough_onboard(self) -> None:
+        from src.operations.autonomous_onboard import AutonomousOnboard
+        ao = AutonomousOnboard()
+        act = {"eventsat_0": {"mode": "payload_observe"}}
+        assert ao.filter_observation("OBS", 0) == "OBS"          # real-time
+        assert ao.can_act(0, ground_pass_active=False) is True   # acts every step
+        assert ao.should_allow_inference(0, False) is True
+        assert ao.can_self_recover_anomaly() is True             # onboard FDIR
+        assert ao.process_action(act, 0, False) == act           # pass-through, no schedule
+
+
+class TestTwoCoreResolution:
+    """resolved_onboard_type + resolved_ground_planner_type per (substrate, action_space, ops)."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, onboard, ground",
+        [
+            # AO: onboard only
+            ("symbolic", None, "autonomous_onboard", "rule_based_eventsat", None),
+            ("subsymbolic", None, "autonomous_onboard", "subsymbolic_eventsat", None),
+            # AG/CG: ground only
+            ("symbolic", None, "autonomous_ground", None, "schedule_based_eventsat"),
+            ("symbolic", None, "conventional_ground", None, "conventional_schedule_eventsat"),
+            ("subsymbolic", None, "autonomous_ground", None, "subsymbolic_scheduler_eventsat"),
+            ("hybrid", "reactive", "autonomous_ground", None, "llm_scheduler_eventsat"),
+            # AH: both; ground = AG-equivalent (algorithmic), onboard = per-step
+            ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat", "schedule_based_eventsat"),
+            ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat", "subsymbolic_scheduler_eventsat"),
+            # Onboard slot follows the configured substrate (decision_matrix §3.1) —
+            # never silently substituted by RL (user decision 2026-06-11).
+            ("hybrid", "reactive", "autonomous_hybrid", "llm_eventsat", "llm_scheduler_eventsat"),
+            ("hybrid", "agentic", "autonomous_hybrid", "agentic_eventsat", "agentic_scheduler_eventsat"),
+        ],
+    )
+    def test_two_core_resolution(self, rep, action_space, ops, onboard, ground) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.resolved_onboard_type == onboard
+        assert cfg.resolved_ground_planner_type == ground
+
+
+class TestRepresentationVocabulary:
+    """7-cell framework tokens (morphological_matrix.md §2) normalise to the
+    internal substrate + action_space; hrl/llm-a route to flagged placeholders."""
+
+    @pytest.mark.parametrize(
+        "cell, ops, expected",
+        [
+            ("symb", "autonomous_hybrid", "rule_based_eventsat"),
+            ("rl", "autonomous_hybrid", "subsymbolic_eventsat"),
+            ("hrl", "autonomous_hybrid", "hrl_onboard_eventsat"),
+            ("hrl", "autonomous_ground", "hrl_scheduler_eventsat"),
+            ("llm-s", "autonomous_hybrid", "llm_single_onboard_eventsat"),
+            ("llm-s", "autonomous_ground", "llm_single_scheduler_eventsat"),
+            ("llm-a", "autonomous_ground", "llm_agentic_scheduler_eventsat"),
+            ("hllm-s", "autonomous_hybrid", "llm_eventsat"),
+            ("hllm-a", "autonomous_hybrid", "agentic_eventsat"),
+        ],
+    )
+    def test_cell_resolves(self, cell, ops, expected) -> None:
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=cell, operations_paradigm=ops)
+        assert cfg.representation_cell == cell
+        assert cfg.resolved_representation_type == expected
+
+    def test_placeholder_cells_flagged(self) -> None:
+        import src.representation.placeholder_cells  # noqa: F401  (registers cells)
+        from src.behaviour.controller import _REPRESENTATION_REGISTRY
+
+        for name in (
+            "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
+            "llm_single_onboard_eventsat", "llm_single_scheduler_eventsat",
+            "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
+        ):
+            assert _REPRESENTATION_REGISTRY[name].is_placeholder is True
+
+    def test_cell_matches_legacy_equivalent(self) -> None:
+        """hllm-a must resolve identically to legacy hybrid+agentic (behaviour-preserving)."""
+        import warnings
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cell = ExperimentConfig(representation="hllm-a",
+                                    operations_paradigm="autonomous_hybrid")
+            legacy = ExperimentConfig(representation="hybrid",
+                                      operations_paradigm="autonomous_hybrid",
+                                      representation_config={"action_space": "agentic"})
+        assert cell.representation == "hybrid"
+        assert cell.representation_config.get("action_space") == "agentic"
+        assert cell.resolved_onboard_type == legacy.resolved_onboard_type == "agentic_eventsat"
+        assert cell.resolved_ground_planner_type == legacy.resolved_ground_planner_type
+        assert cell.onboard_uses_jetson == legacy.onboard_uses_jetson
+
+    def test_legacy_substrate_still_accepted(self) -> None:
+        """Legacy substrate values keep working (representation_cell stays None)."""
+        cfg = ExperimentConfig(representation="symbolic",
+                               operations_paradigm="autonomous_onboard")
+        assert cfg.representation == "symbolic"
+        assert cfg.representation_cell is None
+
+
+class TestAutonomousHybridArbitration:
+    """Dual-slot AH: plan-default between passes, onboard override on safety modes."""
+
+    def _ah_with_plan(self):
+        from src.operations.autonomous_hybrid import AutonomousHybrid
+        ah = AutonomousHybrid()
+        ah.set_uplinked_plan(
+            {"eventsat_0": {"schedule": [("payload_observe", 3), ("charging", 2)]}}
+        )
+        return ah
+
+    def test_follows_plan_when_onboard_not_safety(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "payload_compress"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "payload_observe"  # plan, not onboard
+        assert ah._onboard_overrides == 0
+
+    def test_onboard_overrides_on_safety_mode(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "charging"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "charging"  # safety override of the plan
+        assert ah._onboard_overrides == 1
+
+    def test_onboard_wins_during_pass(self) -> None:
+        ah = self._ah_with_plan()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "communication"}}, step=1, ground_pass_active=True
+        )
+        assert out["eventsat_0"]["mode"] == "communication"  # real-time during contact
+
+    def test_no_plan_falls_back_to_onboard(self) -> None:
+        from src.operations.autonomous_hybrid import AutonomousHybrid
+        ah = AutonomousHybrid()
+        out = ah.process_action(
+            {"eventsat_0": {"mode": "payload_observe"}}, step=1, ground_pass_active=False
+        )
+        assert out["eventsat_0"]["mode"] == "payload_observe"  # no plan → onboard
+        assert ah.get_metrics()["onboard_overrides"] == 0.0
+
+
+class TestOnboardUsesJetson:
+    """Jetson overhead applies only to Jetson-based onboard (subsymbolic/hybrid AO/AH)."""
+
+    @pytest.mark.parametrize(
+        "rep, action_space, ops, expected",
+        [
+            ("symbolic", None, "autonomous_onboard", False),   # rules on OBC
+            ("subsymbolic", None, "autonomous_onboard", True),  # RL on Jetson
+            ("symbolic", None, "autonomous_hybrid", False),     # rule_based onboard on OBC
+            ("subsymbolic", None, "autonomous_hybrid", True),
+            ("hybrid", "agentic", "autonomous_hybrid", True),   # subsymbolic onboard on Jetson
+            ("symbolic", None, "autonomous_ground", False),     # ground → no onboard
+            ("subsymbolic", None, "autonomous_ground", False),
+            ("hybrid", "reactive", "conventional_ground", False),
+        ],
+    )
+    def test_onboard_uses_jetson(self, rep, action_space, ops, expected) -> None:
+        import warnings
+        rc = {"action_space": action_space} if action_space else {}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            cfg = ExperimentConfig(representation=rep, operations_paradigm=ops,
+                                   representation_config=rc)
+        assert cfg.onboard_uses_jetson is expected

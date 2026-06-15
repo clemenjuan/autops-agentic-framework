@@ -21,10 +21,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.representation.base import Representation
-from src.emergence.controller import register
+from src.behaviour.controller import register
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 
 @register("schedule_based_eventsat")
@@ -130,7 +130,7 @@ class ScheduleBasedEventSat(Representation):
           - urgency > 0.6 → front-load critical operations
           - attention_guidance → weight schedule focus
         """
-        from src.decision_loop.context import DecisionContext  # runtime import
+        from src.decision_procedure.context import DecisionContext  # runtime import
 
         state = context.state
         enrichments = context.enrichments
@@ -155,7 +155,12 @@ class ScheduleBasedEventSat(Representation):
 
         # During a ground pass
         if staleness > self._staleness_threshold:
-            # Telemetry still stale — need to downlink housekeeping first
+            # Stale telemetry at a pass implies a NEW contact: under AG/AH the
+            # planner is only invoked during passes, so the pass-transition reset
+            # above never fires (it needs a between-pass call). Without this
+            # reset the planner generated exactly one schedule per episode and
+            # idled thereafter (full-length trace, 2026-06-11).
+            self._schedule_generated_this_pass = False
             self._last_rationale = (
                 f"Pass active but telemetry stale ({staleness} steps); "
                 f"communicating to receive fresh HK."

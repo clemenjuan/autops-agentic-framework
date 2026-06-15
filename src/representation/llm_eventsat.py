@@ -8,7 +8,7 @@ output against physical constraints and retries on invalid responses.
 Works with all 3 decision loops (SDA, OODA, ReAct) and all 3 operations
 paradigms (AH, AG, CG) — fully orthogonal in the morphological matrix.
 
-Learned-emergence variants (emergence_config.mechanism):
+Learned-emergence variants (behaviour_config.mechanism):
 - ``hand_designed`` (default): fixed SYSTEM_PROMPT + FixedMemory.
 - ``prompt_optimized``: loads an offline-optimised system prompt from
   ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
@@ -30,7 +30,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.base import Representation
 from src.representation.llm_client import LLMClient
 from src.representation.llm_prompts import (
@@ -40,7 +40,7 @@ from src.representation.llm_prompts import (
 )
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ class LLMEventSat(Representation):
         self._client = LLMClient(cfg)
 
         # Learned-emergence mechanism
-        emergence_cfg: Dict[str, Any] = cfg.get("emergence_config", {})
+        emergence_cfg: Dict[str, Any] = cfg.get("behaviour_config", {})
         mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
         experiment_id: str = cfg.get("experiment_id", "")
         self._system_prompt: str = self._resolve_system_prompt(
@@ -216,12 +216,15 @@ class LLMEventSat(Representation):
 
         self._last_parse_retries = retries
 
-        # Fallback if LLM failed entirely
+        # Substrate integrity: an LLM cell whose calls fail
+        # must FAIL the episode — substituting a symbolic decision silently turns
+        # the run into a mixed-substrate measurement (user decision 2026-06-11).
         if mode is None:
-            mode = self._symbolic_fallback(state)
-            rationale = f"LLM failed after {retries} retries; symbolic fallback selected '{mode}'."
-            self._grounding_overrides += 1
-            logger.warning("LLM fallback to symbolic: %s", rationale)
+            raise RuntimeError(
+                f"LLM cell integrity violation: LLM produced no valid mode after "
+                f"{retries} retries — failing the episode instead of substituting "
+                f"a symbolic decision. Check OLLAMA_HOST / model availability."
+            )
 
         # Additional symbolic grounding checks
         mode = self._apply_grounding(mode, state)

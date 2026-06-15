@@ -16,7 +16,12 @@ from typing import Any, ClassVar, Dict, List, Optional, Set
 import yaml
 import warnings
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 # ======================================================================
@@ -86,16 +91,21 @@ class ExperimentConfig(BaseModel):
 
     # Morphological matrix dimensions
     agent_organization: str = Field(default="sas")
-    decision_loop: str = Field(default="sda")
+    decision_procedure: str = Field(default="sda")
     representation: str = Field(default="symbolic")
-    emergence_mode: str = Field(default="hand_designed")
+    # 7-cell framework token (symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a) when the
+    # config used the cell vocabulary; None for legacy substrate configs. The
+    # normalizer expands the cell into the internal substrate + action_space
+    # (morphological_matrix.md §2) so all downstream resolution is unchanged.
+    representation_cell: Optional[str] = Field(default=None)
+    behaviour: str = Field(default="hand_designed")
     operations_paradigm: str = Field(default="autonomous_hybrid")
 
     # Component-specific sub-configs
     agent_organization_config: Dict[str, Any] = Field(default_factory=dict)
-    decision_loop_config: Dict[str, Any] = Field(default_factory=dict)
+    decision_procedure_config: Dict[str, Any] = Field(default_factory=dict)
     representation_config: Dict[str, Any] = Field(default_factory=dict)
-    emergence_config: Dict[str, Any] = Field(default_factory=dict)
+    behaviour_config: Dict[str, Any] = Field(default_factory=dict)
     operations_paradigm_config: Dict[str, Any] = Field(default_factory=dict)
 
     # Environment
@@ -126,12 +136,68 @@ class ExperimentConfig(BaseModel):
     VALID_ORGANIZATIONS: ClassVar[Set[str]] = {
         "sas", "centralized_mas", "decentralized_mas", "independent_mas", "hybrid_mas"
     }
-    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {"symbolic", "subsymbolic", "hybrid"}
-    VALID_EMERGENCE_MODES: ClassVar[Set[str]] = {"hand_designed", "learned"}
+    # Internal substrate vocabulary. Configs may instead declare a 7-cell
+    # framework token (symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a, morphological_matrix.md
+    # §2); _normalize_representation_cell expands those into these substrates +
+    # action_space before validation. "subsymbolic" is the legacy alias of "rl";
+    # "hybrid-rl" backs the not-yet-implemented hrl cell (placeholder).
+    VALID_REPRESENTATIONS: ClassVar[Set[str]] = {
+        "symbolic", "subsymbolic", "rl", "llm", "hybrid", "hybrid-rl",
+    }
+    VALID_BEHAVIOURS: ClassVar[Set[str]] = {"hand_designed", "emergent"}
+    VALID_ACTION_SPACES: ClassVar[Set[str]] = {"reactive", "agentic"}
     VALID_OPERATIONS_PARADIGMS: ClassVar[Set[str]] = {
-        "autonomous_hybrid", "autonomous_ground", "conventional_ground",
+        "autonomous_onboard", "autonomous_hybrid", "autonomous_ground", "conventional_ground",
     }
     # Decision loops are extensible — no fixed set enforced here.
+
+    _LEGACY_FIELD_NAMES: ClassVar[Set[str]] = {
+        "decision_loop", "decision_loop_config", "emergence_mode", "emergence_config",
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_field_names(cls, data: Any) -> Any:
+        """Reject pre-migration field names so stale configs fail loudly."""
+        if isinstance(data, dict):
+            present = cls._LEGACY_FIELD_NAMES & set(data)
+            if present:
+                raise ValueError(
+                    f"Legacy config field(s) {sorted(present)} are no longer supported. "
+                    f"Use decision_procedure / decision_procedure_config / behaviour / "
+                    f"behaviour_config (see morphological_matrix.md §7)."
+                )
+        return data
+
+    # 7-cell framework vocabulary (morphological_matrix.md §2) → internal
+    # (substrate, action_space). Lets a config declare `representation: hllm-a`
+    # etc.; the normalizer expands it so every downstream consumer (resolution,
+    # jetson flag) keeps seeing the legacy substrate it already understands.
+    _CELL_TO_LEGACY: ClassVar[Dict[str, Any]] = {
+        "symb": ("symbolic", None),
+        "rl": ("rl", None),
+        "hrl": ("hybrid-rl", None),
+        "llm-s": ("llm", "reactive"),
+        "llm-a": ("llm", "agentic"),
+        "hllm-s": ("hybrid", "reactive"),
+        "hllm-a": ("hybrid", "agentic"),
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_representation_cell(cls, data: Any) -> Any:
+        """Expand a 7-cell representation token into substrate + action_space."""
+        if isinstance(data, dict):
+            rep = data.get("representation")
+            if rep in cls._CELL_TO_LEGACY:
+                substrate, action_space = cls._CELL_TO_LEGACY[rep]
+                data["representation_cell"] = rep
+                data["representation"] = substrate
+                if action_space is not None:
+                    rc = dict(data.get("representation_config") or {})
+                    rc.setdefault("action_space", action_space)
+                    data["representation_config"] = rc
+        return data
 
     @field_validator("agent_organization")
     @classmethod
@@ -151,12 +217,12 @@ class ExperimentConfig(BaseModel):
             )
         return v
 
-    @field_validator("emergence_mode")
+    @field_validator("behaviour")
     @classmethod
-    def _validate_emergence_mode(cls, v: str) -> str:
-        if v not in cls.VALID_EMERGENCE_MODES:
+    def _validate_behaviour(cls, v: str) -> str:
+        if v not in cls.VALID_BEHAVIOURS:
             raise ValueError(
-                f"emergence_mode must be one of {cls.VALID_EMERGENCE_MODES}, got '{v}'"
+                f"behaviour must be one of {cls.VALID_BEHAVIOURS}, got '{v}'"
             )
         return v
 
@@ -186,13 +252,19 @@ class ExperimentConfig(BaseModel):
 
     # Which representations support which mechanisms
     _MECHANISM_REPRESENTATION_RULES: ClassVar[Dict[str, Set[str]]] = {
-        "ppo": {"subsymbolic"},
-        "prompt_optimized": {"hybrid"},
+        "ppo": {"subsymbolic", "rl"},
+        "prompt_optimized": {"hybrid", "llm"},
         "writable_coala": {"hybrid"},
     }
     # writable_coala additionally requires an agentic representation type — either
     # the per-step agentic controller (AH) or its ground-paradigm scheduler stand-in.
     _WRITABLE_COALA_REPR_TYPES: ClassVar[Set[str]] = {
+        "agentic_eventsat", "agentic_scheduler_eventsat",
+    }
+
+    # Action-space flavor of hybrid representation types (reactive vs agentic).
+    _REACTIVE_REPR_TYPES: ClassVar[Set[str]] = {"llm_eventsat", "llm_scheduler_eventsat"}
+    _AGENTIC_REPR_TYPES: ClassVar[Set[str]] = {
         "agentic_eventsat", "agentic_scheduler_eventsat",
     }
 
@@ -206,6 +278,9 @@ class ExperimentConfig(BaseModel):
         "subsymbolic_scheduler_eventsat",
         "llm_scheduler_eventsat",
         "agentic_scheduler_eventsat",
+        "hrl_scheduler_eventsat",
+        "llm_single_scheduler_eventsat",
+        "llm_agentic_scheduler_eventsat",
     }
 
     # ------------------------------------------------------------------
@@ -221,12 +296,177 @@ class ExperimentConfig(BaseModel):
         "conventional_schedule_eventsat",
     }
 
+    @staticmethod
+    def _resolve_repr_type(representation: str, action_space: Optional[str], ops: str) -> str:
+        """Resolve the concrete representation class from the matrix coordinates.
+
+        The class is determined by (substrate, action_space, operations_paradigm):
+        ops picks per-step controller (AH) vs schedule-producer (AG/CG), and for
+        hybrids action_space picks reactive vs agentic. An explicit
+        ``representation_config.type`` overrides this (see ``resolved_representation_type``).
+        """
+        _ONBOARD_OPS = ("autonomous_onboard", "autonomous_hybrid")
+        if representation == "symbolic":
+            return {
+                "autonomous_onboard": "rule_based_eventsat",
+                "autonomous_hybrid": "rule_based_eventsat",
+                "autonomous_ground": "schedule_based_eventsat",
+                "conventional_ground": "conventional_schedule_eventsat",
+            }[ops]
+        if representation in ("subsymbolic", "rl"):
+            return (
+                "subsymbolic_eventsat" if ops in _ONBOARD_OPS
+                else "subsymbolic_scheduler_eventsat"
+            )
+        if representation == "hybrid-rl":
+            # hrl cell (hybrid RL+symbolic): not yet implemented → documented
+            # placeholder (is_placeholder, morphological_matrix.md §2).
+            return (
+                "hrl_onboard_eventsat" if ops in _ONBOARD_OPS
+                else "hrl_scheduler_eventsat"
+            )
+        if representation == "llm":
+            # Pure-LLM cells (no symbolic layer) — not yet implemented → documented
+            # placeholders (is_placeholder). The symbolic-guarded LLM lives under the
+            # 'hybrid' substrate (hllm-s/hllm-a → llm_eventsat/agentic_eventsat).
+            if action_space == "agentic":  # llm-a
+                return (
+                    "llm_agentic_onboard_eventsat" if ops in _ONBOARD_OPS
+                    else "llm_agentic_scheduler_eventsat"
+                )
+            return (  # llm-s
+                "llm_single_onboard_eventsat" if ops in _ONBOARD_OPS
+                else "llm_single_scheduler_eventsat"
+            )
+        if representation == "hybrid":
+            if action_space not in ("reactive", "agentic"):
+                raise ValueError(
+                    "hybrid representation requires representation_config.action_space "
+                    "(reactive|agentic) when representation_config.type is not set"
+                )
+            if action_space == "reactive":
+                return "llm_eventsat" if ops == "autonomous_hybrid" else "llm_scheduler_eventsat"
+            return "agentic_eventsat" if ops == "autonomous_hybrid" else "agentic_scheduler_eventsat"
+        raise ValueError(f"cannot resolve representation type for representation='{representation}'")
+
+    @property
+    def resolved_representation_type(self) -> str:
+        """Concrete representation class name. Explicit `type` wins; else resolved."""
+        explicit = self.representation_config.get("type")
+        if explicit:
+            return explicit
+        return self._resolve_repr_type(
+            self.representation,
+            self.representation_config.get("action_space"),
+            self.operations_paradigm,
+        )
+
+    @property
+    def resolved_onboard_type(self) -> Optional[str]:
+        """Onboard per-step core, for paradigms with an onboard slot (AO, AH).
+
+        The onboard core follows the configured substrate (morphological_matrix.md §2 —
+        the O-cell is substrate × action *per active core*): symbolic→rule_based,
+        subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive (hllm-s)→llm_eventsat
+        (per-step LLM + symbolic guard), hybrid·agentic (hllm-a)→agentic_eventsat.
+        The pure-LLM cells (llm-s/llm-a) and hrl have no real core yet → placeholders.
+        None for AG/CG. The substrate is never silently substituted by a different one.
+        """
+        if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
+            return None
+        if self.representation == "symbolic":
+            return "rule_based_eventsat"
+        if self.representation in ("subsymbolic", "rl"):
+            return "subsymbolic_eventsat"
+        if self.representation == "hybrid-rl":
+            return "hrl_onboard_eventsat"  # hrl cell placeholder
+        if self.representation == "llm":  # pure LLM (no symbolic layer) → placeholders
+            if self.representation_config.get("action_space") == "agentic":
+                return "llm_agentic_onboard_eventsat"  # llm-a cell placeholder
+            return "llm_single_onboard_eventsat"  # llm-s cell placeholder
+        # hybrid (LLM + symbolic): reactive (hllm-s) -> llm_eventsat; agentic (hllm-a) -> agentic_eventsat
+        if self.representation_config.get("action_space") == "agentic":
+            return "agentic_eventsat"
+        return "llm_eventsat"
+
+    @property
+    def resolved_ground_planner_type(self) -> Optional[str]:
+        """Ground full-pass planner (schedule producer), for AH/AG/CG. None for AO.
+
+        AH shares AG's *algorithmic* ground planner (same artifact across AH & AG);
+        CG uses its human-realistic planner.
+        """
+        ops = self.operations_paradigm
+        if ops == "autonomous_onboard":
+            return None
+        ground_ops = "autonomous_ground" if ops == "autonomous_hybrid" else ops
+        return self._resolve_repr_type(
+            self.representation,
+            self.representation_config.get("action_space"),
+            ground_ops,
+        )
+
+    @property
+    def onboard_uses_jetson(self) -> bool:
+        """Whether the onboard compute (Jetson) is kept powered for per-step inference.
+
+        True only when an onboard slot is active (AO/AH) **and** the onboard core is
+        Jetson-based (subsymbolic RL, or hybrid whose onboard is the RL policy).
+        Symbolic onboard rules run on the OBC (3.3 V, sub-watt) → no Jetson overhead.
+        Drives `env.onboard_compute_active`.
+        """
+        return (
+            self.operations_paradigm in ("autonomous_onboard", "autonomous_hybrid")
+            and self.representation in ("subsymbolic", "hybrid", "hybrid-rl")
+        )
+
     @model_validator(mode="after")
     def _warn_degenerate_combinations(self) -> "ExperimentConfig":
         """Warn about dimension triples that are degenerate given current representations."""
         ops = self.operations_paradigm
-        loop = self.decision_loop
-        rep_type = self.representation_config.get("type", "")
+        loop = self.decision_procedure
+        action_space = self.representation_config.get("action_space")
+
+        # Action space (hybrid-only flavor: reactive vs agentic). Validate value +
+        # substrate agreement before resolution.
+        if action_space is not None:
+            if action_space not in self.VALID_ACTION_SPACES:
+                raise ValueError(
+                    f"representation_config.action_space must be one of "
+                    f"{self.VALID_ACTION_SPACES}, got '{action_space}'"
+                )
+            if action_space == "agentic" and self.representation not in ("hybrid", "llm"):
+                raise ValueError(
+                    f"action_space='agentic' requires an LLM-bearing representation "
+                    f"('hybrid' or 'llm'), got '{self.representation}'"
+                )
+
+        # autonomous_onboard is onboard-only; a hybrid has no onboard core of its
+        # own (its LLM is a ground component), so hybrid+ao is degenerate.
+        if self.representation == "hybrid" and ops == "autonomous_onboard":
+            raise ValueError(
+                "representation='hybrid' with operations_paradigm='autonomous_onboard' "
+                "is excluded: a hybrid has no standalone onboard core (its LLM is a "
+                "ground planner). Use a symbolic or subsymbolic onboard, or paradigm "
+                "autonomous_hybrid (onboard + ground)."
+            )
+
+        # Resolve the concrete representation class (raises if hybrid lacks action_space).
+        rep_type = self.resolved_representation_type
+
+        # When an explicit type override is given, it must agree with action_space.
+        explicit_type = self.representation_config.get("type")
+        if explicit_type and action_space is not None:
+            if explicit_type in self._REACTIVE_REPR_TYPES and action_space != "reactive":
+                raise ValueError(
+                    f"representation_config.type='{explicit_type}' is reactive but "
+                    f"action_space='{action_space}'"
+                )
+            if explicit_type in self._AGENTIC_REPR_TYPES and action_space != "agentic":
+                raise ValueError(
+                    f"representation_config.type='{explicit_type}' is agentic but "
+                    f"action_space='{action_space}'"
+                )
 
         # Ground paradigms execute a `schedule` emitted by the representation
         # between passes. A representation that does not emit one degrades to
@@ -280,40 +520,45 @@ class ExperimentConfig(BaseModel):
         # "hand_designed" is accepted as an explicit "no learned mechanism"
         # marker (CLAUDE.md lists it as a valid mechanism value); it carries
         # no representation constraints, so treat it like an unset mechanism.
-        mechanism = self.emergence_config.get("mechanism")
+        mechanism = self.behaviour_config.get("mechanism")
         if mechanism == "hand_designed":
             mechanism = None
         if mechanism is not None:
             if mechanism not in self.VALID_MECHANISMS:
                 raise ValueError(
-                    f"emergence_config.mechanism must be one of "
+                    f"behaviour_config.mechanism must be one of "
                     f"{self.VALID_MECHANISMS}, got '{mechanism}'"
                 )
             allowed_reps = self._MECHANISM_REPRESENTATION_RULES[mechanism]
             if self.representation not in allowed_reps:
                 raise ValueError(
-                    f"emergence_config.mechanism='{mechanism}' is only valid with "
+                    f"behaviour_config.mechanism='{mechanism}' is only valid with "
                     f"representation in {allowed_reps}, got '{self.representation}'"
                 )
-            if (
-                mechanism == "writable_coala"
-                and rep_type not in self._WRITABLE_COALA_REPR_TYPES
-            ):
-                raise ValueError(
-                    f"emergence_config.mechanism='writable_coala' requires "
-                    f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
-                    f"got '{rep_type}'"
-                )
+            if mechanism == "writable_coala":
+                if rep_type not in self._WRITABLE_COALA_REPR_TYPES:
+                    raise ValueError(
+                        f"behaviour_config.mechanism='writable_coala' requires "
+                        f"representation_config.type in {self._WRITABLE_COALA_REPR_TYPES}, "
+                        f"got '{rep_type}'"
+                    )
+                # emergent·memory is gated by the agentic action space (writing is
+                # an action). If action_space is declared it must be agentic.
+                if action_space is not None and action_space != "agentic":
+                    raise ValueError(
+                        "behaviour_config.mechanism='writable_coala' requires "
+                        f"action_space='agentic', got '{action_space}'"
+                    )
 
-        # Warn if learned hybrid config has no mechanism
+        # Warn if emergent hybrid config has no mechanism
         if (
-            self.emergence_mode == "learned"
+            self.behaviour == "emergent"
             and self.representation == "hybrid"
             and mechanism is None
         ):
             warnings.warn(
-                f"emergence_mode='learned' with representation='hybrid' but no "
-                f"emergence_config.mechanism specified. Set mechanism to "
+                f"behaviour='{self.behaviour}' with representation='hybrid' but no "
+                f"behaviour_config.mechanism specified. Set mechanism to "
                 f"'prompt_optimized' or 'writable_coala'. Defaulting to "
                 f"prompt_optimized behaviour at runtime.",
                 stacklevel=2,
@@ -329,6 +574,19 @@ class ExperimentConfig(BaseModel):
             )
 
         return self
+
+    @property
+    def action_space(self) -> Optional[str]:
+        """Resolved action-space flavor: explicit config value, else derived from type."""
+        explicit = self.representation_config.get("action_space")
+        if explicit is not None:
+            return explicit
+        rep_type = self.representation_config.get("type", "")
+        if rep_type in self._REACTIVE_REPR_TYPES:
+            return "reactive"
+        if rep_type in self._AGENTIC_REPR_TYPES:
+            return "agentic"
+        return None
 
 
 # ======================================================================

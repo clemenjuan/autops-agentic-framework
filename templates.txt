@@ -5,7 +5,7 @@ It should [brief behavior description].
 Reference docs/FOUNDATION_SPEC.md for the interface contract.
 Write tests, make sure existing tests still pass.
 
-Example: "Implement a DeliberativeLoop for the decision_loop axis. It should use a plan-then-act cycle with replanning on failure. Reference docs/FOUNDATION_SPEC.md for the interface contract. Write tests, make sure existing tests still pass."
+Example: "Implement a DeliberativeLoop for the decision_procedure axis. It should use a plan-then-act cycle with replanning on failure. Reference docs/FOUNDATION_SPEC.md for the interface contract. Write tests, make sure existing tests still pass."
 
 ------------------------------------
 Template 2: Bug Fix / Investigation

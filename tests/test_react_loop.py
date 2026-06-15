@@ -144,12 +144,12 @@ def _make_observation(battery_soc=0.8, ground_pass_active=False):
 
 class TestReActLoopBasic:
     def test_get_name(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         assert loop.get_name() == "ReActLoop"
 
     def test_process_returns_action_and_memory(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         action, memory = loop.process(obs, memory=None)
@@ -157,7 +157,7 @@ class TestReActLoopBasic:
         assert "mode" in action["eventsat_0"]
 
     def test_valid_action_converges_first_iteration(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"max_iterations": 3, "grounding_checks": ["battery_feasibility", "pass_window_timing"]},
             representation=AlwaysValidRepresentation(),
@@ -169,7 +169,7 @@ class TestReActLoopBasic:
         assert metrics["converged"] == 1.0
 
     def test_memory_passthrough(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         memory_in = {"some_key": "some_value"}
@@ -177,7 +177,7 @@ class TestReActLoopBasic:
         assert memory_out is memory_in
 
     def test_reset_clears_metrics(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         loop.process(obs, memory=None)
@@ -195,7 +195,7 @@ class TestReActLoopBasic:
 
 class TestGrounding:
     def test_battery_feasibility_violation(self):
-        from src.decision_loop.react_loop import ReActLoop, _GROUNDING_MIN_SOC
+        from src.decision_procedure.react_loop import ReActLoop, _GROUNDING_MIN_SOC
         loop = ReActLoop(
             config={"grounding_checks": ["battery_feasibility"]},
             representation=AlwaysValidRepresentation(),
@@ -209,7 +209,7 @@ class TestGrounding:
         assert violations[0]["check"] == "battery_feasibility"
 
     def test_battery_feasibility_no_violation_charging(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"grounding_checks": ["battery_feasibility"]},
             representation=AlwaysValidRepresentation(),
@@ -221,7 +221,7 @@ class TestGrounding:
         assert violations == []
 
     def test_pass_window_timing_violation(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"grounding_checks": ["pass_window_timing"]},
             representation=AlwaysValidRepresentation(),
@@ -234,7 +234,7 @@ class TestGrounding:
         assert violations[0]["check"] == "pass_window_timing"
 
     def test_pass_window_timing_no_violation_during_pass(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"grounding_checks": ["pass_window_timing"]},
             representation=AlwaysValidRepresentation(),
@@ -246,7 +246,7 @@ class TestGrounding:
         assert violations == []
 
     def test_empty_grounding_checks(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"grounding_checks": []},
             representation=CommsWithoutPassRepresentation(),
@@ -265,7 +265,7 @@ class TestGrounding:
 class TestIteration:
     def test_low_battery_observe_fails_then_converges(self):
         """Low battery + observe fails grounding; representation retries, converges to charging."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         repr_ = LowBatteryObserveRepresentation()
         loop = ReActLoop(
             config={"max_iterations": 3, "grounding_checks": ["battery_feasibility"]},
@@ -281,7 +281,7 @@ class TestIteration:
 
     def test_all_iterations_fail_fallback_to_charging(self):
         """If all iterations fail grounding, fallback to charging."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"max_iterations": 3, "grounding_checks": ["pass_window_timing"]},
             representation=CommsWithoutPassRepresentation(),
@@ -295,7 +295,7 @@ class TestIteration:
 
     def test_max_iterations_one(self):
         """With max_iterations=1 and always-valid repr, converges in one pass."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(
             config={"max_iterations": 1, "grounding_checks": ["battery_feasibility"]},
             representation=AlwaysValidRepresentation(),
@@ -315,7 +315,7 @@ class TestIteration:
 class TestReasoningTrace:
     def test_reasoning_trace_populated_in_context(self):
         """Enrichments contain reasoning_trace after first iteration."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
 
         captured_contexts = []
 
@@ -343,7 +343,7 @@ class TestReasoningTrace:
 
     def test_reasoning_depth_metric_positive(self):
         """reasoning_depth metric counts total thought steps."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         loop.process(obs, memory=None)
@@ -352,7 +352,7 @@ class TestReasoningTrace:
 
     def test_no_reason_method_backward_compatible(self):
         """Representation without reason() still works (no-op)."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=NoReasonRepresentation())
         obs = _make_observation()
         action, _ = loop.process(obs, memory=None)
@@ -366,7 +366,7 @@ class TestReasoningTrace:
 
 class TestMetrics:
     def test_metrics_keys_present(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         loop.process(obs, memory=None)
@@ -378,7 +378,7 @@ class TestMetrics:
         assert expected_keys.issubset(metrics.keys())
 
     def test_total_decisions_accumulates(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         for _ in range(5):
@@ -386,14 +386,14 @@ class TestMetrics:
         assert loop.get_metrics()["total_decisions"] == 5.0
 
     def test_has_rationale_when_rationale_available(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=AlwaysValidRepresentation())
         obs = _make_observation()
         loop.process(obs, memory=None)
         assert loop.get_metrics()["has_rationale"] == 1.0
 
     def test_has_rationale_false_when_unavailable(self):
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         loop = ReActLoop(config={}, representation=NoReasonRepresentation())
         obs = _make_observation()
         loop.process(obs, memory=None)
@@ -408,7 +408,7 @@ class TestMetrics:
 class TestReActIntegration:
     def test_react_with_rule_based_representation(self):
         """ReAct + RuleBasedEventSat: reason() provides trace, grounding validates."""
-        from src.decision_loop.react_loop import ReActLoop
+        from src.decision_procedure.react_loop import ReActLoop
         from src.representation.rule_based_eventsat import RuleBasedEventSat
         import src.representation.rule_based_eventsat  # ensure registered
 
@@ -427,7 +427,7 @@ class TestReActIntegration:
 
     def test_react_rule_based_low_battery_no_energy_intensive(self):
         """With low battery, grounding should reject energy-intensive modes."""
-        from src.decision_loop.react_loop import ReActLoop, _GROUNDING_MIN_SOC
+        from src.decision_procedure.react_loop import ReActLoop, _GROUNDING_MIN_SOC
         from src.representation.rule_based_eventsat import RuleBasedEventSat
 
         repr_ = RuleBasedEventSat()
@@ -450,11 +450,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_integration",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={
+            decision_procedure_config={
                 "max_iterations": 3,
                 "grounding_checks": ["battery_feasibility", "pass_window_timing"],
             },
@@ -485,11 +485,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_schedule",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_ground",
-            decision_loop_config={
+            decision_procedure_config={
                 "max_iterations": 3,
                 "grounding_checks": ["battery_feasibility", "pass_window_timing"],
             },
@@ -521,11 +521,11 @@ class TestReActIntegration:
         cfg = ExperimentConfig(
             experiment_id="react_test_metrics",
             agent_organization="sas",
-            decision_loop="react",
+            decision_procedure="react",
             representation="symbolic",
-            emergence_mode="hand_designed",
+            behaviour="hand_designed",
             operations_paradigm="autonomous_hybrid",
-            decision_loop_config={"max_iterations": 3},
+            decision_procedure_config={"max_iterations": 3},
             representation_config={"type": "rule_based_eventsat"},
             environment={
                 "constellation_size": 1,

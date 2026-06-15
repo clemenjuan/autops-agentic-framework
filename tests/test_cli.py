@@ -25,9 +25,9 @@ def _write_config(
     data = {
         "experiment_id": name,
         "agent_organization": "sas",
-        "decision_loop": "sda",
+        "decision_procedure": "sda",
         "representation": "symbolic",
-        "emergence_mode": "hand_designed",
+        "behaviour": "hand_designed",
         "operations_paradigm": "autonomous_hybrid",
         "num_episodes": 1,
         "max_steps": 2,
@@ -101,9 +101,9 @@ class TestCmdTrainPPO:
             "subm_le_test",
             extra={
                 "representation": "subsymbolic",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "subsymbolic_eventsat"},
-                "emergence_config": {"mechanism": "ppo"},
+                "behaviour_config": {"mechanism": "ppo"},
             },
         )
         from src.cli import cmd_train
@@ -111,7 +111,7 @@ class TestCmdTrainPPO:
         mock_trainer = MagicMock()
         mock_trainer.train.return_value = "data/trained_models/subm_le_test/policy.pt"
 
-        with patch("src.emergence.training_pipeline.PPOTrainer", return_value=mock_trainer):
+        with patch("src.behaviour.training_pipeline.PPOTrainer", return_value=mock_trainer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = 1000
@@ -128,15 +128,15 @@ class TestCmdTrainPPO:
             "subm_le_notorch",
             extra={
                 "representation": "subsymbolic",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "subsymbolic_eventsat"},
-                "emergence_config": {"mechanism": "ppo"},
+                "behaviour_config": {"mechanism": "ppo"},
             },
         )
         from src.cli import cmd_train
 
         # Make the import of training_pipeline fail (simulates missing torch)
-        with patch.dict("sys.modules", {"src.emergence.training_pipeline": None}):
+        with patch.dict("sys.modules", {"src.behaviour.training_pipeline": None}):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None
@@ -160,9 +160,9 @@ class TestCmdTrainPromptOptimized:
             "hybr_lep_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "llm_eventsat"},
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             },
         )
         from src.cli import cmd_train
@@ -170,7 +170,7 @@ class TestCmdTrainPromptOptimized:
         mock_optimizer = MagicMock()
         mock_optimizer.optimize.return_value = "Optimised prompt text"
 
-        with patch("src.emergence.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
+        with patch("src.behaviour.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None
@@ -188,9 +188,9 @@ class TestCmdTrainPromptOptimized:
             "agnt_lep_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "agentic_eventsat"},
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             },
         )
         from src.cli import cmd_train
@@ -198,7 +198,7 @@ class TestCmdTrainPromptOptimized:
         mock_optimizer = MagicMock()
         mock_optimizer.optimize.return_value = "Prompt"
 
-        with patch("src.emergence.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
+        with patch("src.behaviour.prompt_optimizer.PromptOptimizer", return_value=mock_optimizer):
             args = MagicMock()
             args.config = str(config_path)
             args.timesteps = None
@@ -224,9 +224,9 @@ class TestCmdTrainWritableCoala:
             "agnt_lec_test",
             extra={
                 "representation": "hybrid",
-                "emergence_mode": "learned",
+                "behaviour": "emergent",
                 "representation_config": {"type": "agentic_eventsat"},
-                "emergence_config": {"mechanism": "writable_coala"},
+                "behaviour_config": {"mechanism": "writable_coala"},
             },
         )
         from src.cli import cmd_train
@@ -256,9 +256,9 @@ class TestCmdTrainUnknown:
             "weird_test",
             extra={
                 "representation": "symbolic",
-                "emergence_mode": "hand_designed",
+                "behaviour": "hand_designed",
                 "representation_config": {"type": "rule_based_eventsat"},
-                "emergence_config": {},
+                "behaviour_config": {},
             },
         )
         from src.cli import cmd_train

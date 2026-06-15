@@ -280,7 +280,7 @@ class TestAgenticWritableCoalaIntegration:
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
-            "emergence_config": {"mechanism": "writable_coala"},
+            "behaviour_config": {"mechanism": "writable_coala"},
         })
         assert rep._mechanism == "writable_coala"
         assert isinstance(rep._memory, WritableMemory)
@@ -304,7 +304,7 @@ class TestAgenticWritableCoalaIntegration:
             rep = AgenticEventSat(config={
                 "llm_mock": True,
                 "experiment_id": "nonexistent_exp",
-                "emergence_config": {"mechanism": "prompt_optimized"},
+                "behaviour_config": {"mechanism": "prompt_optimized"},
             })
         assert rep._system_prompt == AGENTIC_SYSTEM_PROMPT
         assert any("trained prompt not found" in str(warning.message) for warning in w)
@@ -318,7 +318,7 @@ class TestAgenticWritableCoalaIntegration:
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
-            "emergence_config": {
+            "behaviour_config": {
                 "mechanism": "prompt_optimized",
                 "trained_prompt_path": str(prompt_path),
             },
@@ -331,7 +331,7 @@ class TestAgenticWritableCoalaIntegration:
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
-            "emergence_config": {"mechanism": "writable_coala"},
+            "behaviour_config": {"mechanism": "writable_coala"},
         })
         assert "memory_write_rule" in rep._system_prompt
         assert "memory_write_episode" in rep._system_prompt
@@ -342,7 +342,7 @@ class TestAgenticWritableCoalaIntegration:
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
-            "emergence_config": {"mechanism": "writable_coala"},
+            "behaviour_config": {"mechanism": "writable_coala"},
         })
         tool_names = {s["name"] for s in rep._tool_schemas}
         assert "memory_write_rule" in tool_names

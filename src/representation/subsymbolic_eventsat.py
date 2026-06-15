@@ -12,9 +12,9 @@ The policy operates on a 25D observation vector (Groups 1-5 per the plan),
 outputs MultiDiscrete([7, 2, 2]) actions, and is subject to the same symbolic
 safety grounding constraints as LLMEventSat.
 
-When emergence_mode == "learned" the representation delegates PPO updates to
+When behaviour == "emergent" the representation delegates PPO updates to
 PPOTrainer (called from experiment_runner after each episode). When
-emergence_mode == "hand_designed" update() is a no-op (policy is frozen).
+behaviour == "hand_designed" update() is a no-op (policy is frozen).
 
 Papers:
 - Oliver et al. EUCASS 2025 (8KDZ5Z53): architecture, obs/action space
@@ -30,12 +30,12 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 
-from src.emergence.controller import register
+from src.behaviour.controller import register
 from src.representation.base import Representation
 from src.representation.neural_policy import TORCH_AVAILABLE, RandomPolicy
 
 if TYPE_CHECKING:
-    from src.decision_loop.context import DecisionContext
+    from src.decision_procedure.context import DecisionContext
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,14 @@ class SubsymbolicEventSat(Representation):
         mock_mode = self.config.get("rl_mock", False)
         self._deterministic: bool = self.config.get("deterministic", True)
 
-        if mock_mode or not TORCH_AVAILABLE:
+        if not mock_mode and not TORCH_AVAILABLE:
+            # Never silently degrade an RL cell to a random policy: that produces
+            # plausible-looking garbage results (caught 2026-06-11). CI must opt in.
+            raise RuntimeError(
+                "subsymbolic representation requires torch (`uv sync --extra rl`); "
+                "set representation_config.rl_mock: true explicitly for CI/mock runs."
+            )
+        if mock_mode:
             self._policy = RandomPolicy()
             self._mock = True
         else:
@@ -103,7 +110,19 @@ class SubsymbolicEventSat(Representation):
                         self._policy.load_state_dict(state)
                     logger.info("Loaded checkpoint from %s", checkpoint_path)
                 else:
-                    logger.warning("Checkpoint not found at %s — using random init", checkpoint_path)
+                    raise RuntimeError(
+                        f"RL cell integrity violation: checkpoint_path set but not found "
+                        f"at '{checkpoint_path}' — refusing to evaluate an untrained policy."
+                    )
+            elif not self.config.get("allow_untrained", False):
+                # Evaluating an untrained policy yields plausible-looking garbage
+                # (caught 2026-06-11). Training entry points set allow_untrained.
+                raise RuntimeError(
+                    "RL cell integrity violation: no checkpoint_path configured — an "
+                    "evaluation run would measure an untrained policy. Provide "
+                    "representation_config.checkpoint_path, or set allow_untrained: true "
+                    "(training) / rl_mock: true (CI)."
+                )
 
         # Env constants used for normalisation (configurable so they can be set
         # from experiment YAML without requiring access to the live env object)
@@ -282,7 +301,7 @@ class SubsymbolicEventSat(Representation):
         """Delegate PPO update to the trainer (learned mode only).
 
         Called by experiment_runner after each episode when
-        emergence_mode == "learned". No-op if trainer not set.
+        behaviour == "emergent". No-op if trainer not set.
 
         Args:
             experience: Dict with keys: buffer (RolloutBuffer), episode (int).

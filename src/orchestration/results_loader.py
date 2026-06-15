@@ -158,9 +158,9 @@ def load_multiple_experiments(
         cfg = results.get("config", {})
         for dim in [
             "agent_organization",
-            "decision_loop",
+            "decision_procedure",
             "representation",
-            "emergence_mode",
+            "behaviour",
             "operations_paradigm",
         ]:
             s_df[dim] = cfg.get(dim, "unknown")

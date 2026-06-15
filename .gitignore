@@ -88,3 +88,8 @@ docs/*
 
 # Draft papers
 papers/
+
+# Generated SSP-variant configs and runtime sweep artifacts (regenerable via scripts/)
+data/experiments/
+data/ssp/
+data/sweep/
