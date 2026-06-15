@@ -23,29 +23,46 @@ from pathlib import Path
 EXTRACT = Path("data/figures/extract.json")
 OUT = Path("data/figures/results_board.html")
 
-# Framework experiment matrix (morphological_matrix.md §4). The cells shipped in
-# the first remap increment; the matrix grows toward 32 as the remaining cells
-# (hrl / llm-a, the ground LLM schedulers, the 21 ah_<onboard>_<ground> pairs)
-# land. Each row: framework_id, paradigm, representation label, legacy alias.
-FRAMEWORK = [
-    ("eventsat_sas_conventional_symb", "Conventional",       "symbolic",                            "eventsat_sas_symbolic_cg"),
-    ("eventsat_sas_ag_symb",           "Autonomous Ground",  "symbolic",                            "eventsat_sas_symbolic_ag"),
-    ("eventsat_sas_ag_rl",             "Autonomous Ground",  "RL (ground scheduler)",               None),
-    ("eventsat_sas_ag_hllm-s",         "Autonomous Ground",  "single-shot hybrid LLM",              None),
-    ("eventsat_sas_ag_hllm-a",         "Autonomous Ground",  "agentic hybrid LLM",                  None),
-    ("eventsat_sas_ao_symb",           "Autonomous Onboard", "symbolic",                            "eventsat_sas_symbolic_ao"),
-    ("eventsat_sas_ao_rl",             "Autonomous Onboard", "RL (PPO)",                            None),
-    ("eventsat_sas_ah_symb_symb",      "Autonomous Hybrid",  "symbolic onboard · symbolic ground",  "eventsat_sas_symbolic_ah"),
-    ("eventsat_sas_ah_rl_rl",          "Autonomous Hybrid",  "RL onboard · RL ground",              None),
-    ("eventsat_sas_ah_rl_symb",        "Autonomous Hybrid",  "RL onboard · symbolic ground",        None),
-    ("eventsat_sas_ah_symb_hllm-a",    "Autonomous Hybrid",  "symbolic onboard · agentic-LLM ground", None),
-]
+# The board enumerates the full 32-cell matrix straight from the generator
+# (scripts/generate_experiment_configs.py — the single source of truth), so it
+# never drifts from the configs. build_matrix() is imported at run time.
+GROUND_ORDER = ["symb", "rl", "hrl", "llm-s", "llm-a", "hllm-s", "hllm-a"]
+ONBOARD_ORDER = ["symb", "rl", "hrl"]
+
+# Cells without a real core yet → documented placeholders (symbolic stand-ins).
+PLACEHOLDER_CELLS = {"hrl", "llm-s", "llm-a"}
+
+# Human-readable cell labels (never show raw tokens to the supervisor).
+REP_LABELS = {
+    "symb": "symbolic", "rl": "RL", "hrl": "hybrid-RL", "llm-s": "LLM single-shot",
+    "llm-a": "LLM agentic", "hllm-s": "hybrid LLM", "hllm-a": "agentic hybrid LLM",
+}
+
+# The 4 measured symbolic-campaign runs currently live under legacy run-ids.
+LEGACY_ALIAS = {
+    "eventsat_sas_conventional_symb": "eventsat_sas_symbolic_cg",
+    "eventsat_sas_ag_symb": "eventsat_sas_symbolic_ag",
+    "eventsat_sas_ao_symb": "eventsat_sas_symbolic_ao",
+    "eventsat_sas_ah_symb_symb": "eventsat_sas_symbolic_ah",
+}
 
 # Honesty annotations carried forward verbatim (versioned in code).
 NOTES = {
     "eventsat_sas_ag_symb": "review: ground-schedule playback at full episode length (passes vs ADCS settling).",
     "eventsat_sas_conventional_symb": "review: same ground-schedule playback caveat as AG.",
 }
+
+
+def _load_matrix() -> dict:
+    """Import build_matrix() from the generator (scripts/ isn't a package)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "generate_experiment_configs",
+        Path(__file__).resolve().parent / "generate_experiment_configs.py",
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.build_matrix()
 
 # 14-metric registry (morphological_matrix.md §6). status: measured | deferred.
 METRICS = [
@@ -89,19 +106,32 @@ def _episode_steps(rid: str) -> int | None:
 def main() -> None:
     data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
     cells = []
-    for fid, paradigm, rep, alias in FRAMEWORK:
-        rec = data.get(fid)
-        src = fid
+    for eid, cfg in _load_matrix().items():
+        paradigm = eid.split("_")[2]  # conventional | ag | ao | ah
+        if paradigm == "ah":
+            onb = cfg["onboard"]["representation"]
+            gnd = cfg["ground"]["representation"]
+            constituents = {onb, gnd}
+            rep = f"{REP_LABELS[onb]} · {REP_LABELS[gnd]}"
+        else:
+            cell = cfg["representation"]
+            onb = gnd = None
+            constituents = {cell}
+            rep = REP_LABELS[cell]
+        alias = LEGACY_ALIAS.get(eid)
+        rec = data.get(eid)
+        src = eid
         if (rec is None or not rec.get("n")) and alias:
             rec = data.get(alias)
             src = alias
         rec = rec or {}
         has = bool(rec.get("n"))
+        status = "measured" if has else ("placeholder" if (constituents & PLACEHOLDER_CELLS) else "notrun")
         cells.append({
-            "id": fid, "paradigm": paradigm, "rep": rep,
-            "status": "measured" if has else "notrun",
-            "note": NOTES.get(fid, ""),
-            "source": src if (has and src != fid) else "",
+            "id": eid, "paradigm": paradigm, "onboard": onb, "ground": gnd, "rep": rep,
+            "status": status,
+            "note": NOTES.get(eid, ""),
+            "source": src if (has and src != eid) else "",
             "n": rec.get("n", 0),
             "steps": _episode_steps(rec.get("id", "")) if has else None,
             "mean": {k: rec.get("mean", {}).get(k) for k in VALUE_KEYS},
@@ -116,10 +146,14 @@ def main() -> None:
     tele_path = Path("data/figures/telemetry.json")
     telemetry = json.loads(tele_path.read_text()) if tele_path.exists() else {}
     payload = {"cells": cells, "metrics": METRICS, "telemetry": telemetry,
-               "rho": rho, "sigma": sigma}
+               "rho": rho, "sigma": sigma,
+               "onboard_order": ONBOARD_ORDER, "ground_order": GROUND_ORDER,
+               "rep_labels": REP_LABELS}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
     measured = sum(1 for c in cells if c["status"] == "measured")
-    print(f"wrote {OUT}: {measured}/{len(cells)} cells measured, {len(METRICS)} metrics")
+    placeholder = sum(1 for c in cells if c["status"] == "placeholder")
+    print(f"wrote {OUT}: {measured}/{len(cells)} cells measured, "
+          f"{placeholder} placeholder, {len(METRICS)} metrics")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -143,6 +177,16 @@ TEMPLATE = r"""<!DOCTYPE html>
  .st.measured { color:#1e6b34; border-color:#1e6b34; }
  .st.notrun   { color:#999;    border-color:#ccc; }
  .st.deferred { color:#9a6200; border-color:#9a6200; }
+ .st.placeholder { color:#9a6200; border-color:#d9a441; border-style:dashed; }
+ .ahgrid { width:auto; }
+ .ahgrid td, .ahgrid th { border:1px solid #ddd; text-align:center; padding:6px 9px; font-size:12px; }
+ .ahgrid th.ahh, .ahgrid th.ahrow { font-family:'Computer Modern Sans',Arial,sans-serif; font-weight:600; font-size:11px; color:#444; background:#f5f8fb; }
+ .ahgrid th.ahrow { text-align:right; }
+ .ahcell { font-variant-numeric:tabular-nums; }
+ .ahcell.measured { background:#d7ecd9; color:#1e6b34; font-weight:600; }
+ .ahcell.placeholder { background:#fbf2dd; color:#9a6200; }
+ .ahcell.notrun { background:#fafafa; color:#bbb; }
+ .ahlegend { font-size:11px; color:#666; margin:6px 0 0; font-family:'Computer Modern Sans',Arial,sans-serif; }
  .kpis { display:flex; gap:26px; margin:10px 0 4px; }
  .kpi b { font-size:21px; display:block; color:#0065BD; } .kpi { font-size:12px; color:#555; }
  .guide { border-left:3px solid #0065BD; background:#f5f8fb; padding:10px 16px; font-size:13.5px; margin:8px 0; }
@@ -230,33 +274,58 @@ const P = __PAYLOAD__;
 const CELLS = {}; P.cells.forEach(c => CELLS[c.id] = c);
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
-const PARADIGMS = ["Conventional","Autonomous Ground","Autonomous Onboard","Autonomous Hybrid"];
+const PARADIGMS = [["conventional","Conventional"],["ag","Autonomous Ground"],["ao","Autonomous Onboard"]];
+const badge = s => s==="measured" ? stc("measured","measured")
+                  : s==="placeholder" ? stc("placeholder","placeholder")
+                  : stc("notrun","not yet run");
 
-// ---- 1: matrix
+// ---- 1: matrix (single-core paradigms as tables; AH as a 3×7 onboard×ground grid)
 (function(){
   let h = "";
-  for (const par of PARADIGMS){
-    const rows = P.cells.filter(c=>c.paradigm===par);
+  for (const [tok,label] of PARADIGMS){
+    const rows = P.cells.filter(c=>c.paradigm===tok);
     const meas = rows.filter(r=>r.status==="measured").length;
     h += `<details ${meas?"open":""}><summary style="cursor:pointer;padding:6px 0">`+
-         `<b>${par}</b> <span style="color:#666;font-size:12px">(${meas}/${rows.length} measured)</span></summary>`+
+         `<b>${label}</b> <span style="color:#666;font-size:12px">(${meas}/${rows.length} measured)</span></summary>`+
          `<table><tr><th>representation</th><th>state</th><th class="num">episodes</th>`+
          `<th class="num">U mean</th><th>note</th></tr>`;
     for (const r of rows){
       const u = r.status==="measured" ? fmt(r.mean.utility) : "—";
       const note = r.note + (r.source ? `<span style="color:#999"> [data: ${r.source}]</span>` : "");
-      h += `<tr><td>${r.rep}</td><td>${stc(r.status, r.status==="notrun"?"not yet run":"measured")}</td>`+
+      h += `<tr><td>${r.rep}</td><td>${badge(r.status)}</td>`+
            `<td class="num">${r.n||"—"}</td><td class="num">${u}</td>`+
            `<td style="color:#666;font-size:12px">${note}</td></tr>`;
     }
     h += "</table></details>";
   }
+  // Autonomous Hybrid: 3×7 onboard×ground grid
+  const ah = {}; P.cells.filter(c=>c.paradigm==="ah").forEach(c=>{ ah[c.onboard+"|"+c.ground]=c; });
+  const measAh = P.cells.filter(c=>c.paradigm==="ah"&&c.status==="measured").length;
+  let g = `<details open><summary style="cursor:pointer;padding:6px 0"><b>Autonomous Hybrid</b> `+
+          `<span style="color:#666;font-size:12px">— onboard × ground (${measAh}/21 measured)</span></summary>`+
+          `<table class="ahgrid"><tr><th class="ahh">onboard ↓ / ground →</th>`+
+          P.ground_order.map(gc=>`<th class="ahh">${P.rep_labels[gc]}</th>`).join("")+`</tr>`;
+  for (const ob of P.onboard_order){
+    g += `<tr><th class="ahrow">${P.rep_labels[ob]}</th>`;
+    for (const gc of P.ground_order){
+      const c = ah[ob+"|"+gc] || {status:"notrun", mean:{}, id:""};
+      const txt = c.status==="measured" ? fmt(c.mean.utility) : (c.status==="placeholder" ? "▢" : "·");
+      const tip = c.id + (c.source ? " [data: "+c.source+"]" : "");
+      g += `<td class="ahcell ${c.status}" title="${tip}">${txt}</td>`;
+    }
+    g += "</tr>";
+  }
+  g += `</table><div class="ahlegend">utility shown where measured · `+
+       `<span style="color:#1e6b34">green = measured</span> · `+
+       `<span style="color:#9a6200">amber ▢ = placeholder cell</span> · grey · = not yet run</div></details>`;
+  h += g;
   document.getElementById("matrix").innerHTML = h;
   const meas = P.cells.filter(c=>c.status==="measured").length;
+  const ph = P.cells.filter(c=>c.status==="placeholder").length;
   document.getElementById("kpis").innerHTML =
-    `<div class="kpi"><b>${meas}</b>measured cells</div>`+
-    `<div class="kpi"><b>${P.cells.length}</b>cells shipped</div>`+
-    `<div class="kpi"><b>32</b>full matrix (target)</div>`;
+    `<div class="kpi"><b>${meas}</b>measured</div>`+
+    `<div class="kpi"><b>${ph}</b>placeholder cells</div>`+
+    `<div class="kpi"><b>${P.cells.length}</b>matrix cells</div>`;
 })();
 
 // ---- 2: results plots (publication style)
