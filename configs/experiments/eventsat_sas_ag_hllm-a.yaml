@@ -1,17 +1,16 @@
-experiment_id: eventsat_sas_agentic_ah
-description: "EventSat \xB7 SAS \xB7 agentic \xB7 AH.\n"
+experiment_id: eventsat_sas_ag_hllm-a
+description: "EventSat \xB7 SAS \xB7 AG \xB7 hllm-a.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: hybrid
+representation: hllm-a
 behaviour: hand_designed
-operations_paradigm: autonomous_hybrid
+operations_paradigm: autonomous_ground
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
 representation_config:
-  action_space: agentic
   llm_provider: auto
   llm_model: qwen3.6:35b
   openai_model: gpt-4o-mini
@@ -21,6 +20,8 @@ representation_config:
   max_agentic_steps: 5
 behaviour_config:
   mode: hand_designed
+operations_paradigm_config:
+  orbital_period_steps: 93
 environment:
   constellation_size: 1
   timestep_seconds: 60

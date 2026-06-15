@@ -1,9 +1,9 @@
-experiment_id: eventsat_sas_symbolic_ah
-description: "EventSat \xB7 SAS \xB7 symbolic \xB7 AH.\n"
+experiment_id: eventsat_sas_ah_symb_symb
+description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 symb ground.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: symbolic
+representation: symb
 behaviour: hand_designed
 operations_paradigm: autonomous_hybrid
 agent_organization_config: {}

@@ -1,23 +1,16 @@
-experiment_id: eventsat_sas_llm_cg
-description: "EventSat \xB7 SAS \xB7 llm \xB7 CG.\n"
+experiment_id: eventsat_sas_ao_symb
+description: "EventSat \xB7 SAS \xB7 AO \xB7 symb.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: llm
+representation: symb
 behaviour: hand_designed
-operations_paradigm: conventional_ground
+operations_paradigm: autonomous_onboard
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
-representation_config:
-  action_space: reactive
-  llm_provider: auto
-  llm_model: qwen3.6:35b
-  openai_model: gpt-4o-mini
-  llm_temperature: 0.0
-  llm_mock: false
-  llm_cache_dir: data/llm_cache
+representation_config: {}
 behaviour_config:
   mode: hand_designed
 environment:
@@ -37,11 +30,7 @@ metrics:
   - latency
   - resource_efficiency
   - operator_load
-  - explainability
   collection_frequency: per_step
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
-operations_paradigm_config:
-  default_mode: charging
-  orbital_period_steps: 93

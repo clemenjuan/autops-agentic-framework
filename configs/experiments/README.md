@@ -1,43 +1,54 @@
-# Experiment Configuration Guide
+# Experiment Configurations
 
-This directory contains YAML configuration files for experiments.
-Each file defines a complete experimental setup.
+YAML configurations for the EventSat operations-system (O) benchmark. Each file
+defines one complete experiment. Canonical spec: [`docs/morphological_matrix.md`](../../docs/morphological_matrix.md).
 
-## Naming Convention
+## Naming convention
 
 ```
-eventsat_<org>_<loop>_<repr>_<emergence>_<ops>.yaml
+eventsat_sas_<paradigm>_<rep>.yaml
 ```
 
-- `org`: cen (centralized)
-- `loop`: sda, ooda, react
-- `repr`: symb (symbolic)
-- `emergence`: hd (hand-designed)
-- `ops`: ah (autonomous hybrid), ag (autonomous ground), cg (conventional ground)
+- `paradigm`: `conventional` · `ag` · `ao` · `ah`
+- `rep` (7 cells): `symb` · `rl` · `hrl` · `llm-s` · `llm-a` · `hllm-s` · `hllm-a`
+  (`ao` onboard is restricted to `symb`/`rl`/`hrl`)
+- the dual-core `ah` names **both** cores, onboard-first:
+  `eventsat_sas_ah_<onboard>_<ground>` (e.g. `eventsat_sas_ah_rl_llm-s`)
 
-## Current Configurations (Phase 3)
+The full matrix is **32 experiments** (conventional 1 + ag 7 + ao 3 + ah 21).
 
-| Config | Loop | Ops Paradigm | Representation |
-|--------|------|--------------|----------------|
-| `eventsat_cen_sda_symb_hd_ah` | SDA | Autonomous Hybrid | Rule-based |
-| `eventsat_cen_sda_symb_hd_ag` | SDA | Autonomous Ground | Schedule-based |
-| `eventsat_cen_sda_symb_hd_cg` | SDA | Conventional Ground | Conventional Schedule |
-| `eventsat_cen_ooda_symb_hd_ah` | OODA | Autonomous Hybrid | Rule-based |
-| `eventsat_cen_ooda_symb_hd_ag` | OODA | Autonomous Ground | Schedule-based |
-| `eventsat_cen_ooda_symb_hd_cg` | OODA | Conventional Ground | Conventional Schedule |
-| `eventsat_cen_react_symb_hd_ah` | ReAct | Autonomous Hybrid | Rule-based |
-| `eventsat_cen_react_symb_hd_ag` | ReAct | Autonomous Ground | Schedule-based |
-| `eventsat_cen_react_symb_hd_cg` | ReAct | Conventional Ground | Conventional Schedule |
+## Current configurations
+
+Increment 1 of the code remap ships the framework-valid subset that already has
+runnable cores; the remaining cells (the `hrl`/`llm-a` placeholders, the LLM
+ground schedulers, and the 21 `ah_<onboard>_<ground>` pairs) land in later
+increments.
+
+| Config | Paradigm | Representation |
+|--------|----------|----------------|
+| `eventsat_sas_conventional_symb` | Conventional | symbolic |
+| `eventsat_sas_ag_symb` | Autonomous Ground | symbolic |
+| `eventsat_sas_ag_rl` | Autonomous Ground | RL (ground scheduler) |
+| `eventsat_sas_ag_llm-s` | Autonomous Ground | single-shot LLM |
+| `eventsat_sas_ag_hllm-a` | Autonomous Ground | agentic hybrid LLM |
+| `eventsat_sas_ao_symb` | Autonomous Onboard | symbolic |
+| `eventsat_sas_ao_rl` | Autonomous Onboard | RL (PPO) |
+| `eventsat_sas_ah_symb_symb` | Autonomous Hybrid | symbolic onboard + symbolic ground |
+| `eventsat_sas_ah_rl_rl` | Autonomous Hybrid | RL onboard + RL ground |
+
+`template.yaml` documents every field.
 
 ## Usage
 
 ```bash
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml
-uv run autops run configs/experiments/eventsat_cen_sda_symb_hd_ah.yaml --episodes 1 --steps 100  # smoke test
-uv run autops batch configs/experiments/  # run all
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml
+uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --episodes 1 --steps 100  # smoke test
+uv run autops batch configs/experiments/   # run all
 ```
 
 ## Validation
 
-All configs are validated on load using Pydantic. Invalid configurations
-will raise clear error messages listing the issue.
+All configs are validated on load by Pydantic (`src/orchestration/config_loader.py`);
+invalid configurations raise clear errors. The `representation` field accepts the
+7-cell tokens above (normalised to the internal substrate + action space) as well
+as the legacy substrate values.

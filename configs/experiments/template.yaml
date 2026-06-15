@@ -4,14 +4,12 @@
 # All experimental choices must be specified here — no hardcoded decisions.
 
 # ─── Experiment Identification ───────────────────────────────────────
-# Naming convention: <scenario>_<org>_<proc>_<repr>_<beh>_<ops>
-#   org:  sas | cmas | dmas | imas | hmas
-#   proc: sda | ooda | react        (decision procedure)
-#   repr: symb | hyre | subm | hyag (substrate + hybrid action-space flavor)
-#   beh:  hd | le | lep | lec        (behaviour: hand-designed / emergent mechanism)
-#   ops:  ah (autonomous_hybrid) | ag (autonomous_ground) | cg (conventional_ground)
-# Example: eventsat_sas_sda_symb_hd_ah
-experiment_id: "eventsat_<org>_<loop>_<repr>_<emrg>_<ops>"
+# Naming convention (morphological_matrix.md §5): eventsat_sas_<paradigm>_<rep>
+#   paradigm: conventional | ag | ao | ah
+#   rep:      symb | rl | hrl | llm-s | llm-a | hllm-s | hllm-a   (ao: symb/rl/hrl)
+#   ah names both cores onboard-first: eventsat_sas_ah_<onboard>_<ground>
+# Examples: eventsat_sas_ag_symb · eventsat_sas_ah_rl_llm-s · eventsat_sas_conventional_symb
+experiment_id: "eventsat_sas_<paradigm>_<rep>"
 description: "Brief description of experimental configuration"
 
 # ─── Reproducibility ────────────────────────────────────────────────
@@ -25,13 +23,17 @@ agent_organization: "sas"
 # decision_procedure: sda | ooda | react | <custom>
 decision_procedure: "sda"
 
-# representation: symbolic | subsymbolic | hybrid
-representation: "symbolic"
+# representation: a 7-cell framework token (morphological_matrix.md §2) —
+#   symb | rl | hrl | llm-s | llm-a | hllm-s | hllm-a
+# (legacy substrate values symbolic | subsymbolic | rl | llm | hybrid + an
+#  action_space in representation_config are still accepted)
+representation: "symb"
 
 # behaviour: hand_designed | emergent
 behaviour: "hand_designed"
 
-# operations_paradigm: autonomous_hybrid | autonomous_ground | conventional_ground
+# operations_paradigm: autonomous_onboard | autonomous_hybrid | autonomous_ground
+#   | conventional_ground   (filename tokens: ao | ah | ag | conventional)
 operations_paradigm: "autonomous_hybrid"
 
 # ─── Component-Specific Configuration ───────────────────────────────
@@ -94,12 +96,6 @@ metrics:
     - explainability
     - scale_complexity        # tracked as a function of constellation_size x complexity_index
   collection_frequency: "per_step"   # per_step | per_episode
-
-# ─── Scalability Configuration ──────────────────────────────────────
-# Used for RQ3 experiments — sweep over both axes independently or jointly.
-scalability:
-  complexity_index: 0      # 0=sas | 1=centralized_mas | 2=decentralized_mas | 3=independent_mas | 4=hybrid_mas
-  sweep_sizes: []          # e.g. [1, 5, 12, 50, 100, 500] for scaling experiments
 
 # ─── Output Configuration ───────────────────────────────────────────
 

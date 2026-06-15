@@ -1,5 +1,5 @@
-experiment_id: eventsat_sas_rl_ah
-description: "EventSat \xB7 SAS \xB7 rl \xB7 AH.\n"
+experiment_id: eventsat_sas_ah_rl_rl
+description: "EventSat \xB7 SAS \xB7 AH \xB7 rl onboard \xB7 rl ground.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda

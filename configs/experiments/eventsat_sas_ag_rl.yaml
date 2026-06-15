@@ -1,11 +1,11 @@
-experiment_id: eventsat_sas_rl_cg
-description: "EventSat \xB7 SAS \xB7 rl \xB7 CG.\n"
+experiment_id: eventsat_sas_ag_rl
+description: "EventSat \xB7 SAS \xB7 AG \xB7 rl.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
 representation: rl
 behaviour: emergent
-operations_paradigm: conventional_ground
+operations_paradigm: autonomous_ground
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
