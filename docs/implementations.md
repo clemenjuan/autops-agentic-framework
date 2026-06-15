@@ -9,12 +9,15 @@ its paper basis, and key design decisions. Grows as new components are added.
 > representations are `symb · rl · hrl · llm-s · llm-a · hllm-s · hllm-a`; run names follow
 > `eventsat_sas_<paradigm>_<rep>` (ah: `_<onboard>_<ground>`). The `decision_procedure` and
 > `behaviour` modules and config fields are held at defaults (not framework components). **NB —
-> work in progress:** the code still uses the legacy `representation` values
-> (`symbolic/subsymbolic/hybrid` + `action_space`) and `@register` class names
-> (`rule_based_eventsat`, `subsymbolic_eventsat`, `llm_eventsat`, `agentic_eventsat`,
-> `*_scheduler_eventsat`); mapping these onto the seven framework cells and enabling dual-core AH
-> is the step-by-step code work, not done yet. The component descriptions below document the
-> **current code** — map them to the framework via `morphological_matrix.md` §2.
+> work in progress:** configs now declare the 7-cell token in `representation` (the loader
+> normalises it to the internal substrate + `action_space`, so the `@register` class names below —
+> `rule_based_eventsat`, `subsymbolic_eventsat`, `llm_eventsat`, `agentic_eventsat`,
+> `*_scheduler_eventsat` — are unchanged). Still pending: real `hrl`/`llm-a` cores (currently
+> documented placeholders, `placeholder_cells.py`), the learned ground LLM schedulers, and
+> dual-core AH with *independent* onboard/ground representations (the 21 `ah_<onboard>_<ground>`
+> pairs). The component descriptions below document the **current code** — map them to the
+> framework via `morphological_matrix.md` §2. Some structural counts further below (e.g.
+> "36 configs", "3 loops") are stale pre-refocus residue, pending a dedicated docs pass.
 
 ---
 

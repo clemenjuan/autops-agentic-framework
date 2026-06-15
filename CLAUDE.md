@@ -27,7 +27,7 @@ EventSat·SAS = **32 experiments** (1 + 7 + 3 + 21), scored on 14 metrics (`morp
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (692 tests: 669 pass, 23 RL skipped without --extra rl)
+uv run pytest tests/ -v -o "addopts="     # Full test suite (685 tests: 662 pass, 23 RL skipped without --extra rl)
 uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
 
 # Run experiments — name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
@@ -97,7 +97,7 @@ See `src/memory/writable_memory.py`.
 
 ## Coding conventions
 - Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)
-- The config `representation` field + `action_space` resolve to the concrete `@register` class via `ExperimentConfig.resolved_representation_type` (e.g. symbolic+AH→`rule_based_eventsat`, hybrid+agentic+AH→`agentic_eventsat`, hybrid+reactive+AG→`llm_scheduler_eventsat`). NB: the config *content* values still use the legacy substrate terms (`symbolic/subsymbolic/hybrid`) — mapping them onto the 7 framework cells (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`) is part of the step-by-step code work, not done yet. `representation_config.type` is an optional explicit override.
+- Configs declare the framework cell in `representation` (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`); a `model_validator(mode="before")` (`_normalize_representation_cell`) expands the cell to the internal substrate + `action_space` and records `representation_cell`, so resolution (`resolved_representation_type` / `resolved_onboard_type` / `resolved_ground_planner_type`) is unchanged (e.g. symb+AH→`rule_based_eventsat`, hllm-a+AH→`agentic_eventsat`). Legacy substrate values (`symbolic/subsymbolic/hybrid` + `action_space`) are still accepted. `hrl`/`llm-a` route to documented placeholders (`src/representation/placeholder_cells.py`, `is_placeholder=True`) — real cores pending. Dual-core AH with *independent* onboard/ground reps (the 21 `ah_<onboard>_<ground>` pairs) is still pending. `representation_config.type` is an optional explicit override.
 - Loop-specific data goes in `context.enrichments`, never in representation state
 - All representations must implement `encode_observation()` + `select_action()`; optionally `reason()` for ReAct, `update()` for learned variants
 - Rationale strings always set `self._last_rationale` for explainability metrics
