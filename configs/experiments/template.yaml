@@ -55,6 +55,18 @@ representation_config:
   # Subsymbolic: network architecture, checkpoint path
   {}
 
+# ─── Dual-core Autonomous Hybrid (optional) ─────────────────────────
+# For ah_<onboard>_<ground> with DIFFERENT cores, replace the single
+# `representation`/`representation_config` above with nested onboard/ground blocks
+# (each = its own representation + config). Onboard ∈ {symb, rl, hrl} (no per-step
+# LLM onboard); ground ∈ the 7 cells. Omit both for single-rep AH / AO / AG / CG.
+# onboard:
+#   representation: rl
+#   representation_config: {rl_mock: false, checkpoint_path: ''}
+# ground:
+#   representation: hllm-a
+#   representation_config: {llm_model: qwen3.6:35b}
+
 behaviour_config:
   # mode is inferred from top-level behaviour
   # mechanism: ppo (subsymbolic) | prompt_optimized (hybrid LLM) | writable_coala (agentic only)

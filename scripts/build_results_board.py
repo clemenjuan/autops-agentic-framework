@@ -37,6 +37,8 @@ FRAMEWORK = [
     ("eventsat_sas_ao_rl",             "Autonomous Onboard", "RL (PPO)",                            None),
     ("eventsat_sas_ah_symb_symb",      "Autonomous Hybrid",  "symbolic onboard · symbolic ground",  "eventsat_sas_symbolic_ah"),
     ("eventsat_sas_ah_rl_rl",          "Autonomous Hybrid",  "RL onboard · RL ground",              None),
+    ("eventsat_sas_ah_rl_symb",        "Autonomous Hybrid",  "RL onboard · symbolic ground",        None),
+    ("eventsat_sas_ah_symb_hllm-a",    "Autonomous Hybrid",  "symbolic onboard · agentic-LLM ground", None),
 ]
 
 # Honesty annotations carried forward verbatim (versioned in code).

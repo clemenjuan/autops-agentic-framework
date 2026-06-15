@@ -894,13 +894,21 @@ hllm-s · hllm-a):
 - `eventsat_sas_conventional_symb`
 - `eventsat_sas_ag_{symb, rl, hllm-s, hllm-a}`
 - `eventsat_sas_ao_{symb, rl}`
-- `eventsat_sas_ah_symb_symb`, `eventsat_sas_ah_rl_rl`
+- `eventsat_sas_ah_symb_symb`, `eventsat_sas_ah_rl_rl` (single-rep AH)
+- `eventsat_sas_ah_rl_symb`, `eventsat_sas_ah_symb_hllm-a` (dual-core AH examples)
 
-**Pending** (later increments): the `hrl` / `llm-s` / `llm-a` cells (currently
-documented placeholders, `placeholder_cells.py`), the learned ground LLM
-schedulers, and dual-core AH with *independent* onboard/ground reps (the 21
-`ah_<onboard>_<ground>` pairs). Learned behaviour is wired via `behaviour_config`
-(`ppo` for RL, `writable_coala` for agentic online learning), not separate cells.
+**Dual-core AH** is supported: a config names two cores via nested `onboard:` /
+`ground:` blocks, each with its own `representation` + `representation_config`
+(onboard ∈ {symb, rl, hrl}, ground ∈ the 7 cells). Resolution keys off the
+per-core substrate (`ExperimentConfig.resolved_onboard_type` /
+`resolved_ground_planner_type`); the runner feeds each core its own config. Omitting
+both blocks keeps the single-`representation` behaviour (AO/AG/CG, single-rep AH).
+
+**Pending** (later increments): generating all 21 `ah_<onboard>_<ground>` pairs
+(config generator); the `hrl` / `llm-s` / `llm-a` real cores (currently documented
+placeholders, `placeholder_cells.py`); and the learned ground LLM schedulers.
+Learned behaviour is wired via `behaviour_config` (`ppo` for RL, `writable_coala`
+for agentic online learning), not separate cells.
 
 ### Comparison axes
 
