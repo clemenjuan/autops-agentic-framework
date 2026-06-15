@@ -707,11 +707,16 @@ class ExperimentRunner:
                 if (self._organization is not None and stale_obs is not None)
                 else {}
             )
+            gp_latency = 0.0
             for agent_id, gp_loop in self._ground_planner_loops.items():
+                gp_t0 = time.perf_counter()
                 gp_action, self._memory = gp_loop.process(
                     gp_obs.get(agent_id), self._memory
                 )
+                gp_latency += time.perf_counter() - gp_t0
                 self._operations_paradigm.set_uplinked_plan(gp_action)
+            # Surface the ground-planning wall-clock for M-07 (recorded below).
+            decision_metrics["ground_decision_latency_s"] = gp_latency
 
         # 6. Process actions through operations paradigm (may buffer/gate)
         if self._operations_paradigm is not None:

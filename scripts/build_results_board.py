@@ -92,7 +92,7 @@ METRICS = [
 ]
 
 VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
-              "explainability_score", "data_downlink_efficiency",
+              "mean_ground_latency_s", "explainability_score", "data_downlink_efficiency",
               "observation_hours", "downlinked_mb",
               "llm_api_calls", "llm_mean_call_latency_s", "llm_cache_hit_rate"]
 
@@ -106,11 +106,12 @@ METRIC_OPTIONS = [
     ("operator_load", "Safety-Override Rate (M-05) ↓"),
     ("explainability_score", "Explainability (M-08)"),
     ("mean_latency_s", "Decision Latency (M-07) ↓"),
+    ("mean_ground_latency_s", "Ground-planner latency, s ↓"),
     ("llm_mean_call_latency_s", "LLM call latency, s ↓"),
     ("llm_api_calls", "LLM API calls"),
     ("llm_cache_hit_rate", "LLM cache-hit rate"),
 ]
-LOWER_BETTER = ["operator_load", "mean_latency_s", "llm_mean_call_latency_s"]
+LOWER_BETTER = ["operator_load", "mean_latency_s", "mean_ground_latency_s", "llm_mean_call_latency_s"]
 
 
 def _episode_steps(rid: str) -> int | None:

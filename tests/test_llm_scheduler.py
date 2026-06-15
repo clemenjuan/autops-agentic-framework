@@ -79,6 +79,26 @@ def test_client_mean_latency_and_reset() -> None:
     assert c.get_metrics()["llm_total_latency_s"] == 0.0
 
 
+def test_m07_per_decision_cycle_and_ground_latency() -> None:
+    """M-07 averages over decision cycles (steps where inference ran), not all steps;
+    AH ground-planner latency is captured separately."""
+    from src.orchestration.metrics_collector import StepMetrics
+    from src.orchestration.eventsat_metrics import EventSatMetricsCollector
+    col = EventSatMetricsCollector(config={})
+    steps = []
+    # 3 steps: two ran inference (1.0 s, 3.0 s; one with a 2.0 s ground call), one skipped.
+    for i, (lat, allowed, gp) in enumerate([(1.0, 1, 0.0), (3.0, 1, 2.0), (0.0, 0, 0.0)]):
+        steps.append(StepMetrics(
+            timestep=i, wall_clock_seconds=lat, reward=0.0,
+            metrics={"decision_latency_s": lat, "inference_allowed": float(allowed),
+                     "ground_decision_latency_s": gp},
+        ))
+    agg = col.aggregate_episode_metrics(steps).aggregated
+    assert agg["mean_latency_s"] == 2.0          # (1+3)/2 decided steps — NOT /3
+    assert agg["max_latency_s"] == 3.0
+    assert agg["mean_ground_latency_s"] == 2.0   # one ground-planning event
+
+
 def test_substrate_integrity_raises_on_no_valid_schedule(monkeypatch) -> None:
     """If the LLM never returns a valid schedule, the episode fails (no fallback)."""
     rep = LLMSchedulerEventSat({"llm_mock": True})

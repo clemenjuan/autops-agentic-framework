@@ -113,6 +113,11 @@ class EventSatMetricsCollector(MetricsCollector):
             "energy_consumed_wh": energy_consumed_wh,
             # Decision loop metrics
             "decision_latency_s": decision_metrics.get("decision_latency_s", 0.0),
+            # Whether the primary core actually ran inference this step (ground
+            # paradigms decide at passes, not every step) — denominator for M-07.
+            "inference_allowed": float(decision_metrics.get("inference_allowed", True)),
+            # AH dual-core: wall-clock of the ground-planner decision at this step.
+            "ground_decision_latency_s": decision_metrics.get("ground_decision_latency_s", 0.0),
             "has_rationale": float(decision_metrics.get("has_rationale", False)),
             # OODA-specific (zero for SDA, populated for OODA)
             "orient_latency_s": decision_metrics.get("orient_latency_s", 0.0),
@@ -162,10 +167,24 @@ class EventSatMetricsCollector(MetricsCollector):
             - self._w_anomaly * anomaly_rate
         )
 
-        # --- Research Metric 2: Latency ---
+        # --- Research Metric 2: Latency (M-07 = mean wall-clock per *decision cycle*) ---
+        # Average over steps where the primary core actually ran inference, not over
+        # all steps: ground paradigms decide at passes (~once/orbit), so dividing by
+        # every step would amortise a multi-second LLM call down to ~ms. AO/AH onboard
+        # decide every step → denominator is all steps (unchanged).
         latencies = [s.metrics.get("decision_latency_s", 0.0) for s in step_metrics]
-        mean_latency = sum(latencies) / n
-        max_latency = max(latencies)
+        decided = [
+            l for s, l in zip(step_metrics, latencies)
+            if s.metrics.get("inference_allowed", 1.0) > 0
+        ]
+        mean_latency = (sum(decided) / len(decided)) if decided else 0.0
+        max_latency = max(latencies) if latencies else 0.0
+        # AH dual-core: ground-planner decision latency, per ground-planning event.
+        gp_latencies = [
+            s.metrics.get("ground_decision_latency_s", 0.0) for s in step_metrics
+        ]
+        gp_events = [x for x in gp_latencies if x > 0]
+        mean_ground_latency = (sum(gp_events) / len(gp_events)) if gp_events else 0.0
 
         # --- Research Metric 3: Robustness (within-episode) ---
         # Recovery steps: after each anomaly onset, count steps until
@@ -212,6 +231,7 @@ class EventSatMetricsCollector(MetricsCollector):
             "data_downlink_efficiency": data_dl_efficiency,
             "mean_latency_s": mean_latency,
             "max_latency_s": max_latency,
+            "mean_ground_latency_s": mean_ground_latency,
             "robustness_mean_recovery_steps": mean_recovery_steps,
             "resource_efficiency": resource_efficiency,
             "operator_load": operator_load,
