@@ -19,12 +19,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class GroundPass:
-    """A single ground station pass."""
+    """A single ground station pass.
+
+    ``start_s`` / ``end_s`` are second-accurate AOS/LOS times (the 10° crossings,
+    linearly interpolated from the elevation samples); ``start_step`` / ``end_step``
+    are the integer-step span they fall in (kept for back-compat). Sub-timestep
+    contact uses the seconds; a 22 s pass therefore credits ~22 s, not a full step.
+    """
 
     start_step: int
     end_step: int
     max_elevation_deg: float = 0.0
     data_budget_mb: float = 0.0
+    start_s: float = 0.0
+    end_s: float = 0.0
 
 
 def compute_passes_orekit(
@@ -63,12 +71,23 @@ def compute_passes_orekit(
     in_pass = False
     pass_start = 0
     max_el = 0.0
+    start_s = 0.0
+    el_prev = None  # elevation at the previous coarse sample (for AOS/LOS interpolation)
+
+    def _make_pass(p_start_step: int, p_end_step: int, p_start_s: float,
+                   p_end_s: float, p_max_el: float) -> GroundPass:
+        contact_s = max(0.0, p_end_s - p_start_s)
+        data_mb = downlink_rate_kbps / 8.0 * contact_s / 1000.0
+        return GroundPass(
+            start_step=p_start_step, end_step=p_end_step,
+            max_elevation_deg=p_max_el, data_budget_mb=data_mb,
+            start_s=p_start_s, end_s=p_end_s,
+        )
 
     for step in range(total_steps):
         t = step * step_s
         state = propagator.propagate(start_date.shiftedBy(t))
         pos = state.getPVCoordinates().getPosition()
-
         topo = station_frame.getTrackingCoordinates(
             pos, state.getFrame(), state.getDate()
         )
@@ -79,40 +98,31 @@ def compute_passes_orekit(
                 in_pass = True
                 pass_start = step
                 max_el = elevation
+                # AOS: interpolate the 10° crossing between the previous (below) sample
+                # and this (above) sample. At t=0 there is no prior sample → use t.
+                if el_prev is not None and elevation > el_prev:
+                    frac = (min_elevation_deg - el_prev) / (elevation - el_prev)
+                    start_s = (step - 1) * step_s + frac * step_s
+                else:
+                    start_s = t
             else:
                 max_el = max(max_el, elevation)
         else:
             if in_pass:
-                duration_steps = step - pass_start
-                data_mb = (
-                    downlink_rate_kbps / 8.0
-                    * (duration_steps * step_s)
-                    / 1000.0
-                )
-                passes.append(
-                    GroundPass(
-                        start_step=pass_start,
-                        end_step=step - 1,
-                        max_elevation_deg=max_el,
-                        data_budget_mb=data_mb,
-                    )
-                )
+                # LOS: interpolate the 10° crossing between the last-above sample
+                # (step-1) and this (below) sample.
+                if el_prev is not None and el_prev > elevation:
+                    frac = (el_prev - min_elevation_deg) / (el_prev - elevation)
+                    end_s = (step - 1) * step_s + frac * step_s
+                else:
+                    end_s = (step - 1) * step_s
+                passes.append(_make_pass(pass_start, step - 1, start_s, end_s, max_el))
                 in_pass = False
+        el_prev = elevation
 
     if in_pass:
-        duration_steps = total_steps - pass_start
-        data_mb = (
-            downlink_rate_kbps / 8.0
-            * (duration_steps * step_s)
-            / 1000.0
-        )
         passes.append(
-            GroundPass(
-                start_step=pass_start,
-                end_step=total_steps - 1,
-                max_elevation_deg=max_el,
-                data_budget_mb=data_mb,
-            )
+            _make_pass(pass_start, total_steps - 1, start_s, (total_steps - 1) * step_s, max_el)
         )
 
     return passes
@@ -159,12 +169,15 @@ def compute_passes_simplified(
                 0, max(1, steps_per_day - dur_steps - 1)
             )
             data_mb = avg_data_per_day_mb / n_passes
+            start_s = start * step_s
             passes.append(
                 GroundPass(
                     start_step=start,
                     end_step=start + dur_steps,
                     max_elevation_deg=0.0,
                     data_budget_mb=data_mb,
+                    start_s=start_s,
+                    end_s=start_s + dur_s,  # true (sub-step-accurate) duration
                 )
             )
 

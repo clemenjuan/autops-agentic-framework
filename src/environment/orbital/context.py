@@ -40,22 +40,33 @@ class OrbitalContext:
     eclipses: List[EclipseInterval] = field(default_factory=list)
     ground_passes: List[GroundPass] = field(default_factory=list)
     mode: str = "simplified"
+    step_s: float = 60.0
 
     def is_in_sunlight(self, step: int) -> bool:
         """Check if satellite is in sunlight at this step."""
         return is_in_sunlight(step, self.eclipses)
 
-    def is_ground_pass_active(self, step: int) -> bool:
-        """Check if a ground pass is active at this step."""
+    def contact_seconds(self, step: int) -> float:
+        """Seconds of ground contact within step ``step``'s window
+        ``[step·Δt, (step+1)·Δt)`` — the overlap with the second-accurate pass
+        windows, in ``[0, Δt]``. Short/partial passes credit < Δt."""
+        t0 = step * self.step_s
+        t1 = t0 + self.step_s
+        total = 0.0
         for gp in self.ground_passes:
-            if gp.start_step <= step <= gp.end_step:
-                return True
-        return False
+            total += max(0.0, min(t1, gp.end_s) - max(t0, gp.start_s))
+        return min(self.step_s, total)
+
+    def is_ground_pass_active(self, step: int) -> bool:
+        """Check if there is any ground contact during this step."""
+        return self.contact_seconds(step) > 0.0
 
     def get_current_pass(self, step: int) -> Optional[GroundPass]:
-        """Return the active ground pass, or None."""
+        """Return a ground pass overlapping this step's window, or None."""
+        t0 = step * self.step_s
+        t1 = t0 + self.step_s
         for gp in self.ground_passes:
-            if gp.start_step <= step <= gp.end_step:
+            if gp.start_s < t1 and gp.end_s > t0:
                 return gp
         return None
 
@@ -190,10 +201,23 @@ def _compute_orekit_context(
         total_steps,
     )
 
+    # Document the S-band link budget at the minimum elevation (worst case).
+    lb = comms_config.get("link_budget")
+    if lb:
+        from src.environment.orbital.link_budget import compute_link_budget
+        alt_km = orbit_config.get("altitude_km", 400.0)
+        b = compute_link_budget(lb, altitude_km=alt_km, elevation_deg=min_el)
+        logger.info(
+            "S-band link budget @ %.0f° (range %.0f km): downlink margin %+.1f dB, "
+            "uplink margin %+.1f dB (rate is protocol-capped at %.0f kbps).",
+            min_el, b["slant_range_km"], b["downlink_margin_db"], b["uplink_margin_db"], dl_rate,
+        )
+
     return OrbitalContext(
         eclipses=eclipses,
         ground_passes=ground_passes,
         mode="orekit",
+        step_s=step_s,
     )
 
 
@@ -233,4 +257,5 @@ def _compute_simplified_context(
         eclipses=eclipses,
         ground_passes=ground_passes,
         mode="simplified",
+        step_s=step_s,
     )

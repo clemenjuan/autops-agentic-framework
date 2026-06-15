@@ -129,8 +129,9 @@ class TestOrbitalContext:
         assert ctx.is_in_sunlight(70)
 
     def test_ground_pass_query(self):
+        # Second-accurate windows (step_s defaults to 60): steps 100..110 inclusive.
         ctx = OrbitalContext(
-            ground_passes=[GroundPass(100, 110, data_budget_mb=5.0)]
+            ground_passes=[GroundPass(100, 110, data_budget_mb=5.0, start_s=6000.0, end_s=6660.0)]
         )
         assert not ctx.is_ground_pass_active(99)
         assert ctx.is_ground_pass_active(100)
@@ -139,10 +140,20 @@ class TestOrbitalContext:
         assert not ctx.is_ground_pass_active(111)
 
     def test_get_current_pass(self):
-        gp = GroundPass(100, 110, data_budget_mb=5.0)
+        gp = GroundPass(100, 110, data_budget_mb=5.0, start_s=6000.0, end_s=6660.0)
         ctx = OrbitalContext(ground_passes=[gp])
         assert ctx.get_current_pass(105) is gp
         assert ctx.get_current_pass(50) is None
+
+    def test_contact_seconds_subtimestep(self):
+        # A 22 s pass starting mid-step credits ~22 s, not a full 60 s step.
+        ctx = OrbitalContext(
+            ground_passes=[GroundPass(10, 10, start_s=610.0, end_s=632.0)], step_s=60.0
+        )
+        assert abs(ctx.contact_seconds(10) - 22.0) < 1e-6   # [600,660) ∩ [610,632] = 22
+        assert ctx.contact_seconds(9) == 0.0
+        assert ctx.contact_seconds(11) == 0.0
+        assert ctx.is_ground_pass_active(10)
 
 
 # -----------------------------------------------------------------

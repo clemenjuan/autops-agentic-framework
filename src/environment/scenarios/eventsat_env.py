@@ -301,9 +301,10 @@ class EventSatEnvironment(SatelliteEnvironment):
         prev_soc = self.battery_soc
 
         self._update_battery(effective_mode, in_sun)
-        # C4: Track cumulative ground pass duration for pipeline efficiency
+        # C4: Track cumulative ground *contact* time (sub-timestep accurate) for
+        # pipeline efficiency / max-achievable downlink.
         if pass_active:
-            self.total_pass_duration_s += self.step_duration_s
+            self.total_pass_duration_s += self._contact_seconds()
         reward, action_info = self._apply_mode_effects(effective_mode, in_sun, pass_active)
         anomaly_event = self._maybe_inject_anomaly()
 
@@ -439,6 +440,13 @@ class EventSatEnvironment(SatelliteEnvironment):
             return False
         return self._orbital_ctx.is_ground_pass_active(self.current_step)
 
+    def _contact_seconds(self):
+        """Seconds of ground contact within the current step (≤ step_duration_s).
+        Sub-timestep accurate: a short pass credits only its actual contact time."""
+        if self._orbital_ctx is None:
+            return 0.0
+        return self._orbital_ctx.contact_seconds(self.current_step)
+
     def _requires_attitude_maneuver(self, from_mode: str, to_mode: str) -> bool:
         """Return True if switching from_mode→to_mode requires attitude settling (P2)."""
         if self.settling_time_steps == 0:
@@ -485,9 +493,10 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.battery_soc = max(0.0, min(1.0, self.battery_soc + soc_delta))
 
     def _transfer_jetson_to_obc(self):
-        """P3: Jetson→OBC transfer via RS-485 (50 kbps, one-way active TX).
+        """P3: Jetson→OBC transfer via CAN bus (~1 MB/s; rate from config).
 
-        Only called when agent selects payload_send mode.
+        No longer a bottleneck — the binding constraint is the OBC→S-band
+        transmitter (50 kbps). Only called when agent selects payload_send mode.
         Returns the amount of data actually transferred (MB).
         """
         if self.jetson_compressed_mb <= 0.0:
@@ -610,8 +619,10 @@ class EventSatEnvironment(SatelliteEnvironment):
 
         elif mode == "communication":
             if pass_active:
-                # P3: only downlink from OBC
-                dl_mb = (self.downlink_rate_kbps / 8.0) * (self.step_duration_s / 1000.0)
+                # P3: downlink from OBC at the S-band protocol rate, over only the
+                # seconds actually in contact this step (short passes downlink less).
+                contact_s = self._contact_seconds()
+                dl_mb = (self.downlink_rate_kbps / 8.0) * (contact_s / 1000.0)
                 # RL sub-action: urgent data_priority → 1.5x downlink chunk
                 if getattr(self, "_data_priority", 0) == 1:
                     dl_mb *= 1.5
