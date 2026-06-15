@@ -18,9 +18,21 @@ from __future__ import annotations
 import json
 import re
 import statistics as st
+import warnings
 from pathlib import Path
 
+from src.orchestration.config_loader import ExperimentConfig
+
 EXTRACT = Path("data/figures/extract.json")
+
+# Resolved core types that are stand-ins (symbolic delegates), not the cell's real
+# policy — a cell resolving to any of these is a "placeholder" result.
+PLACEHOLDER_TYPES = {
+    "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
+    "llm_single_onboard_eventsat", "llm_single_scheduler_eventsat",
+    "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
+    "subsymbolic_scheduler_eventsat", "agentic_scheduler_eventsat",
+}
 OUT = Path("data/figures/results_board.html")
 
 # The board enumerates the full 32-cell matrix straight from the generator
@@ -28,9 +40,6 @@ OUT = Path("data/figures/results_board.html")
 # never drifts from the configs. build_matrix() is imported at run time.
 GROUND_ORDER = ["symb", "rl", "hrl", "llm-s", "llm-a", "hllm-s", "hllm-a"]
 ONBOARD_ORDER = ["symb", "rl", "hrl"]
-
-# Cells without a real core yet → documented placeholders (symbolic stand-ins).
-PLACEHOLDER_CELLS = {"hrl", "llm-s", "llm-a"}
 
 # Human-readable cell labels (never show raw tokens to the supervisor).
 REP_LABELS = {
@@ -84,7 +93,24 @@ METRICS = [
 
 VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
               "explainability_score", "data_downlink_efficiency",
-              "observation_hours", "downlinked_mb"]
+              "observation_hours", "downlinked_mb",
+              "llm_api_calls", "llm_mean_call_latency_s", "llm_cache_hit_rate"]
+
+# Metrics selectable in the matrix heatmap dropdown: (key, label). "↓" = lower is better.
+METRIC_OPTIONS = [
+    ("utility", "Mission Utility (M-01)"),
+    ("data_downlink_efficiency", "Downlink Efficiency (M-11)"),
+    ("observation_hours", "Observation hours"),
+    ("downlinked_mb", "Delivered MB"),
+    ("resource_efficiency", "Resource Efficiency (M-06)"),
+    ("operator_load", "Safety-Override Rate (M-05) ↓"),
+    ("explainability_score", "Explainability (M-08)"),
+    ("mean_latency_s", "Decision Latency (M-07) ↓"),
+    ("llm_mean_call_latency_s", "LLM call latency, s ↓"),
+    ("llm_api_calls", "LLM API calls"),
+    ("llm_cache_hit_rate", "LLM cache-hit rate"),
+]
+LOWER_BETTER = ["operator_load", "mean_latency_s", "llm_mean_call_latency_s"]
 
 
 def _episode_steps(rid: str) -> int | None:
@@ -111,13 +137,22 @@ def main() -> None:
         if paradigm == "ah":
             onb = cfg["onboard"]["representation"]
             gnd = cfg["ground"]["representation"]
-            constituents = {onb, gnd}
             rep = f"{REP_LABELS[onb]} · {REP_LABELS[gnd]}"
         else:
             cell = cfg["representation"]
-            onb = gnd = None
-            constituents = {cell}
+            # Place the single core in its slot: AO → onboard; AG/conventional → ground.
+            if paradigm == "ao":
+                onb, gnd = cell, None
+            else:
+                onb, gnd = None, cell
             rep = REP_LABELS[cell]
+        # Truthful placeholder flag: resolve the cell's actual cores and check whether
+        # either is a stand-in (symbolic delegate) rather than the real policy.
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ec = ExperimentConfig(**cfg)
+        resolved = {ec.resolved_onboard_type, ec.resolved_ground_planner_type}
+        placeholder = bool(resolved & PLACEHOLDER_TYPES)
         alias = LEGACY_ALIAS.get(eid)
         rec = data.get(eid)
         src = eid
@@ -126,7 +161,7 @@ def main() -> None:
             src = alias
         rec = rec or {}
         has = bool(rec.get("n"))
-        status = "measured" if has else ("placeholder" if (constituents & PLACEHOLDER_CELLS) else "notrun")
+        status = "measured" if has else ("placeholder" if placeholder else "notrun")
         cells.append({
             "id": eid, "paradigm": paradigm, "onboard": onb, "ground": gnd, "rep": rep,
             "status": status,
@@ -148,7 +183,8 @@ def main() -> None:
     payload = {"cells": cells, "metrics": METRICS, "telemetry": telemetry,
                "rho": rho, "sigma": sigma,
                "onboard_order": ONBOARD_ORDER, "ground_order": GROUND_ORDER,
-               "rep_labels": REP_LABELS}
+               "rep_labels": REP_LABELS,
+               "metric_options": METRIC_OPTIONS, "lower_better": LOWER_BETTER}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
     measured = sum(1 for c in cells if c["status"] == "measured")
     placeholder = sum(1 for c in cells if c["status"] == "placeholder")
@@ -178,15 +214,19 @@ TEMPLATE = r"""<!DOCTYPE html>
  .st.notrun   { color:#999;    border-color:#ccc; }
  .st.deferred { color:#9a6200; border-color:#9a6200; }
  .st.placeholder { color:#9a6200; border-color:#d9a441; border-style:dashed; }
- .ahgrid { width:auto; }
- .ahgrid td, .ahgrid th { border:1px solid #ddd; text-align:center; padding:6px 9px; font-size:12px; }
- .ahgrid th.ahh, .ahgrid th.ahrow { font-family:'Computer Modern Sans',Arial,sans-serif; font-weight:600; font-size:11px; color:#444; background:#f5f8fb; }
- .ahgrid th.ahrow { text-align:right; }
- .ahcell { font-variant-numeric:tabular-nums; }
- .ahcell.measured { background:#d7ecd9; color:#1e6b34; font-weight:600; }
- .ahcell.placeholder { background:#fbf2dd; color:#9a6200; }
- .ahcell.notrun { background:#fafafa; color:#bbb; }
- .ahlegend { font-size:11px; color:#666; margin:6px 0 0; font-family:'Computer Modern Sans',Arial,sans-serif; }
+ .sel { margin:8px 0 6px; font-family:'Computer Modern Sans',Arial,sans-serif; font-size:13px; color:#444; }
+ .sel select { font-size:13px; padding:2px 6px; }
+ .mgrid { width:auto; border-collapse:collapse; }
+ .mgrid td, .mgrid th { border:1px solid #e0e0e0; text-align:center; padding:7px 10px; font-size:12px; min-width:62px; }
+ .mgrid th.mh, .mgrid th.mrow { font-family:'Computer Modern Sans',Arial,sans-serif; font-weight:600; font-size:11px; color:#444; background:#f5f8fb; }
+ .mgrid th.mrow { text-align:right; }
+ .mgrid th.corner { background:#eef2f6; color:#888; }
+ .mcell { font-variant-numeric:tabular-nums; color:#111; }
+ .mcell.empty { background:#fff; color:#ccc; border:1px solid #f0f0f0; }
+ .mcell.placeholder { background:#fbf2dd; color:#9a6200; }
+ .mcell.notrun { background:#fafafa; color:#bbb; }
+ .mcell .sub { display:block; font-size:9.5px; color:#777; font-weight:400; }
+ .mlegend { font-size:11px; color:#666; margin:6px 0 0; font-family:'Computer Modern Sans',Arial,sans-serif; }
  .kpis { display:flex; gap:26px; margin:10px 0 4px; }
  .kpi b { font-size:21px; display:block; color:#0065BD; } .kpi { font-size:12px; color:#555; }
  .guide { border-left:3px solid #0065BD; background:#f5f8fb; padding:10px 16px; font-size:13.5px; margin:8px 0; }
@@ -205,10 +245,13 @@ TEMPLATE = r"""<!DOCTYPE html>
 </header>
 
 <section>
- <h2>1&emsp;Experiment matrix (O)</h2>
- <div class="caption">Framework cells grouped by operational paradigm. AH cells name both cores
- (onboard &middot; ground). Cells not yet run are marked; nothing is zero-filled.</div>
+ <h2>1&emsp;Experiment matrix (O) — onboard &times; ground</h2>
+ <div class="caption">All 32 experiments on one grid: rows = onboard core, columns = ground planner.
+ The operational paradigm is read from position — <b>ground only</b> (onboard&nbsp;=&nbsp;&mdash;) is AG,
+ <b>onboard only</b> (ground&nbsp;=&nbsp;&mdash;) is AO, <b>both</b> is AH; the (&mdash;,&nbsp;symbolic) cell
+ also carries Conventional. Pick a metric to colour the grid; values appear only for verified runs.</div>
  <div class="kpis" id="kpis"></div>
+ <div class="sel"><label>metric&nbsp; <select id="metricSel"></select></label></div>
  <div id="matrix"></div>
 </section>
 
@@ -274,58 +317,71 @@ const P = __PAYLOAD__;
 const CELLS = {}; P.cells.forEach(c => CELLS[c.id] = c);
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
-const PARADIGMS = [["conventional","Conventional"],["ag","Autonomous Ground"],["ao","Autonomous Onboard"]];
-const badge = s => s==="measured" ? stc("measured","measured")
-                  : s==="placeholder" ? stc("placeholder","placeholder")
-                  : stc("notrun","not yet run");
-
-// ---- 1: matrix (single-core paradigms as tables; AH as a 3×7 onboard×ground grid)
+// ---- 1: unified onboard×ground matrix with a metric-selector heatmap
 (function(){
-  let h = "";
-  for (const [tok,label] of PARADIGMS){
-    const rows = P.cells.filter(c=>c.paradigm===tok);
-    const meas = rows.filter(r=>r.status==="measured").length;
-    h += `<details ${meas?"open":""}><summary style="cursor:pointer;padding:6px 0">`+
-         `<b>${label}</b> <span style="color:#666;font-size:12px">(${meas}/${rows.length} measured)</span></summary>`+
-         `<table><tr><th>representation</th><th>state</th><th class="num">episodes</th>`+
-         `<th class="num">U mean</th><th>note</th></tr>`;
-    for (const r of rows){
-      const u = r.status==="measured" ? fmt(r.mean.utility) : "—";
-      const note = r.note + (r.source ? `<span style="color:#999"> [data: ${r.source}]</span>` : "");
-      h += `<tr><td>${r.rep}</td><td>${badge(r.status)}</td>`+
-           `<td class="num">${r.n||"—"}</td><td class="num">${u}</td>`+
-           `<td style="color:#666;font-size:12px">${note}</td></tr>`;
+  const sel = document.getElementById("metricSel");
+  sel.innerHTML = P.metric_options.map(([k,l])=>`<option value="${k}">${l}</option>`).join("");
+  const lowerBetter = new Set(P.lower_better);
+  const ROWS = ["—"].concat(P.onboard_order);    // onboard: —, symb, rl, hrl
+  const COLS = ["—"].concat(P.ground_order);     // ground:  —, +7 cells
+  const byPos = {}; let conv = null;
+  P.cells.forEach(c=>{
+    if (c.paradigm==="conventional"){ conv = c; return; }   // shares (—, symb) with AG-symb
+    byPos[(c.onboard||"—")+"|"+(c.ground||"—")] = c;
+  });
+  const paradigmAt = (o,g)=> (o==="—"&&g==="—") ? "" : o==="—" ? "AG" : g==="—" ? "AO" : "AH";
+  const colour = t => { const f=(a,b)=>Math.round(a+(b-a)*t);
+    return `rgb(${f(234,0)},${f(242,101)},${f(250,189)})`; };   // #eaf2fa → TUM #0065BD
+
+  function render(metric){
+    const vals = P.cells.filter(c=>c.status==="measured" && c.mean[metric]!=null).map(c=>c.mean[metric]);
+    const mn = Math.min(...vals), mx = Math.max(...vals);
+    const norm = v => { if(!isFinite(mn)||mx<=mn) return 1; const t=(v-mn)/(mx-mn); return lowerBetter.has(metric)?1-t:t; };
+    let h = `<table class="mgrid"><tr><th class="corner">onboard ↓ / ground →</th>`+
+            COLS.map(g=>`<th class="mh">${g==="—"?"—":P.rep_labels[g]}</th>`).join("")+`</tr>`;
+    for (const o of ROWS){
+      h += `<tr><th class="mrow">${o==="—"?"—":P.rep_labels[o]}</th>`;
+      for (const g of COLS){
+        const par = paradigmAt(o,g);
+        const isConv = (o==="—" && g==="symb");
+        if (!par){ h += `<td class="mcell empty" title="no cores">—</td>`; continue; }
+        const c = byPos[o+"|"+g];
+        let cls="notrun", txt="·", style="", tip=par;
+        if (c && c.status==="measured" && c.mean[metric]!=null){
+          const t = norm(c.mean[metric]);
+          cls="measured"; txt=fmt(c.mean[metric]);
+          style=`background:${colour(t)};color:${t>0.55?'#fff':'#111'}`;
+          tip=`${par} · ${c.id}${c.source?' [data: '+c.source+']':''}`;
+        } else if (c && c.status==="placeholder"){
+          cls="placeholder"; txt="▢"; tip=`${par} · ${c.id} (placeholder cell)`;
+        } else if (c){ tip=`${par} · ${c.id} (not yet run)`; }
+        let sub="";
+        if (isConv && conv){
+          const cv = (conv.status==="measured" && conv.mean[metric]!=null) ? fmt(conv.mean[metric])
+                   : (conv.status==="placeholder" ? "▢" : "·");
+          sub = `<span class="sub">CG ${cv}</span>`;
+          tip += ` | Conventional: ${conv.id}`;
+        }
+        h += `<td class="mcell ${cls}" style="${style}" title="${tip}">${txt}${sub}</td>`;
+      }
+      h += "</tr>";
     }
-    h += "</table></details>";
+    const label = (P.metric_options.find(o=>o[0]===metric)||[,metric])[1];
+    h += `</table><div class="mlegend">colour = ${label} `+
+         `(darker blue = better${lowerBetter.has(metric)?", inverted for ↓":""}) · `+
+         `▢ = placeholder cell · · = not yet run · paradigm read from position `+
+         `(AG = ground only, AO = onboard only, AH = both); (—, symbolic) shows AG and CG (sub).</div>`;
+    document.getElementById("matrix").innerHTML = h;
   }
-  // Autonomous Hybrid: 3×7 onboard×ground grid
-  const ah = {}; P.cells.filter(c=>c.paradigm==="ah").forEach(c=>{ ah[c.onboard+"|"+c.ground]=c; });
-  const measAh = P.cells.filter(c=>c.paradigm==="ah"&&c.status==="measured").length;
-  let g = `<details open><summary style="cursor:pointer;padding:6px 0"><b>Autonomous Hybrid</b> `+
-          `<span style="color:#666;font-size:12px">— onboard × ground (${measAh}/21 measured)</span></summary>`+
-          `<table class="ahgrid"><tr><th class="ahh">onboard ↓ / ground →</th>`+
-          P.ground_order.map(gc=>`<th class="ahh">${P.rep_labels[gc]}</th>`).join("")+`</tr>`;
-  for (const ob of P.onboard_order){
-    g += `<tr><th class="ahrow">${P.rep_labels[ob]}</th>`;
-    for (const gc of P.ground_order){
-      const c = ah[ob+"|"+gc] || {status:"notrun", mean:{}, id:""};
-      const txt = c.status==="measured" ? fmt(c.mean.utility) : (c.status==="placeholder" ? "▢" : "·");
-      const tip = c.id + (c.source ? " [data: "+c.source+"]" : "");
-      g += `<td class="ahcell ${c.status}" title="${tip}">${txt}</td>`;
-    }
-    g += "</tr>";
-  }
-  g += `</table><div class="ahlegend">utility shown where measured · `+
-       `<span style="color:#1e6b34">green = measured</span> · `+
-       `<span style="color:#9a6200">amber ▢ = placeholder cell</span> · grey · = not yet run</div></details>`;
-  h += g;
-  document.getElementById("matrix").innerHTML = h;
+  sel.addEventListener("change", e=>render(e.target.value));
+  render(P.metric_options[0][0]);
+
   const meas = P.cells.filter(c=>c.status==="measured").length;
   const ph = P.cells.filter(c=>c.status==="placeholder").length;
   document.getElementById("kpis").innerHTML =
     `<div class="kpi"><b>${meas}</b>measured</div>`+
     `<div class="kpi"><b>${ph}</b>placeholder cells</div>`+
-    `<div class="kpi"><b>${P.cells.length}</b>matrix cells</div>`;
+    `<div class="kpi"><b>${P.cells.length}</b>experiments</div>`;
 })();
 
 // ---- 2: results plots (publication style)
