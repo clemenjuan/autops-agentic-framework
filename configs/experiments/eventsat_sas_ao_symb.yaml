@@ -1,18 +1,17 @@
 experiment_id: eventsat_sas_ao_symb
-description: "EventSat \xB7 SAS \xB7 AO \xB7 symb.\n"
+description: "EventSat \xB7 SAS \xB7 ao \xB7 symb.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: symb
 behaviour: hand_designed
 operations_paradigm: autonomous_onboard
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
-representation_config: {}
 behaviour_config:
   mode: hand_designed
+operations_paradigm_config: {}
 environment:
   constellation_size: 1
   timestep_seconds: 60
@@ -30,7 +29,10 @@ metrics:
   - latency
   - resource_efficiency
   - operator_load
+  - explainability
   collection_frequency: per_step
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
+representation: symb
+representation_config: {}

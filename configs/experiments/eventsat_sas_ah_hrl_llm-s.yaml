@@ -1,5 +1,5 @@
-experiment_id: eventsat_sas_ah_symb_hllm-a
-description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 hllm-a ground.\n"
+experiment_id: eventsat_sas_ah_hrl_llm-s
+description: "EventSat \xB7 SAS \xB7 AH \xB7 hrl onboard \xB7 llm-s ground.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
@@ -36,10 +36,10 @@ output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
 onboard:
-  representation: symb
+  representation: hrl
   representation_config: {}
 ground:
-  representation: hllm-a
+  representation: llm-s
   representation_config:
     llm_provider: auto
     llm_model: qwen3.6:35b
@@ -47,4 +47,3 @@ ground:
     llm_temperature: 0.0
     llm_mock: false
     llm_cache_dir: data/llm_cache
-    max_agentic_steps: 5

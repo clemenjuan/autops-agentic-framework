@@ -1,5 +1,5 @@
-experiment_id: eventsat_sas_ah_symb_hllm-a
-description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 hllm-a ground.\n"
+experiment_id: eventsat_sas_ah_symb_llm-a
+description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 llm-a ground.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
@@ -39,7 +39,7 @@ onboard:
   representation: symb
   representation_config: {}
 ground:
-  representation: hllm-a
+  representation: llm-a
   representation_config:
     llm_provider: auto
     llm_model: qwen3.6:35b

@@ -1,10 +1,10 @@
-experiment_id: eventsat_sas_ah_symb_hllm-a
-description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 hllm-a ground.\n"
+experiment_id: eventsat_sas_ag_llm-a
+description: "EventSat \xB7 SAS \xB7 ag \xB7 llm-a.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
 behaviour: hand_designed
-operations_paradigm: autonomous_hybrid
+operations_paradigm: autonomous_ground
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
@@ -12,6 +12,7 @@ decision_procedure_config:
 behaviour_config:
   mode: hand_designed
 operations_paradigm_config:
+  default_mode: charging
   orbital_period_steps: 93
 environment:
   constellation_size: 1
@@ -35,16 +36,12 @@ metrics:
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
-onboard:
-  representation: symb
-  representation_config: {}
-ground:
-  representation: hllm-a
-  representation_config:
-    llm_provider: auto
-    llm_model: qwen3.6:35b
-    openai_model: gpt-4o-mini
-    llm_temperature: 0.0
-    llm_mock: false
-    llm_cache_dir: data/llm_cache
-    max_agentic_steps: 5
+representation: llm-a
+representation_config:
+  llm_provider: auto
+  llm_model: qwen3.6:35b
+  openai_model: gpt-4o-mini
+  llm_temperature: 0.0
+  llm_mock: false
+  llm_cache_dir: data/llm_cache
+  max_agentic_steps: 5

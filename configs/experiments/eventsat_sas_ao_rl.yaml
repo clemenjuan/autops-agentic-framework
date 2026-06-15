@@ -1,24 +1,14 @@
 experiment_id: eventsat_sas_ao_rl
-description: "EventSat \xB7 SAS \xB7 AO \xB7 rl.\n"
+description: "EventSat \xB7 SAS \xB7 ao \xB7 rl.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: rl
 behaviour: emergent
 operations_paradigm: autonomous_onboard
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
-representation_config:
-  rl_mock: false
-  deterministic: false
-  checkpoint_path: ''
-  orbital_period_steps: 94
-  max_steps: 10080
-  compression_time_factor: 2.0
-  detection_steps: 5
-  jetson_capacity_mb: 249036.8
 behaviour_config:
   mechanism: ppo
   mode: emergent
@@ -37,15 +27,17 @@ behaviour_config:
   value_coef: 1.0
   max_grad_norm: 0.5
   minibatch_size: 256
+operations_paradigm_config: {}
 environment:
   constellation_size: 1
   timestep_seconds: 60
+  max_steps: 10080
   scenario: eventsat
   scenario_config:
     scenario_file: configs/scenarios/eventsat.yaml
 memory_config:
   history_depth: 100
-num_episodes: 10
+num_episodes: 5
 max_steps: 10080
 metrics:
   enabled:
@@ -58,3 +50,13 @@ metrics:
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
+representation: rl
+representation_config:
+  rl_mock: false
+  deterministic: false
+  checkpoint_path: ''
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8

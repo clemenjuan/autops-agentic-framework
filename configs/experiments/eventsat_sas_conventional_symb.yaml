@@ -3,13 +3,40 @@ description: "EventSat \xB7 SAS \xB7 conventional \xB7 symb.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: symb
 behaviour: hand_designed
 operations_paradigm: conventional_ground
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
+behaviour_config:
+  mode: hand_designed
+operations_paradigm_config:
+  default_mode: charging
+  orbital_period_steps: 93
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+memory_config:
+  history_depth: 100
+num_episodes: 5
+max_steps: 10080
+metrics:
+  enabled:
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
+  collection_frequency: per_step
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO
+representation: symb
 representation_config:
   solar_generation_w: 24.0
   battery_capacity_wh: 84.0
@@ -54,29 +81,3 @@ representation_config:
     safe:
       sun_w: 9.58
       eclipse_w: 9.58
-behaviour_config:
-  mode: hand_designed
-operations_paradigm_config:
-  default_mode: charging
-  orbital_period_steps: 93
-environment:
-  constellation_size: 1
-  timestep_seconds: 60
-  max_steps: 10080
-  scenario: eventsat
-  scenario_config:
-    scenario_file: configs/scenarios/eventsat.yaml
-memory_config:
-  history_depth: 100
-num_episodes: 5
-max_steps: 10080
-metrics:
-  enabled:
-  - utility
-  - latency
-  - resource_efficiency
-  - operator_load
-  collection_frequency: per_step
-output_dir: data/results/${experiment_id}
-save_checkpoints: false
-log_level: INFO

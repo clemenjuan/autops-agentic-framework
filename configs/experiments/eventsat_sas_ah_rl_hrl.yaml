@@ -1,16 +1,32 @@
-experiment_id: eventsat_sas_ah_symb_hllm-a
-description: "EventSat \xB7 SAS \xB7 AH \xB7 symb onboard \xB7 hllm-a ground.\n"
+experiment_id: eventsat_sas_ah_rl_hrl
+description: "EventSat \xB7 SAS \xB7 AH \xB7 rl onboard \xB7 hrl ground.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-behaviour: hand_designed
+behaviour: emergent
 operations_paradigm: autonomous_hybrid
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
 behaviour_config:
-  mode: hand_designed
+  mechanism: ppo
+  mode: emergent
+  rollout_fragment: 128
+  lr: 0.0001
+  lr_schedule:
+  - - 0
+    - 0.0001
+  - - 3000000
+    - 1.0e-05
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
 operations_paradigm_config:
   orbital_period_steps: 93
 environment:
@@ -36,15 +52,16 @@ output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
 onboard:
-  representation: symb
-  representation_config: {}
-ground:
-  representation: hllm-a
+  representation: rl
   representation_config:
-    llm_provider: auto
-    llm_model: qwen3.6:35b
-    openai_model: gpt-4o-mini
-    llm_temperature: 0.0
-    llm_mock: false
-    llm_cache_dir: data/llm_cache
-    max_agentic_steps: 5
+    rl_mock: false
+    deterministic: false
+    checkpoint_path: ''
+    orbital_period_steps: 94
+    max_steps: 10080
+    compression_time_factor: 2.0
+    detection_steps: 5
+    jetson_capacity_mb: 249036.8
+ground:
+  representation: hrl
+  representation_config: {}

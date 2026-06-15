@@ -1,24 +1,19 @@
 experiment_id: eventsat_sas_ag_hllm-s
-description: "EventSat \xB7 SAS \xB7 AG \xB7 hllm-s.\n"
+description: "EventSat \xB7 SAS \xB7 ag \xB7 hllm-s.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: hllm-s
 behaviour: hand_designed
 operations_paradigm: autonomous_ground
 agent_organization_config: {}
 decision_procedure_config:
   sense_encode: true
   decide_act: true
-representation_config:
-  llm_provider: auto
-  llm_model: qwen3.6:35b
-  openai_model: gpt-4o-mini
-  llm_temperature: 0.0
-  llm_mock: false
-  llm_cache_dir: data/llm_cache
 behaviour_config:
   mode: hand_designed
+operations_paradigm_config:
+  default_mode: charging
+  orbital_period_steps: 93
 environment:
   constellation_size: 1
   timestep_seconds: 60
@@ -41,6 +36,11 @@ metrics:
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO
-operations_paradigm_config:
-  default_mode: charging
-  orbital_period_steps: 93
+representation: hllm-s
+representation_config:
+  llm_provider: auto
+  llm_model: qwen3.6:35b
+  openai_model: gpt-4o-mini
+  llm_temperature: 0.0
+  llm_mock: false
+  llm_cache_dir: data/llm_cache
