@@ -55,7 +55,7 @@ power:
                                   # → 24.0 × 0.70 = 16.8 W average during sunlit passes.
   battery:
     count: 2
-    capacity_wh: 84.0             # Combined capacity 2 x 42 Wh
+    capacity_wh: 70.0             # Usable battery capacity (EventSat actual)
     initial_soc: 0.8              # State of charge at episode start
     min_soc: 0.2                  # Minimum safe SoC
     max_soc: 1.0

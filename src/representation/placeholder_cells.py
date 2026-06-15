@@ -81,14 +81,8 @@ class HrlSchedulerPlaceholder(_GroundCellPlaceholder):
 
 @register("llm_single_onboard_eventsat")
 class LlmSingleOnboardPlaceholder(_OnboardCellPlaceholder):
-    """Placeholder llm-s onboard core. TODO: single-shot LLM without symbolic guard."""
-
-    _cell = "llm-s"
-
-
-@register("llm_single_scheduler_eventsat")
-class LlmSingleSchedulerPlaceholder(_GroundCellPlaceholder):
-    """Placeholder llm-s ground planner. TODO: pure-LLM single-shot schedule producer."""
+    """Placeholder llm-s onboard core (no per-step LLM onboard on EventSat). The llm-s
+    *ground* planner is real — see LLMSingleSchedulerEventSat in llm_scheduler_eventsat.py."""
 
     _cell = "llm-s"
 

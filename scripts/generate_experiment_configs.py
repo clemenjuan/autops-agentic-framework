@@ -51,7 +51,7 @@ def _symbolic_power_block(conventional: bool) -> dict:
     """EventSat power/scenario params the symbolic schedule planner needs.
     The conventional planner additionally models human cognitive constraints."""
     block: dict = {
-        "solar_generation_w": 24.0, "battery_capacity_wh": 84.0, "eclipse_fraction": 0.36,
+        "solar_generation_w": 24.0, "battery_capacity_wh": 70.0, "eclipse_fraction": 0.36,
         "step_duration_s": 60.0, "charge_efficiency": 0.9, "compression_time_factor": 2.0,
         "detection_steps": 5, "observation_size_mb": 9.41, "compression_ratio": 5.11,
         "jetson_to_obc_rate_kbps": 8000, "obc_capacity_mb": 4096.0,  # CAN ~1 MB/s; OBC 4 GB (match scenario)

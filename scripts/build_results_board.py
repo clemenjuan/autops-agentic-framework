@@ -29,7 +29,7 @@ EXTRACT = Path("data/figures/extract.json")
 # policy — a cell resolving to any of these is a "placeholder" result.
 PLACEHOLDER_TYPES = {
     "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
-    "llm_single_onboard_eventsat", "llm_single_scheduler_eventsat",
+    "llm_single_onboard_eventsat",  # llm-s ground (llm_single_scheduler_eventsat) is REAL now
     "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
     "subsymbolic_scheduler_eventsat", "agentic_scheduler_eventsat",
 }

@@ -76,7 +76,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         panel_efficiency_factor = solar_cfg.get("panel_efficiency_factor", 1.0)
         self.solar_generation_w = generation_peak_w * panel_efficiency_factor
         bat = pwr.get("battery", {})
-        self.battery_capacity_wh = bat.get("capacity_wh", 84.0)
+        self.battery_capacity_wh = bat.get("capacity_wh", 70.0)
         self.initial_soc = bat.get("initial_soc", 0.8)
         self.min_soc = bat.get("min_soc", 0.2)
         self.max_soc = bat.get("max_soc", 1.0)

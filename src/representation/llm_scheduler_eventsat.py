@@ -43,6 +43,11 @@ class LLMSchedulerEventSat(Representation):
 
     is_placeholder: bool = False
     MAX_RETRIES: int = 2
+    # Hybrid (hllm-s): apply the symbolic safety/format layer to the LLM schedule
+    # (drop non-schedulable modes, clamp to the gap, pad with charging). The pure-LLM
+    # cell (llm-s) overrides this to False — see LLMSingleSchedulerEventSat.
+    _symbolic_grounding: bool = True
+    _cell: str = "hllm-s"
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         self.config = config or {}
@@ -151,13 +156,18 @@ class LLMSchedulerEventSat(Representation):
     def _validate_schedule(
         self, raw_schedule: Any, gap_steps: int
     ) -> Optional[List[Tuple[str, int]]]:
-        """Symbolic grounding: keep valid [mode, steps] segments, clamp total to the gap.
+        """Parse the LLM schedule into ``[mode, steps]`` segments.
 
-        Drops communication (no link between passes) and unknown modes; pads the tail
-        with charging if short. Returns None if nothing valid was produced.
+        Hybrid (hllm-s, ``_symbolic_grounding=True``): apply the symbolic safety/format
+        layer — drop non-schedulable modes (communication / unknown), clamp the total to
+        the gap, pad the tail with charging. Pure LLM (llm-s, grounding off): keep any
+        valid-enum mode with steps≥1 as-is, no clamp/pad — the safety constraints live
+        only in the prompt and are enforced (if at all) by the environment at execution.
+        Returns None if nothing parseable was produced.
         """
         if not isinstance(raw_schedule, list):
             return None
+        allowed = _SCHEDULABLE_MODES if self._symbolic_grounding else VALID_MODES
         out: List[Tuple[str, int]] = []
         total = 0
         for entry in raw_schedule:
@@ -167,7 +177,7 @@ class LLMSchedulerEventSat(Representation):
                 mode, steps = entry.get("mode"), entry.get("steps", entry.get("duration"))
             else:
                 continue
-            if mode not in _SCHEDULABLE_MODES:
+            if mode not in allowed:
                 continue
             try:
                 steps = int(steps)
@@ -175,16 +185,31 @@ class LLMSchedulerEventSat(Representation):
                 continue
             if steps < 1:
                 continue
-            if total + steps > gap_steps:
+            if self._symbolic_grounding and total + steps > gap_steps:
                 steps = gap_steps - total
             if steps < 1:
                 break
             out.append((mode, steps))
             total += steps
-            if total >= gap_steps:
+            if self._symbolic_grounding and total >= gap_steps:
                 break
         if not out:
             return None
-        if total < gap_steps:
+        if self._symbolic_grounding and total < gap_steps:
             out.append(("charging", gap_steps - total))
         return _merge_schedule(out)
+
+
+@register("llm_single_scheduler_eventsat")
+class LLMSingleSchedulerEventSat(LLMSchedulerEventSat):
+    """Pure single-shot LLM ground planner — the llm-s ground core.
+
+    Same LLM call/prompt as hllm-s, but WITHOUT the symbolic safety/format grounding:
+    the schedule is taken as the model produced it (any valid-enum mode, steps≥1, no
+    clamp/pad). Safety is described in the prompt only; the environment still enforces
+    its own hard limits (anomaly→safe, SoC/comm gating) at execution. The hllm-s vs
+    llm-s comparison isolates the value of the symbolic safety layer.
+    """
+
+    _symbolic_grounding: bool = False
+    _cell: str = "llm-s"

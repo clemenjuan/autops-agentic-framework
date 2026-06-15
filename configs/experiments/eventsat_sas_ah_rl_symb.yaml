@@ -66,7 +66,7 @@ ground:
   representation: symb
   representation_config:
     solar_generation_w: 24.0
-    battery_capacity_wh: 84.0
+    battery_capacity_wh: 70.0
     eclipse_fraction: 0.36
     step_duration_s: 60.0
     charge_efficiency: 0.9

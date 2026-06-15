@@ -603,9 +603,10 @@ class TestRepresentationVocabulary:
         import src.representation.placeholder_cells  # noqa: F401  (registers cells)
         from src.behaviour.controller import _REPRESENTATION_REGISTRY
 
+        # llm_single_scheduler_eventsat (llm-s ground) is now a REAL core, not a placeholder.
         for name in (
             "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
-            "llm_single_onboard_eventsat", "llm_single_scheduler_eventsat",
+            "llm_single_onboard_eventsat",
             "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
         ):
             assert _REPRESENTATION_REGISTRY[name].is_placeholder is True

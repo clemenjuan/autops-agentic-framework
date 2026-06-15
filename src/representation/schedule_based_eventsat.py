@@ -55,7 +55,7 @@ class ScheduleBasedEventSat(Representation):
 
         # Power system parameters
         self._solar_generation_w: float = self.config.get("solar_generation_w", 24.0)
-        self._battery_capacity_wh: float = self.config.get("battery_capacity_wh", 84.0)
+        self._battery_capacity_wh: float = self.config.get("battery_capacity_wh", 70.0)
         self._eclipse_fraction: float = self.config.get("eclipse_fraction", 0.36)
         self._step_duration_s: float = self.config.get("step_duration_s", 60.0)
         self._charge_efficiency: float = self.config.get("charge_efficiency", 0.9)

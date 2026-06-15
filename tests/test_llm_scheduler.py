@@ -79,6 +79,20 @@ def test_client_mean_latency_and_reset() -> None:
     assert c.get_metrics()["llm_total_latency_s"] == 0.0
 
 
+def test_llm_single_scheduler_real_and_ungrounded() -> None:
+    """llm-s ground core is real (not placeholder) and applies NO symbolic grounding:
+    the LLM schedule passes through without clamp/pad (unlike hllm-s)."""
+    from src.representation.llm_scheduler_eventsat import LLMSingleSchedulerEventSat
+    rep = LLMSingleSchedulerEventSat({"llm_mock": True})
+    assert rep.is_placeholder is False
+    assert rep._symbolic_grounding is False
+    action = rep.select_action(DecisionContext(state=_fresh_pass_state(), loop_type="sda"))
+    sched = action["eventsat_0"]["schedule"]
+    # mock = observe3 + compress4 + charging10 = 17 steps; ungrounded → NOT padded to the
+    # 40-step gap (hllm-s would pad to 40).
+    assert sum(s for _, s in sched) == 17
+
+
 def test_m07_per_decision_cycle_and_ground_latency() -> None:
     """M-07 averages over decision cycles (steps where inference ran), not all steps;
     AH ground-planner latency is captured separately."""
