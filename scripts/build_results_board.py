@@ -47,13 +47,9 @@ REP_LABELS = {
     "llm-a": "LLM agentic", "hllm-s": "hybrid LLM", "hllm-a": "agentic hybrid LLM",
 }
 
-# The 4 measured symbolic-campaign runs currently live under legacy run-ids.
-LEGACY_ALIAS = {
-    "eventsat_sas_conventional_symb": "eventsat_sas_symbolic_cg",
-    "eventsat_sas_ag_symb": "eventsat_sas_symbolic_ag",
-    "eventsat_sas_ao_symb": "eventsat_sas_symbolic_ao",
-    "eventsat_sas_ah_symb_symb": "eventsat_sas_symbolic_ah",
-}
+# Legacy run-id aliases (pre-refocus campaigns). Empty now that experiments run
+# under their framework names; kept as a hook if older results need surfacing.
+LEGACY_ALIAS: dict = {}
 
 # Honesty annotations carried forward verbatim (versioned in code).
 NOTES = {

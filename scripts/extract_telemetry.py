@@ -17,10 +17,12 @@ from pathlib import Path
 # framework cell names. Embedded telemetry is preferred; the legacy telemetry_*
 # single-episode DEBUG runs remain as a fallback source.
 SOURCES = {
-    "eventsat_sas_symbolic_ah": "AH · symb onboard · symb ground — EventSat (ep0)",
-    "eventsat_sas_symbolic_ao": "AO · symb — EventSat (ep0)",
-    "eventsat_sas_symbolic_ag": "AG · symb — EventSat (ep0)",
-    "eventsat_sas_symbolic_cg": "Conventional · symb — EventSat (ep0)",
+    "eventsat_sas_ah_symb_symb": "AH · symb onboard · symb ground — EventSat (ep0)",
+    "eventsat_sas_ao_symb": "AO · symb — EventSat (ep0)",
+    "eventsat_sas_ag_symb": "AG · symb — EventSat (ep0)",
+    "eventsat_sas_conventional_symb": "Conventional · symb — EventSat (ep0)",
+    "eventsat_sas_ag_hllm-s": "AG · hybrid LLM (hllm-s) — EventSat (ep0)",
+    "eventsat_sas_ag_llm-s": "AG · pure LLM (llm-s) — EventSat (ep0)",
 }
 MAX_POINTS = 1500
 
