@@ -279,6 +279,7 @@ class ExperimentConfig(BaseModel):
         "llm_scheduler_eventsat",
         "agentic_scheduler_eventsat",
         "hrl_scheduler_eventsat",
+        "llm_single_scheduler_eventsat",
         "llm_agentic_scheduler_eventsat",
     }
 
@@ -325,14 +326,18 @@ class ExperimentConfig(BaseModel):
                 else "hrl_scheduler_eventsat"
             )
         if representation == "llm":
-            if action_space == "agentic":
-                # llm-a cell (pure LLM agentic, no symbolic layer): not yet
-                # implemented → documented placeholder (is_placeholder).
+            # Pure-LLM cells (no symbolic layer) — not yet implemented → documented
+            # placeholders (is_placeholder). The symbolic-guarded LLM lives under the
+            # 'hybrid' substrate (hllm-s/hllm-a → llm_eventsat/agentic_eventsat).
+            if action_space == "agentic":  # llm-a
                 return (
                     "llm_agentic_onboard_eventsat" if ops in _ONBOARD_OPS
                     else "llm_agentic_scheduler_eventsat"
                 )
-            return "llm_eventsat" if ops == "autonomous_hybrid" else "llm_scheduler_eventsat"
+            return (  # llm-s
+                "llm_single_onboard_eventsat" if ops in _ONBOARD_OPS
+                else "llm_single_scheduler_eventsat"
+            )
         if representation == "hybrid":
             if action_space not in ("reactive", "agentic"):
                 raise ValueError(
@@ -362,9 +367,10 @@ class ExperimentConfig(BaseModel):
 
         The onboard core follows the configured substrate (morphological_matrix.md §2 —
         the O-cell is substrate × action *per active core*): symbolic→rule_based,
-        subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive→llm_eventsat (per-step
-        constrained LLM), hybrid·agentic→agentic_eventsat. None for AG/CG. The
-        substrate is never silently substituted by a different one.
+        subsymbolic·RL→subsymbolic_eventsat, hybrid·reactive (hllm-s)→llm_eventsat
+        (per-step LLM + symbolic guard), hybrid·agentic (hllm-a)→agentic_eventsat.
+        The pure-LLM cells (llm-s/llm-a) and hrl have no real core yet → placeholders.
+        None for AG/CG. The substrate is never silently substituted by a different one.
         """
         if self.operations_paradigm not in ("autonomous_onboard", "autonomous_hybrid"):
             return None
@@ -374,11 +380,11 @@ class ExperimentConfig(BaseModel):
             return "subsymbolic_eventsat"
         if self.representation == "hybrid-rl":
             return "hrl_onboard_eventsat"  # hrl cell placeholder
-        if self.representation == "llm":
+        if self.representation == "llm":  # pure LLM (no symbolic layer) → placeholders
             if self.representation_config.get("action_space") == "agentic":
                 return "llm_agentic_onboard_eventsat"  # llm-a cell placeholder
-            return "llm_eventsat"
-        # hybrid: reactive -> per-step constrained LLM; agentic -> LLM + tool loop
+            return "llm_single_onboard_eventsat"  # llm-s cell placeholder
+        # hybrid (LLM + symbolic): reactive (hllm-s) -> llm_eventsat; agentic (hllm-a) -> agentic_eventsat
         if self.representation_config.get("action_space") == "agentic":
             return "agentic_eventsat"
         return "llm_eventsat"

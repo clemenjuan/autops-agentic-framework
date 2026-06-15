@@ -1,9 +1,9 @@
-experiment_id: eventsat_sas_ag_llm-s
-description: "EventSat \xB7 SAS \xB7 AG \xB7 llm-s.\n"
+experiment_id: eventsat_sas_ag_hllm-s
+description: "EventSat \xB7 SAS \xB7 AG \xB7 hllm-s.\n"
 seed: 42
 agent_organization: sas
 decision_procedure: sda
-representation: llm-s
+representation: hllm-s
 behaviour: hand_designed
 operations_paradigm: autonomous_ground
 agent_organization_config: {}

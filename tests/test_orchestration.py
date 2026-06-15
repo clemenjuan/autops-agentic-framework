@@ -584,8 +584,8 @@ class TestRepresentationVocabulary:
             ("rl", "autonomous_hybrid", "subsymbolic_eventsat"),
             ("hrl", "autonomous_hybrid", "hrl_onboard_eventsat"),
             ("hrl", "autonomous_ground", "hrl_scheduler_eventsat"),
-            ("llm-s", "autonomous_hybrid", "llm_eventsat"),
-            ("llm-s", "autonomous_ground", "llm_scheduler_eventsat"),
+            ("llm-s", "autonomous_hybrid", "llm_single_onboard_eventsat"),
+            ("llm-s", "autonomous_ground", "llm_single_scheduler_eventsat"),
             ("llm-a", "autonomous_ground", "llm_agentic_scheduler_eventsat"),
             ("hllm-s", "autonomous_hybrid", "llm_eventsat"),
             ("hllm-a", "autonomous_hybrid", "agentic_eventsat"),
@@ -605,6 +605,7 @@ class TestRepresentationVocabulary:
 
         for name in (
             "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
+            "llm_single_onboard_eventsat", "llm_single_scheduler_eventsat",
             "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
         ):
             assert _REPRESENTATION_REGISTRY[name].is_placeholder is True

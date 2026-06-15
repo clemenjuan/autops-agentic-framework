@@ -31,7 +31,7 @@ FRAMEWORK = [
     ("eventsat_sas_conventional_symb", "Conventional",       "symbolic",                            "eventsat_sas_symbolic_cg"),
     ("eventsat_sas_ag_symb",           "Autonomous Ground",  "symbolic",                            "eventsat_sas_symbolic_ag"),
     ("eventsat_sas_ag_rl",             "Autonomous Ground",  "RL (ground scheduler)",               None),
-    ("eventsat_sas_ag_llm-s",          "Autonomous Ground",  "single-shot LLM",                     None),
+    ("eventsat_sas_ag_hllm-s",         "Autonomous Ground",  "single-shot hybrid LLM",              None),
     ("eventsat_sas_ag_hllm-a",         "Autonomous Ground",  "agentic hybrid LLM",                  None),
     ("eventsat_sas_ao_symb",           "Autonomous Onboard", "symbolic",                            "eventsat_sas_symbolic_ao"),
     ("eventsat_sas_ao_rl",             "Autonomous Onboard", "RL (PPO)",                            None),

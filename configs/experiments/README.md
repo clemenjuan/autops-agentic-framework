@@ -29,7 +29,7 @@ increments.
 | `eventsat_sas_conventional_symb` | Conventional | symbolic |
 | `eventsat_sas_ag_symb` | Autonomous Ground | symbolic |
 | `eventsat_sas_ag_rl` | Autonomous Ground | RL (ground scheduler) |
-| `eventsat_sas_ag_llm-s` | Autonomous Ground | single-shot LLM |
+| `eventsat_sas_ag_hllm-s` | Autonomous Ground | single-shot hybrid LLM |
 | `eventsat_sas_ag_hllm-a` | Autonomous Ground | agentic hybrid LLM |
 | `eventsat_sas_ao_symb` | Autonomous Onboard | symbolic |
 | `eventsat_sas_ao_rl` | Autonomous Onboard | RL (PPO) |

@@ -1,8 +1,9 @@
 """
-Placeholder representations for the two framework cells without a real
-implementation yet: ``hrl`` (hybrid RL + symbolic) and ``llm-a`` (pure LLM
-agentic, no symbolic layer). See the 7-cell representation table in
-``docs/morphological_matrix.md`` §2.
+Placeholder representations for the framework cells without a real implementation
+yet: ``hrl`` (hybrid RL + symbolic), ``llm-s`` (pure single-shot LLM, no symbolic
+layer), and ``llm-a`` (pure LLM agentic). The symbolic-guarded LLM cells —
+``hllm-s`` (→ ``llm_eventsat``) and ``hllm-a`` (→ ``agentic_eventsat``) — are real.
+See the 7-cell representation table in ``docs/morphological_matrix.md`` §2.
 
 Both cells are expressible in the vocabulary and validated, but no runnable
 policy exists. Each routes to a symbolic stand-in flagged
@@ -15,6 +16,7 @@ can exclude them until the real cores land:
 
 TODO: replace with the real cores —
   - ``hrl``  : an RL policy gated by symbolic safety rules (hybrid RL+symbolic)
+  - ``llm-s``: a single-shot LLM without the symbolic I/O guard
   - ``llm-a``: an LLM tool-using loop without the symbolic hybrid layer
 """
 from __future__ import annotations
@@ -75,6 +77,20 @@ class HrlSchedulerPlaceholder(_GroundCellPlaceholder):
     """Placeholder hrl ground planner. TODO: hybrid-RL schedule producer."""
 
     _cell = "hrl"
+
+
+@register("llm_single_onboard_eventsat")
+class LlmSingleOnboardPlaceholder(_OnboardCellPlaceholder):
+    """Placeholder llm-s onboard core. TODO: single-shot LLM without symbolic guard."""
+
+    _cell = "llm-s"
+
+
+@register("llm_single_scheduler_eventsat")
+class LlmSingleSchedulerPlaceholder(_GroundCellPlaceholder):
+    """Placeholder llm-s ground planner. TODO: pure-LLM single-shot schedule producer."""
+
+    _cell = "llm-s"
 
 
 @register("llm_agentic_onboard_eventsat")
