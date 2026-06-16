@@ -78,7 +78,12 @@ class MetricsConfig(BaseModel):
     )
     collection_frequency: str = Field(default="per_step")
     utility_weights: Dict[str, float] = Field(
-        default={"observation": 0.5, "downlink": 0.4, "anomaly_penalty": 0.1}
+        # M-01 is calibrated on DELIVERED information: only data downlinked to the
+        # ground counts toward mission utility. Raw observation hours are NOT
+        # rewarded (observation that never downlinks is worthless and lets a planner
+        # inflate utility by hoarding undeliverable data). `observation` is kept at
+        # 0.0 as an ablation knob, not removed. See eventsat_metrics.py M-01 docstring.
+        default={"observation": 0.0, "downlink": 1.0, "anomaly_penalty": 0.1}
     )
     utility_targets: Dict[str, float] = Field(
         default={

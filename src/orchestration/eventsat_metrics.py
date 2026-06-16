@@ -4,10 +4,17 @@ EventSat-specific Metrics Collector.
 Implements the research metrics for the EventSat scenario.
 
 Research metrics (per episode):
-  utility            — mission objective achievement ratio
-                       = w_obs x (obs_h / scaled_obs_target)
-                       + w_dl  x (dl_mb / scaled_dl_target)
-                       - w_anomaly x anomaly_rate
+  utility (M-01)     — mission objective achievement, on DELIVERED information.
+                       = w_obs x (obs_h / scaled_obs_target)       [w_obs=0.0 default]
+                       + w_dl  x (dl_mb / scaled_dl_target)        [w_dl =1.0 default]
+                       - w_anomaly x anomaly_rate                  [w_anomaly=0.1]
+                       Only data actually downlinked to the ground counts. Raw
+                       observation hours are NOT rewarded by default: observation
+                       that never downlinks has no mission value, and crediting it
+                       lets a planner inflate utility by hoarding undeliverable data
+                       (observed empirically: an LLM ground planner over-observed
+                       ~22x at equal downlink and scored 18.8 vs 1.3 under the old
+                       obs-weighted formula). w_obs is retained as an ablation knob.
                        Targets scaled from 90-day mission to episode length.
   data_downlink_efficiency — fraction of available downlink capacity actually used
                         = data_downlinked_mb / max_achievable_downlink_mb
@@ -45,9 +52,14 @@ class EventSatMetricsCollector(MetricsCollector):
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)
         # Utility weights (configurable via experiment YAML metrics section)
+        # M-01 rewards DELIVERED information only (data downlinked to the ground).
+        # Raw observation hours are not credited by default (w_obs=0.0): observation
+        # that is never downlinked has no mission value, and rewarding it lets a
+        # planner inflate utility by over-observing into undeliverable storage.
+        # w_obs is retained as a (default-zero) ablation knob.
         uw = self.config.get("utility_weights", {})
-        self._w_obs = uw.get("observation", 0.5)
-        self._w_dl = uw.get("downlink", 0.4)
+        self._w_obs = uw.get("observation", 0.0)
+        self._w_dl = uw.get("downlink", 1.0)
         self._w_anomaly = uw.get("anomaly_penalty", 0.1)
 
         # Targets from scenario (can be overridden in config)
