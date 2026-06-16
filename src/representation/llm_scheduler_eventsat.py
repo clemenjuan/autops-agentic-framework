@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 # Modes valid in a between-pass schedule (no ground link → no communication).
 _SCHEDULABLE_MODES = VALID_MODES - {"communication"}
 
+# Operational (battery-consuming) modes gated by the operations SoC floor in the
+# hybrid SAFETY shield. Charging/safe are never vetoed.
+_OPERATIONAL_MODES = {
+    "payload_observe", "payload_compress", "payload_detect", "payload_send",
+}
+
 
 @register("llm_scheduler_eventsat")
 class LLMSchedulerEventSat(Representation):
@@ -43,9 +49,12 @@ class LLMSchedulerEventSat(Representation):
 
     is_placeholder: bool = False
     MAX_RETRIES: int = 2
-    # Hybrid (hllm-s): apply the symbolic safety/format layer to the LLM schedule
-    # (drop non-schedulable modes, clamp to the gap, pad with charging). The pure-LLM
-    # cell (llm-s) overrides this to False — see LLMSingleSchedulerEventSat.
+    # Hybrid (hllm-s): apply the symbolic SAFETY + format layer to the LLM schedule —
+    # drop non-schedulable modes, clamp to the gap, pad with charging, and veto
+    # operational blocks that would run in a critical state (battery below the
+    # operations floor, OBC storage full → charging). It is SAFETY grounding, not
+    # behaviour: it never decides how much to observe (that is the LLM's job). The
+    # pure-LLM cell (llm-s) overrides this to False — see LLMSingleSchedulerEventSat.
     _symbolic_grounding: bool = True
     _cell: str = "hllm-s"
 
@@ -57,8 +66,12 @@ class LLMSchedulerEventSat(Representation):
         self._staleness_threshold: int = self.config.get("staleness_threshold", 5)
         # Needed by the borrowed ScheduleBasedEventSat.encode_observation (state default).
         self._daily_downlink_budget_mb: float = self.config.get("daily_downlink_budget_mb", 27.0)
+        self._settling_time_steps: int = self.config.get("settling_time_steps", 2)
         self._schedule_generated_this_pass: bool = False
         self._last_pass_active: bool = False
+        # Symbolic SAFETY model for the hybrid grounding shield (hllm-s): reuses the
+        # symbolic cores' calibrated battery/storage critical thresholds + SoC model.
+        self._safety_model = ScheduleBasedEventSat(config)
 
     # encode_observation: identical state needs as the symbolic planner
     # (gap, staleness, pipeline pools) — reuse it directly.
@@ -132,7 +145,7 @@ class LLMSchedulerEventSat(Representation):
                     json_mode=True,
                 )
                 parsed = LLMEventSat._parse_response(self, raw)
-                candidate = self._validate_schedule(parsed.get("schedule"), gap_steps)
+                candidate = self._validate_schedule(parsed.get("schedule"), gap_steps, state)
                 if candidate:
                     schedule = candidate
                     self._last_rationale = (
@@ -154,16 +167,18 @@ class LLMSchedulerEventSat(Representation):
         return schedule
 
     def _validate_schedule(
-        self, raw_schedule: Any, gap_steps: int
+        self, raw_schedule: Any, gap_steps: int, state: Dict[str, Any] | None = None
     ) -> Optional[List[Tuple[str, int]]]:
         """Parse the LLM schedule into ``[mode, steps]`` segments.
 
-        Hybrid (hllm-s, ``_symbolic_grounding=True``): apply the symbolic safety/format
-        layer — drop non-schedulable modes (communication / unknown), clamp the total to
-        the gap, pad the tail with charging. Pure LLM (llm-s, grounding off): keep any
-        valid-enum mode with steps≥1 as-is, no clamp/pad — the safety constraints live
-        only in the prompt and are enforced (if at all) by the environment at execution.
-        Returns None if nothing parseable was produced.
+        Hybrid (hllm-s, ``_symbolic_grounding=True``): apply the symbolic SAFETY +
+        format layer — drop non-schedulable modes (communication / unknown), clamp the
+        total to the gap, pad the tail with charging, then run ``_apply_safety_shield``
+        (veto operational blocks in a critical battery/storage state). The layer is
+        SAFETY/feasibility only: it never caps how much the LLM chooses to observe.
+        Pure LLM (llm-s, grounding off): keep any valid-enum mode with steps>=1 as-is,
+        no shield/clamp/pad — safety lives in the prompt and the environment enforces it
+        at execution. Returns None if nothing parseable was produced.
         """
         if not isinstance(raw_schedule, list):
             return None
@@ -197,7 +212,42 @@ class LLMSchedulerEventSat(Representation):
             return None
         if self._symbolic_grounding and total < gap_steps:
             out.append(("charging", gap_steps - total))
+        if self._symbolic_grounding:
+            out = self._apply_safety_shield(out, state or {})
         return _merge_schedule(out)
+
+    def _apply_safety_shield(
+        self, schedule: List[Tuple[str, int]], state: Dict[str, Any]
+    ) -> List[Tuple[str, int]]:
+        """Symbolic SAFETY grounding — the critical-situation rules the symbolic cores
+        use, applied to the LLM's schedule. This is NOT behaviour: it never decides how
+        much to observe or charge; it only replaces an operational block that would run
+        in a critical state with 'charging' (the environment's own safe fallback):
+
+          * battery — an operational mode below the operations SoC floor (forward-
+            simulated SoC) → charging.
+          * memory  — payload_observe while OBC storage is critically full → charging.
+
+        Anomaly-forced safe mode is stochastic/future and is enforced by the
+        environment at execution; a between-pass plan cannot pre-empt it.
+        """
+        sm = self._safety_model
+        soc = float(state.get("battery_soc", 0.5) or 0.5)
+        obc_mb = float(state.get("obc_data_mb", 0.0) or 0.0)
+        obc_critical = obc_mb >= sm._obc_capacity_mb * 0.8
+        floor = sm._min_soc_for_operations
+        shielded: List[Tuple[str, int]] = []
+        for mode, steps in schedule:
+            out_mode = mode
+            if mode in _OPERATIONAL_MODES:
+                if soc < floor:                                  # battery-critical
+                    out_mode = "charging"
+                elif mode == "payload_observe" and obc_critical:  # memory-critical
+                    out_mode = "charging"
+            for _ in range(int(steps)):
+                soc = max(0.0, min(1.0, soc + sm._soc_delta_per_step(out_mode)))
+            shielded.append((out_mode, int(steps)))
+        return shielded
 
 
 @register("llm_single_scheduler_eventsat")

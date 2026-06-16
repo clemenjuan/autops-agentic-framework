@@ -116,6 +116,7 @@ class ScheduleBasedEventSat(Representation):
                 ),
                 # Physical downlink achievable at the next pass (50 kbps × contact).
                 "achievable_downlink_mb": meta.get("achievable_downlink_mb"),
+                "settling_time_steps": self._settling_time_steps,
             }
         return {}
 

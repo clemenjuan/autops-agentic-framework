@@ -9,6 +9,7 @@ from src.behaviour.controller import BehaviourController
 from src.decision_procedure.context import DecisionContext
 from src.orchestration.config_loader import ExperimentConfig, load_config
 from src.representation.llm_scheduler_eventsat import LLMSchedulerEventSat
+from src.representation.llm_prompts import format_schedule_prompt
 
 
 def _fresh_pass_state():
@@ -19,6 +20,68 @@ def _fresh_pass_state():
         "undetected_observations": 0, "staleness_steps": 1, "estimated_gap_steps": 40,
         "daily_downlink_budget_mb": 27.0,
     }
+
+
+def test_schedule_prompt_reports_downlink_without_observation_hard_cap() -> None:
+    state = _fresh_pass_state()
+    state.update({
+        "achievable_downlink_mb": 1.89,
+        "obc_data_mb": 271.52,
+        "jetson_compressed_mb": 0.0,
+        "uncompressed_observations": 0,
+    })
+    prompt = format_schedule_prompt(state, gap_steps=88)
+    assert "Downlink achievable at next pass: 1.89 MB" in prompt
+    assert "observing more than this just fills storage you cannot deliver" in prompt
+    assert "Already queued for future downlink" not in prompt
+    assert "Remaining capacity for NEW SCIENCE observations" not in prompt
+    assert "payload_observe command budget" not in prompt
+    assert "HARD RULE" not in prompt
+
+
+def test_hllm_safety_shield_vetoes_critical_states_not_observation_volume() -> None:
+    """Hybrid grounding is SAFETY, not behaviour: it must NOT cap how much the LLM
+    chooses to observe, but it MUST veto operational blocks in a critical battery or
+    storage state (→ charging, the env's safe fallback)."""
+    rep = LLMSchedulerEventSat({"settling_time_steps": 2})
+
+    # Safe state: a 12-step observe block survives intact (no downlink-budget clamp).
+    safe = _fresh_pass_state()
+    safe.update({"battery_soc": 0.7, "obc_data_mb": 0.0, "achievable_downlink_mb": 2.4})
+    sched = rep._validate_schedule(
+        [["payload_observe", 12], ["payload_compress", 20]], gap_steps=88, state=safe)
+    assert sched is not None and sched[0] == ("payload_observe", 12)
+
+    # Battery-critical: operational block below the operations SoC floor → charging.
+    low_batt = _fresh_pass_state()
+    low_batt.update({"battery_soc": 0.1, "obc_data_mb": 0.0})
+    sched = rep._validate_schedule([["payload_observe", 12]], gap_steps=88, state=low_batt)
+    assert sched is not None and sched[0][0] == "charging"
+
+    # Memory-critical: OBC storage critically full → observe vetoed → charging.
+    full_obc = _fresh_pass_state()
+    full_obc.update({"battery_soc": 0.7, "obc_data_mb": 1.0e9})
+    sched = rep._validate_schedule([["payload_observe", 12]], gap_steps=88, state=full_obc)
+    assert sched is not None and sched[0][0] == "charging"
+
+
+def test_llm_single_scheduler_does_not_symbolically_cap_observe_duration() -> None:
+    from src.representation.llm_scheduler_eventsat import LLMSingleSchedulerEventSat
+    rep = LLMSingleSchedulerEventSat({"settling_time_steps": 2})
+    state = _fresh_pass_state()
+    state.update({
+        "achievable_downlink_mb": 2.4,
+        "obc_data_mb": 0.0,
+        "jetson_compressed_mb": 0.0,
+        "uncompressed_observations": 0,
+    })
+    schedule = rep._validate_schedule(
+        [["payload_observe", 12], ["payload_compress", 20]],
+        gap_steps=88,
+        state=state,
+    )
+    assert schedule is not None
+    assert schedule[0] == ("payload_observe", 12)
 
 
 def test_ag_hllm_s_resolves_to_real_scheduler() -> None:

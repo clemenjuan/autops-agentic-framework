@@ -38,8 +38,8 @@ DATA PIPELINE (3-pool):
 CONSTRAINTS:
 - Battery SoC must stay above 0.20 (hard limit) and above 0.35 (preferred).
 - Ground passes are limited windows; OBC data must be ready before pass starts.
-- ADCS settling takes 135 seconds when switching to observe or communicate mode.
-- Daily downlink budget is finite (configurable, typically 27 MB).
+- ADCS settling takes 135 seconds when switching between modes with different attitudes.
+- Daily downlink budget is finite.
 - Anomalies force safe mode; you cannot override environment-enforced safe mode.
 
 OUTPUT FORMAT: Respond with a JSON object containing exactly two fields:
@@ -188,9 +188,9 @@ DATA PIPELINE (3-pool): Jetson raw -> (compress) -> Jetson compressed -> (send) 
 CONSTRAINTS:
 - Battery SoC must stay above 0.20 (hard) and preferably above 0.35.
 - The schedule runs BETWEEN passes (no ground link), so do not schedule communication.
-- ADCS settling costs ~135 s when switching to observe.
+- ADCS settling costs ~135 s when switching between modes with different attitudes.
 - Reserve battery near the end so the satellite is charged for the next pass.
-- Daily downlink budget is finite (typically 27 MB) — don't over-observe.
+- Daily downlink budget is finite — don't over-observe.
 
 OUTPUT FORMAT: a JSON object with exactly:
   {"schedule": [["<mode>", <integer_steps>], ...], "rationale": "<brief explanation>"}
@@ -215,6 +215,7 @@ def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
     undetected = state.get("undetected_observations", 0)
     budget_mb = state.get("daily_downlink_budget_mb", 27.0)
     achievable = state.get("achievable_downlink_mb")
+
     cap_line = (
         f"  Downlink achievable at next pass: {achievable:.2f} MB (50 kbps × contact) "
         f"— observing more than this just fills storage you cannot deliver"
