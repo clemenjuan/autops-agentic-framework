@@ -5,9 +5,14 @@ import json, statistics, subprocess, sys
 from pathlib import Path
 
 EXTRACT = Path("data/figures/extract.json")
-KEYS = ["utility","data_downlink_efficiency","observation_hours","downlinked_mb",
+KEYS = ["utility","mean_aoi_s","peak_aoi_s","robustness_mean_recovery_steps",
+        "data_downlink_efficiency","value_of_information","constraint_violation_rate",
+        "commanding_effort","observation_hours","downlinked_mb",
         "operator_load","explainability_score","mean_latency_s","final_battery_soc",
-        "anomaly_events","safety_overrides","resource_efficiency"]
+        "anomaly_events","safety_overrides","resource_efficiency",
+        "llm_api_calls","llm_cache_hits","llm_cache_hit_rate","llm_total_latency_s",
+        "llm_mean_call_latency_s","llm_tokens_prompt","llm_tokens_completion",
+        "llm_schedule_entries"]
 
 # Episodes excluded by substrate-integrity screening (run_id -> episode indices).
 # Append-only, manual, evidence required — same policy as MEASURED status flips.
@@ -22,8 +27,6 @@ ex_mtime = EXTRACT.stat().st_mtime
 data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
 changed = 0
 for rj in Path("data/results").glob("*/results.json"):
-    if rj.stat().st_mtime <= ex_mtime:
-        continue
     try:
         r = json.loads(rj.read_text())
     except Exception:

@@ -72,42 +72,53 @@ def _load_matrix() -> dict:
 # 14-metric registry (morphological_matrix.md §6). status: measured | deferred.
 METRICS = [
     ("M-01", "Mission Utility",           "utility",                  "measured",                 "weighted EventSat objective achievement, target-normalised"),
-    ("M-02", "Mean Age of Information",   None,                       "deferred",                 "AoI collector pending"),
-    ("M-03", "Peak Age of Information",   None,                       "deferred",                 "same field as M-02"),
-    ("M-04", "Autonomous Recovery Eff.",  None,                       "deferred",                 "persistent-anomaly collector pending"),
+    ("M-02", "Mean Age of Information",   "mean_aoi_s",              "measured",                 "mean data staleness in seconds"),
+    ("M-03", "Peak Age of Information",   "peak_aoi_s",              "measured",                 "maximum data staleness in seconds"),
+    ("M-04", "Autonomous Recovery Eff.",  "robustness_mean_recovery_steps", "measured",             "steps from anomaly onset to cleared and nominal"),
     ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                 "environment-veto fraction; operator-intervention proxy"),
-    ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured",                 "utility per normalised energy"),
+    ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured",                 "utility per Wh consumed"),
     ("M-07", "Decision Latency",          "mean_latency_s",           "measured",                 "mean wall-clock per decision cycle (live calls)"),
     ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence)",      "rationale-presence floor; faithfulness scorer deferred"),
     ("M-09", "Robustness (CV)",           None,                       "measured (≥30 ep)",        "cross-episode CV of utility"),
     ("M-10", "Scale Efficiency",          None,                       "deferred",                 "multi-satellite scenario"),
     ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                 "delivered / max-achievable through S-band"),
-    ("M-12", "Value-of-Information",      None,                       "deferred",                 "per-product value weights pending"),
-    ("M-13", "Constraint-Violation Rate", None,                       "deferred",                 "constraint ledger pending"),
-    ("M-14", "Commanding Effort",         None,                       "deferred",                 "command ledger pending"),
+    ("M-12", "Value-of-Information",      "value_of_information",    "measured",                 "raw-equivalent delivered/captured value"),
+    ("M-13", "Constraint-Violation Rate", "constraint_violation_rate", "measured",                "environment-clamped invalid command fraction"),
+    ("M-14", "Commanding Effort",         "commanding_effort",       "measured",                 "commands plus weighted manual interventions per day"),
 ]
 
-VALUE_KEYS = ["utility", "operator_load", "resource_efficiency", "mean_latency_s",
+VALUE_KEYS = ["utility", "mean_aoi_s", "peak_aoi_s", "value_of_information",
+              "constraint_violation_rate", "commanding_effort",
+              "robustness_mean_recovery_steps",
+              "operator_load", "resource_efficiency", "mean_latency_s",
               "mean_ground_latency_s", "explainability_score", "data_downlink_efficiency",
               "observation_hours", "downlinked_mb",
-              "llm_api_calls", "llm_mean_call_latency_s", "llm_cache_hit_rate"]
+              "llm_api_calls", "llm_mean_call_latency_s", "llm_cache_hit_rate",
+              "llm_total_latency_s", "llm_tokens_prompt", "llm_tokens_completion",
+              "llm_schedule_entries"]
 
 # Metrics selectable in the matrix heatmap dropdown: (key, label). "↓" = lower is better.
 METRIC_OPTIONS = [
     ("utility", "Mission Utility (M-01)"),
-    ("data_downlink_efficiency", "Downlink Efficiency (M-11)"),
-    ("observation_hours", "Observation hours"),
-    ("downlinked_mb", "Delivered MB"),
-    ("resource_efficiency", "Resource Efficiency (M-06)"),
-    ("operator_load", "Safety-Override Rate (M-05) ↓"),
-    ("explainability_score", "Explainability (M-08)"),
-    ("mean_latency_s", "Decision Latency (M-07) ↓"),
-    ("mean_ground_latency_s", "Ground-planner latency, s ↓"),
-    ("llm_mean_call_latency_s", "LLM call latency, s ↓"),
-    ("llm_api_calls", "LLM API calls"),
-    ("llm_cache_hit_rate", "LLM cache-hit rate"),
+    ("mean_aoi_s", "Mean AoI, s (M-02) ↓"),
+    ("peak_aoi_s", "Peak AoI, s (M-03) ↓"),
+    ("robustness_mean_recovery_steps", "Recovery, steps (M-04) ↓"),
+    ("data_downlink_efficiency", "Downlink Efficiency, % (M-11)"),
+    ("value_of_information", "Value of Information, % (M-12)"),
+    ("constraint_violation_rate", "Constraint Violations, % (M-13) ↓"),
+    ("commanding_effort", "Commanding Effort, cmd/day (M-14) ↓"),
+    ("observation_hours", "Observation time, h/episode"),
+    ("downlinked_mb", "Delivered data, MB/episode"),
+    ("resource_efficiency", "Resource Efficiency, U/Wh (M-06)"),
+    ("operator_load", "Safety-Override Rate, % (M-05) ↓"),
+    ("explainability_score", "Explainability Coverage, % (M-08)"),
+    ("mean_latency_s", "Decision Latency, s/decision (M-07) ↓"),
+    ("mean_ground_latency_s", "Diagnostic: ground-planner latency, s ↓"),
+    ("llm_mean_call_latency_s", "Diagnostic: LLM live-call latency, s ↓"),
+    ("llm_api_calls", "Diagnostic: LLM calls/episode"),
+    ("llm_cache_hit_rate", "Diagnostic: LLM cache-hit rate, %"),
 ]
-LOWER_BETTER = ["operator_load", "mean_latency_s", "mean_ground_latency_s", "llm_mean_call_latency_s"]
+LOWER_BETTER = ["mean_aoi_s", "peak_aoi_s", "robustness_mean_recovery_steps", "constraint_violation_rate", "commanding_effort", "operator_load", "mean_latency_s", "mean_ground_latency_s", "llm_mean_call_latency_s"]
 
 
 def _episode_steps(rid: str) -> int | None:
@@ -313,6 +324,33 @@ TEMPLATE = r"""<!DOCTYPE html>
 const P = __PAYLOAD__;
 const CELLS = {}; P.cells.forEach(c => CELLS[c.id] = c);
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
+const UNITS = {
+  mean_aoi_s:"s", peak_aoi_s:"s", robustness_mean_recovery_steps:"steps",
+  commanding_effort:"cmd/day", observation_hours:"h/ep", downlinked_mb:"MB/ep",
+  resource_efficiency:"U/Wh", mean_latency_s:"s/decision", mean_ground_latency_s:"s",
+  llm_mean_call_latency_s:"s", llm_total_latency_s:"s", llm_api_calls:"calls/ep",
+  llm_cache_hits:"hits/ep", llm_tokens_prompt:"tok/ep", llm_tokens_completion:"tok/ep",
+  llm_schedule_entries:"entries/ep"
+};
+const PERCENT = new Set(["operator_load","data_downlink_efficiency","value_of_information",
+  "constraint_violation_rate","explainability_score","llm_cache_hit_rate"]);
+const INTEGERISH = new Set(["llm_tokens_prompt","llm_tokens_completion"]);
+function fmtMetric(k, v){
+  if (v==null) return "—";
+  const x = +v;
+  if (!Number.isFinite(x)) return "—";
+  if (PERCENT.has(k)){
+    const pct = x * 100;
+    return pct < 1 && pct > 0 ? pct.toFixed(2)+"%" : pct.toFixed(1)+"%";
+  }
+  let body;
+  if (INTEGERISH.has(k)) body = x.toLocaleString(undefined,{maximumFractionDigits:0});
+  else if (Math.abs(x) >= 1000) body = x.toLocaleString(undefined,{maximumFractionDigits:0});
+  else if (Math.abs(x) >= 100) body = x.toFixed(1);
+  else if (Math.abs(x) >= 10) body = x.toFixed(2);
+  else body = x.toFixed(3);
+  return UNITS[k] ? body + " " + UNITS[k] : body;
+}
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
 // ---- 1: unified onboard×ground matrix with a metric-selector heatmap
 (function(){
@@ -343,20 +381,24 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
         const isConv = (o==="—" && g==="symb");
         if (!par){ h += `<td class="mcell empty" title="no cores">—</td>`; continue; }
         const c = byPos[o+"|"+g];
-        let cls="notrun", txt="·", style="", tip=par;
+        let cls="notrun", txt="·", style="", tip=par, dark=false;
         if (c && c.status==="measured" && c.mean[metric]!=null){
           const t = norm(c.mean[metric]);
-          cls="measured"; txt=fmt(c.mean[metric]);
-          style=`background:${colour(t)};color:${t>0.55?'#fff':'#111'}`;
+          dark = t>0.55;
+          cls="measured"; txt=fmtMetric(metric, c.mean[metric]);
+          style=`background:${colour(t)};color:${dark?'#fff':'#111'}`;
           tip=`${par} · ${c.id}${c.source?' [data: '+c.source+']':''}`;
         } else if (c && c.status==="placeholder"){
           cls="placeholder"; txt="▢"; tip=`${par} · ${c.id} (placeholder cell)`;
         } else if (c){ tip=`${par} · ${c.id} (not yet run)`; }
         let sub="";
         if (isConv && conv){
-          const cv = (conv.status==="measured" && conv.mean[metric]!=null) ? fmt(conv.mean[metric])
+          const cv = (conv.status==="measured" && conv.mean[metric]!=null) ? fmtMetric(metric, conv.mean[metric])
                    : (conv.status==="placeholder" ? "▢" : "·");
-          sub = `<span class="sub">CG ${cv}</span>`;
+          // CG rides inside the AG cell, which is filled by AG's value; adapt the
+          // sub colour to that fill (dark fill → light text) so CG stays legible
+          // (was a fixed #777 that vanished on dark-blue cells).
+          sub = `<span class="sub" style="color:${dark?'#dce8f7':'#555'}">CG ${cv}</span>`;
           tip += ` | Conventional: ${conv.id}`;
         }
         h += `<td class="mcell ${cls}" style="${style}" title="${tip}">${txt}${sub}</td>`;
@@ -445,18 +487,29 @@ document.getElementById("mx").innerHTML =
  P.metrics.map(([id,nm,key,s,note])=>{
   const cls = s.startsWith("measured")?"measured":"deferred";
   return `<tr><td><b>${id}</b> ${nm}</td><td>${stc(cls,s)}</td>` +
-    vcols.map(c=>`<td class="num">${key?fmt(c.mean[key]):"—"}</td>`).join("") +
+    vcols.map(c=>`<td class="num">${key?fmtMetric(key, c.mean[key]):"—"}</td>`).join("") +
     `<td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
 
 // ---- 5a: radar
-const RMETRICS = [["utility","mission utility"],["data_downlink_efficiency","downlink efficiency"],
- ["explainability_score","explainability (presence)"],["operator_load","override rate (inverted)"]];
+const RMETRICS = [
+  ["utility","mission utility"],
+  ["mean_aoi_s","mean AoI (inverted)"],
+  ["data_downlink_efficiency","downlink efficiency"],
+  ["value_of_information","value of information"],
+  ["constraint_violation_rate","constraint violations (inverted)"],
+  ["commanding_effort","commanding effort (inverted)"],
+  ["explainability_score","explainability (presence)"]
+];
+const RLOWER = new Set(P.lower_better || []);
 if (vcols.length){
   const vals = {};
   for (const [k] of RMETRICS){
-    let xs = vcols.map(c=> k==="operator_load" ? 1-(c.mean[k]??0) : (c.mean[k]??0));
+    let xs = vcols.map(c=> c.mean[k]??0);
     const mn=Math.min(...xs), mx=Math.max(...xs);
-    vals[k] = xs.map(v => mx>mn ? (v-mn)/(mx-mn) : 1);
+    vals[k] = xs.map(v => {
+      const norm = mx>mn ? (v-mn)/(mx-mn) : 1;
+      return RLOWER.has(k) ? 1-norm : norm;
+    });
   }
   Plotly.newPlot("radar", vcols.map((c,i)=>({
     type:"scatterpolar", fill:"toself", opacity:0.55, name:`${c.paradigm} · ${c.rep}`,
