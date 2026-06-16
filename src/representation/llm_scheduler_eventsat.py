@@ -69,9 +69,13 @@ class LLMSchedulerEventSat(Representation):
         self._settling_time_steps: int = self.config.get("settling_time_steps", 2)
         self._schedule_generated_this_pass: bool = False
         self._last_pass_active: bool = False
-        # Symbolic SAFETY model for the hybrid grounding shield (hllm-s): reuses the
-        # symbolic cores' calibrated battery/storage critical thresholds + SoC model.
-        self._safety_model = ScheduleBasedEventSat(config)
+        # Symbolic SAFETY model for the hybrid grounding shield (hllm-s only): reuses
+        # the symbolic cores' calibrated battery/storage thresholds + SoC model from
+        # the scenario physics in `config`. Not built for pure llm-s (no shield), which
+        # is not given the physics block.
+        self._safety_model = (
+            ScheduleBasedEventSat(config) if self._symbolic_grounding else None
+        )
 
     # encode_observation: identical state needs as the symbolic planner
     # (gap, staleness, pipeline pools) — reuse it directly.

@@ -35,6 +35,7 @@ PARADIGM_OPS = {
     "ah": "autonomous_hybrid",
 }
 AGENTIC_CELLS = {"llm-a", "hllm-a"}
+HYBRID_CELLS = {"hllm-s", "hllm-a"}  # LLM + symbolic safety shield (needs scenario physics)
 
 _POWER_CONSUMPTION = {
     "charging": {"sun_w": 4.72, "eclipse_w": 4.32},
@@ -102,7 +103,13 @@ def repr_config(cell: str, role: str, paradigm: str) -> dict:
         return _rl_block()
     if cell == "hrl":
         return {}  # placeholder → symbolic stand-in
-    return _llm_block(agentic=cell in AGENTIC_CELLS)  # llm-s / llm-a / hllm-s / hllm-a
+    # Hybrid LLM ground cells (hllm-s / hllm-a) run a symbolic SAFETY shield over the
+    # LLM schedule, which needs the scenario physics (OBC capacity, SoC/power model).
+    # Pure LLM cells (llm-s / llm-a) have no shield, so only the LLM block.
+    if cell in HYBRID_CELLS:
+        return {**_symbolic_power_block(paradigm == "conventional"),
+                **_llm_block(agentic=cell in AGENTIC_CELLS)}
+    return _llm_block(agentic=cell in AGENTIC_CELLS)  # llm-s / llm-a
 
 
 def _is_learned_rl(cell: str) -> bool:

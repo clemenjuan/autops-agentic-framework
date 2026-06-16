@@ -65,6 +65,43 @@ onboard:
 ground:
   representation: hllm-s
   representation_config:
+    solar_generation_w: 24.0
+    battery_capacity_wh: 70.0
+    eclipse_fraction: 0.36
+    step_duration_s: 60.0
+    charge_efficiency: 0.9
+    compression_time_factor: 2.0
+    detection_steps: 5
+    observation_size_mb: 9.41
+    compression_ratio: 5.11
+    jetson_to_obc_rate_kbps: 8000
+    obc_capacity_mb: 4096.0
+    charge_reserve_fraction: 0.12
+    min_soc_for_operations: 0.4
+    staleness_threshold: 5
+    settling_time_steps: 2
+    power_consumption:
+      charging:
+        sun_w: 4.72
+        eclipse_w: 4.32
+      communication:
+        sun_w: 33.65
+        eclipse_w: 33.24
+      payload_observe:
+        sun_w: 17.94
+        eclipse_w: 17.55
+      payload_compress:
+        sun_w: 12.77
+        eclipse_w: 12.37
+      payload_detect:
+        sun_w: 12.77
+        eclipse_w: 12.37
+      payload_send:
+        sun_w: 12.77
+        eclipse_w: 12.37
+      safe:
+        sun_w: 9.58
+        eclipse_w: 9.58
     llm_provider: auto
     llm_model: qwen3.6:35b
     openai_model: gpt-4o-mini
