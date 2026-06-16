@@ -42,6 +42,11 @@ def _trace_to_step_metrics(trace_lines: List[Dict[str, Any]]) -> List[StepMetric
         anomaly_raw = line.get("anomaly", "")
         anomaly_flag = float(bool(anomaly_raw))
         forced = float(line.get("forced", False))
+        anomaly_active = float(line.get("anomaly_forced_safe") or 0.0)
+        # Pre-transition safety classification: exact when the trace carries it,
+        # else fall back to the executed mode (older traces predating safety_safe).
+        _ss = line.get("safety_safe")
+        _safety_safe = float(_ss) if _ss is not None else float(line.get("mode", "") == "safe")
         battery_soc = float(line.get("battery_soc") or 0.0)
         prev_soc = line.get("prev_battery_soc")
         # If prev_battery_soc wasn't recorded (older traces), fall back to 0
@@ -65,7 +70,17 @@ def _trace_to_step_metrics(trace_lines: List[Dict[str, Any]]) -> List[StepMetric
             "ground_pass_active": float(line.get("ground_pass_active") or 0.0),
             "forced": forced,
             "anomaly": anomaly_flag,
-            "safety_override": forced,
+            # M-05 = protective safe mode (anomaly or critical battery); M-13 =
+            # precondition clamp to charging. Keyed off the env's pre-transition
+            # safety_safe when present (exact); fall back to the executed mode for
+            # older traces. Matches EventSatMetricsCollector.collect_step_metrics.
+            "safety_override": _safety_safe,
+            "anomaly_active": anomaly_active,
+            "in_safe_mode": _safety_safe,
+            "constraint_violation": float(bool(forced) and _safety_safe == 0.0),
+            "step_downlinked_mb": float(line.get("step_downlinked_mb") or 0.0),
+            "total_raw_captured_mb": float(line.get("total_raw_captured_mb") or 0.0),
+            "downlink_raw_equivalent_mb": float(line.get("downlink_raw_equivalent_mb") or 0.0),
             "jetson_raw_mb": float(line.get("jetson_raw_mb") or 0.0),
             "jetson_compressed_mb": float(line.get("jetson_compressed_mb") or 0.0),
             "obc_data_mb": float(line.get("obc_data_mb") or 0.0),
@@ -87,6 +102,10 @@ def _trace_to_step_metrics(trace_lines: List[Dict[str, Any]]) -> List[StepMetric
             wall_clock_seconds=float(line.get("latency_s") or 0.0),
             reward=float(line.get("reward") or 0.0),
             metrics=metrics,
+            metadata={
+                "requested_mode": line.get("requested_mode", ""),
+                "resolved_mode": line.get("mode", ""),
+            },
         ))
     return out
 

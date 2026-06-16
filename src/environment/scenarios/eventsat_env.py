@@ -153,6 +153,9 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.obc_data_mb = 0.0
         self.data_stored_mb = 0.0       # total = jetson_raw + jetson_compressed + obc
         self.data_downlinked_mb = 0.0
+        self.total_raw_captured_mb = 0.0
+        self.obc_raw_equivalent_mb = 0.0
+        self.downlink_raw_equivalent_mb = 0.0
         self.uncompressed_observations = 0
         self.total_observation_s = 0.0
         self.current_mode = "charging"
@@ -192,7 +195,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         episode_days = (self.max_steps * self.step_duration_s) / 86400.0
         target_scale = episode_days / mission_days if mission_days > 0 else 1.0
         self.obs_target_hours = objectives.get("total_observation_hours", 2.0) * target_scale
-        self.dl_target_mb = objectives.get("min_downlinked_data_mb", 240.0) * target_scale
+        self.dl_target_mb = objectives.get("min_downlinked_data_mb", 221.0) * target_scale
 
     def _load_scenario(self, config):
         scenario_path = config.get("scenario_config") or config.get("scenario_file")
@@ -213,6 +216,9 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.obc_data_mb = 0.0
         self.data_stored_mb = 0.0
         self.data_downlinked_mb = 0.0
+        self.total_raw_captured_mb = 0.0
+        self.obc_raw_equivalent_mb = 0.0
+        self.downlink_raw_equivalent_mb = 0.0
         self.uncompressed_observations = 0
         self.total_observation_s = 0.0
         self.current_mode = "charging"
@@ -328,6 +334,9 @@ class EventSatEnvironment(SatelliteEnvironment):
             "jetson_compressed_mb": self.jetson_compressed_mb,
             "obc_data_mb": self.obc_data_mb,
             "data_downlinked_mb": self.data_downlinked_mb,
+            "total_raw_captured_mb": self.total_raw_captured_mb,
+            "obc_raw_equivalent_mb": self.obc_raw_equivalent_mb,
+            "downlink_raw_equivalent_mb": self.downlink_raw_equivalent_mb,
             "in_sunlight": float(in_sun),
             "ground_pass_active": float(pass_active),
             "forced_mode": float(forced),
@@ -348,6 +357,12 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "resolved_mode": effective_mode,
                 "requested_mode": requested_mode,
                 "forced": forced,
+                # Pre-transition safety classification: resolved_mode BEFORE the
+                # transition/settling mask (which reports effective_mode="charging"
+                # during a forced-safe step's settling window). M-05/M-13 key off this
+                # so an anomaly/critical-battery safe step is scored as a safety
+                # override, never as a charging constraint violation.
+                "safety_safe": float(resolved_mode == "safe"),
                 "anomaly": anomaly_event,
                 **action_info,           # per-step values (e.g. data_downlinked_mb per step)
                 **self._step_metrics,    # cumulative values overwrite — data_downlinked_mb is always cumulative here
@@ -519,6 +534,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         actual_transfer = min(transfer_mb, max(0.0, space_on_obc))
         self.jetson_compressed_mb -= actual_transfer
         self.obc_data_mb += actual_transfer
+        self.obc_raw_equivalent_mb += actual_transfer * self.compression_ratio
         return actual_transfer
 
     def _apply_mode_effects(self, mode, in_sun, pass_active):
@@ -538,6 +554,7 @@ class EventSatEnvironment(SatelliteEnvironment):
             self.uncompressed_observations += 1
             # P3: raw data goes to Jetson storage
             self.jetson_raw_mb += self.observation_size_mb
+            self.total_raw_captured_mb += self.observation_size_mb
             if self.jetson_raw_mb > self.jetson_capacity_mb:
                 self.jetson_raw_mb = self.jetson_capacity_mb
                 storage_overflow = True
@@ -639,7 +656,13 @@ class EventSatEnvironment(SatelliteEnvironment):
                 if getattr(self, "_data_priority", 0) == 1:
                     dl_mb *= 1.5
                 actual_dl = min(dl_mb, self.obc_data_mb)
+                raw_equivalent_dl = 0.0
+                if self.obc_data_mb > 0:
+                    raw_equiv_fraction = self.obc_raw_equivalent_mb / self.obc_data_mb
+                    raw_equivalent_dl = min(self.obc_raw_equivalent_mb, actual_dl * raw_equiv_fraction)
                 self.obc_data_mb -= actual_dl
+                self.obc_raw_equivalent_mb = max(0.0, self.obc_raw_equivalent_mb - raw_equivalent_dl)
+                self.downlink_raw_equivalent_mb += raw_equivalent_dl
                 self.data_downlinked_mb += actual_dl
                 action_info["data_downlinked_mb"] = actual_dl
                 action_info["data_priority_urgent"] = getattr(self, "_data_priority", 0) == 1

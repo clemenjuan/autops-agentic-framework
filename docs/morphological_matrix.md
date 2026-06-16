@@ -4,7 +4,7 @@
 autonomous satellite operations**, measured on the **EventSat** mission (an
 event-camera CubeSat — physics in `scenarios.md`). The benchmark is
 **scenario-specific** (EventSat now; a multi-satellite scenario later) and
-**metric-based**: architectures are scored directly on the metrics of §5. There is
+**metric-based**: architectures are scored directly on the metrics of §6. There is
 no mission tradespace, no multi-fidelity surrogate, and no separate test catalogue.
 
 An operations-system architecture (**O**) is a point defined by **three components**:
@@ -134,22 +134,22 @@ Monte-Carlo (shared seeds → paired comparisons); robustness is the cross-episo
 
 | ID | Metric | Symbol | Definition | Status |
 |----|--------|--------|------------|--------|
-| **M-01** | Mission Utility | \(U\) | \(\sum_j w_j\phi_j\) — weighted achievement of EventSat objectives (observation + downlink targets, less anomaly burden), target-normalised to episode length | ✅ measured |
-| **M-02** | Mean Age of Information | \(\bar\Delta\) | \(\frac1T\int_0^T\Delta(t)\,dt\) — mean data staleness | ⏳ collector pending |
-| **M-03** | Peak Age of Information | \(A_{peak}\) | \(\max_i(T_i+Y_i)\) | ⏳ collector pending |
-| **M-04** | Autonomous Recovery Efficiency | \(R_{FDIR}\) | steps from anomaly onset to (cleared ∧ nominal mode) | ⏳ collector pending |
-| **M-05** | Safety-Override Rate | \(OIR\) | \(N_{override}/N_{steps}\) (operator-intervention proxy) | ✅ measured |
-| **M-06** | Resource Efficiency | \(\eta_R\) | \(U/\hat E\), \(\hat E=E_{consumed}/E_{budget}\) | ✅ measured |
+| **M-01** | Mission Utility | \(U\) | \(\sum_j w_j\phi_j\) — weighted achievement of EventSat objectives (delivered-data objective by default, optional observation ablation, less anomaly burden), target-normalised to episode length | ✅ measured |
+| **M-02** | Mean Age of Information | \(\bar{\Delta}\) | mean data staleness in seconds; downlink resets AoI | ✅ measured |
+| **M-03** | Peak Age of Information | \(A_{peak}\) | maximum data staleness in seconds between downlink deliveries | ✅ measured |
+| **M-04** | Autonomous Recovery Efficiency | R_FDIR | steps from anomaly onset to (cleared and nominal mode); horizon-censored if unrecovered | ✅ measured |
+| **M-05** | Safety-Override Rate | \(OIR\) | \(N_{override}/N_{steps}\) — fraction of steps in protective safe mode (anomaly or critical battery); operator-intervention proxy; disjoint from M-13 | ✅ measured |
+| **M-06** | Resource Efficiency | \(\eta_R\) | \(U/E_{consumed}\), utility per Wh consumed | ✅ measured |
 | **M-07** | Decision Latency | \(L_{dec}\) | mean wall-clock per decision cycle | ✅ measured |
-| **M-08** | Explainability Coverage | \(\xi\) | \(N_{rationale}/N_{decisions}\) | ✅ measured (presence) |
+| **M-08** | Explainability Coverage | \(\xi\) | rationale-bearing steps / episode steps; presence only | ✅ measured (presence) |
 | **M-09** | Robustness | \(CV_U\) | \(\sigma_U/\mu_U\) of utility across episodes (≥30 ep) | ✅ measured |
 | **M-10** | Scale Efficiency | \(\eta_{scale}\) | \(U(N)/N\) normalised to \(U(1)\) | 🔭 multi-sat scenario |
 | **M-11** | Downlink Efficiency | \(\eta_{dl}\) | delivered / max-achievable through the S-band channel | ✅ measured |
-| **M-12** | Value-of-Information | \(\xi_{VoI}\) | \(\sum_{delivered}V_j/\sum_{all}V_j\) | ⏳ value weights pending |
-| **M-13** | Constraint-Violation Rate | \(p_{viol}\) | \(N_{viol}/N_{decisions}\) (+ pass\(^k\) for stochastic cores) | ⏳ ledger pending |
-| **M-14** | Commanding Effort | \(E_{cmd}\) | \((N_{cmd}+w_m N_{manual})\) per mission-day | ⏳ ledger pending |
+| **M-12** | Value-of-Information | \(\xi_{VoI}\) | raw-equivalent delivered value / raw-equivalent captured value | ✅ measured |
+| **M-13** | Constraint-Violation Rate | \(p_{viol}\) | agent requests clamped to charging (preconditions failed); safe-mode steps (anomaly or critical battery) are M-05, not M-13 | ✅ measured |
+| **M-14** | Commanding Effort | \(E_{cmd}\) | (N_cmd + w_m N_manual) per mission-day; N_cmd = commanded mode changes, N_manual = anomaly-recovery events (per-event, not per-step dwell) | ✅ measured |
 
-Raw read-outs that M-01/M-11 aggregate — **observation hours** and **delivered MB**
+Raw read-outs reported alongside the metrics — **observation hours** and **delivered MB**
 per episode — are plotted directly too. Each metric is rendered across the full 32
 experiments on the board: a heatmap grid (AH = onboard×ground) plus ranked bars.
 

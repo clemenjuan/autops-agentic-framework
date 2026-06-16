@@ -538,6 +538,19 @@ class TestAutonomousOnboard:
         assert ao.can_self_recover_anomaly() is True             # onboard FDIR
         assert ao.process_action(act, 0, False) == act           # pass-through, no schedule
 
+    def test_self_recovery_capability_matches_paradigm(self) -> None:
+        """Onboard paradigms (AO/AH) self-recover anomalies; ground paradigms
+        (AG/CG) require a ground pass. This capability is the single source of
+        truth the runner uses to set env.anomaly_requires_ground_pass."""
+        from src.operations.autonomous_onboard import AutonomousOnboard
+        from src.operations.autonomous_hybrid import AutonomousHybrid
+        from src.operations.autonomous_ground import AutonomousGround
+        from src.operations.conventional_ground import ConventionalGround
+        assert AutonomousOnboard().can_self_recover_anomaly() is True
+        assert AutonomousHybrid().can_self_recover_anomaly() is True
+        assert AutonomousGround().can_self_recover_anomaly() is False
+        assert ConventionalGround().can_self_recover_anomaly() is False
+
 
 class TestTwoCoreResolution:
     """resolved_onboard_type + resolved_ground_planner_type per (substrate, action_space, ops)."""

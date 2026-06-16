@@ -88,7 +88,8 @@ class MetricsConfig(BaseModel):
     utility_targets: Dict[str, float] = Field(
         default={
             "observation_hours": 2.0,
-            "downlinked_mb": 240.0,
+            # Two hours of 60 s observations compressed: 120 * (9.41 / 5.11) ~= 221 MB.
+            "downlinked_mb": 221.0,
             "mission_duration_days": 90.0,
         }
     )

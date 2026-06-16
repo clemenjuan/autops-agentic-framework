@@ -231,6 +231,19 @@ class ExperimentRunner:
         # Operations paradigm (5th dimension)
         self._operations_paradigm = self._create_operations_paradigm()
 
+        # Anomaly recovery mode: onboard paradigms (AO/AH) clear anomalies via
+        # onboard FDIR once the countdown expires; ground paradigms (AG/CG) need a
+        # ground pass for the resume command. The paradigm's
+        # can_self_recover_anomaly() is the single source of truth.
+        if (
+            self._environment is not None
+            and self._operations_paradigm is not None
+            and hasattr(self._environment, "anomaly_requires_ground_pass")
+        ):
+            self._environment.anomaly_requires_ground_pass = (
+                not self._operations_paradigm.can_self_recover_anomaly()
+            )
+
         # A Jetson-based onboard core (subsymbolic/hybrid onboard, AO/AH) keeps the
         # Jetson powered every step → extra power draw. Symbolic onboard rules run on
         # the OBC (no overhead); ground paradigms decide on the ground (no overhead).
@@ -255,11 +268,9 @@ class ExperimentRunner:
 
         if scenario == "eventsat":
             from src.environment.scenarios.eventsat_env import EventSatEnvironment
-            # Tell the environment whether the operations paradigm allows
-            # onboard anomaly recovery (autonomous) vs requiring ground contact.
-            env_cfg["anomaly_requires_ground_pass"] = (
-                self.config.operations_paradigm != "autonomous_hybrid"
-            )
+            # anomaly_requires_ground_pass is derived from the paradigm's
+            # can_self_recover_anomaly() capability once the paradigm is built
+            # (see initialise()); the env default holds until then.
             return EventSatEnvironment(config=env_cfg)
 
         logger.warning("Unknown scenario '%s', returning None.", scenario)
@@ -788,6 +799,8 @@ class ExperimentRunner:
                 "mode": info.get("resolved_mode", "unknown"),
                 "requested_mode": info.get("requested_mode"),
                 "forced": bool(info.get("forced", False)),
+                # Pre-transition safety classification (M-05/M-13 ground truth).
+                "safety_safe": float(info.get("safety_safe", 0.0)),
                 "anomaly": info.get("anomaly") or "",
                 "anomaly_forced_safe": float(info.get("anomaly_forced_safe", 0.0)),
                 "rationale": decision_metrics.get("rationale", ""),
@@ -802,6 +815,8 @@ class ExperimentRunner:
                 "obc_data_mb": info.get("obc_data_mb"),
                 "data_downlinked_mb": info.get("data_downlinked_mb"),
                 "step_downlinked_mb": info.get("step_downlinked_mb", 0.0),
+                "total_raw_captured_mb": info.get("total_raw_captured_mb", 0.0),
+                "downlink_raw_equivalent_mb": info.get("downlink_raw_equivalent_mb", 0.0),
                 "observation_hours": info.get("observation_hours"),
                 "total_detections": info.get("total_detections"),
                 "undetected_observations": info.get("undetected_observations"),

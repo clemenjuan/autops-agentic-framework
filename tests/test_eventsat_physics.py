@@ -859,3 +859,78 @@ class TestOnboardComputeOverhead:
         env._update_battery("charging", in_sun=False)
         expected_soc = 0.8 - 4.72 * (env.step_duration_s / 3600.0) / env.battery_capacity_wh
         assert abs(env.battery_soc - expected_soc) < 1e-9
+
+class TestCanonicalEventSatMetrics:
+    """Regression tests for the 14-metric EventSat collector."""
+
+    def test_canonical_metric_keys_are_present_and_bounded(self):
+        from src.orchestration.eventsat_metrics import EventSatMetricsCollector
+        from src.orchestration.metrics_collector import StepMetrics
+
+        collector = EventSatMetricsCollector(config={"step_duration_s": 60.0})
+        requested = ["charging", "charging", "payload_observe", "payload_observe", "communication"]
+        steps = []
+        for i, mode in enumerate(requested):
+            steps.append(StepMetrics(
+                timestep=i,
+                wall_clock_seconds=0.0,
+                reward=0.0,
+                metrics={
+                    "battery_soc": 0.8,
+                    "data_downlinked_mb": 1.0 if i == 4 else 0.0,
+                    "step_downlinked_mb": 1.0 if i in (1, 4) else 0.0,
+                    "observation_hours": 0.0,
+                    "max_achievable_downlink_mb": 2.0 if i == 4 else 0.0,
+                    "anomaly": 1.0 if i == 1 else 0.0,
+                    "anomaly_active": 1.0 if i in (1, 2) else 0.0,
+                    "in_safe_mode": 1.0 if i in (2, 3) else 0.0,
+                    "safety_override": 1.0 if i == 1 else 0.0,
+                    "constraint_violation": 1.0 if i == 2 else 0.0,
+                    "total_raw_captured_mb": 20.0 if i == 4 else 0.0,
+                    "downlink_raw_equivalent_mb": 5.0 if i == 4 else 0.0,
+                    "energy_consumed_wh": 1.0,
+                    "decision_latency_s": 0.0,
+                    "inference_allowed": 1.0,
+                    "has_rationale": 0.0,
+                },
+                metadata={"requested_mode": mode},
+            ))
+
+        agg = collector.aggregate_episode_metrics(steps).aggregated
+
+        expected_keys = {
+            "mean_aoi_s",
+            "peak_aoi_s",
+            "robustness_mean_recovery_steps",
+            "value_of_information",
+            "constraint_violation_rate",
+            "commanding_effort",
+        }
+        assert expected_keys.issubset(agg)
+        assert 0.0 <= agg["mean_aoi_s"] <= agg["peak_aoi_s"]
+        assert agg["robustness_mean_recovery_steps"] >= 0.0
+        assert 0.0 <= agg["value_of_information"] <= 1.0
+        assert 0.0 <= agg["constraint_violation_rate"] <= 1.0
+        assert agg["commanding_effort"] >= 0.0
+
+    def test_environment_tracks_raw_equivalent_voi_through_downlink(self):
+        from unittest.mock import patch
+
+        env = _make_env_with_scenario(storage={"compression_ratio": 2.0})
+        env.battery_soc = 0.95
+
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.step({"eventsat_0": {"mode": "payload_compress"}})
+        env.step({"eventsat_0": {"mode": "payload_compress"}})
+        env.step({"eventsat_0": {"mode": "payload_send"}})
+
+        assert env.total_raw_captured_mb == pytest.approx(env.observation_size_mb)
+        assert env.obc_raw_equivalent_mb > 0.0
+
+        with patch.object(env, "_is_ground_pass_active", return_value=True), \
+             patch.object(env, "_contact_seconds", return_value=60.0):
+            result = env.step({"eventsat_0": {"mode": "communication"}})
+
+        assert result.info["downlink_raw_equivalent_mb"] > 0.0
+        assert result.info["downlink_raw_equivalent_mb"] <= result.info["total_raw_captured_mb"]
+

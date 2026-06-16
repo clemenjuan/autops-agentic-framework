@@ -37,12 +37,15 @@ class StepMetrics:
         metrics: Flat dict of all named metrics for this step.  Includes
             environment telemetry (``battery_soc``, ``data_stored_mb``, …)
             and derived values (``energy_consumed_wh``, …).
+        metadata: Nonnumeric per-step context used by aggregators, such as
+            requested/resolved command strings.
     """
 
     timestep: int = 0
     wall_clock_seconds: float = 0.0
     reward: float = 0.0
     metrics: Dict[str, float] = field(default_factory=dict)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

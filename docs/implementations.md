@@ -388,8 +388,11 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Orthogonality**: Works with all 3 decision procedures (SDA/OODA/ReAct, held fixed) and the ops paradigms
   (ah/ag/conventional). Unlike symbolic which needed 3 separate representation types per ops
   paradigm, the LLM representation handles all ops contexts through its prompt.
-- **Metrics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
-  `llm_tokens_prompt`, `llm_tokens_completion`, `llm_grounding_overrides`.
+- **Diagnostics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
+  `llm_mean_call_latency_s`, `llm_tokens_prompt`, `llm_tokens_completion`,
+  and `llm_schedule_entries`. These are cost/reproducibility telemetry, not part
+  of the M-01...M-14 scientific metric registry; cache-hit reruns correctly report
+  zero live-call latency and zero new token counts.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
 - **Learned-emergence variant** (Phase 5):
   - `prompt_optimized` (`_hyre_lep_*`): loads offline-optimised system prompt. `FixedMemory`
@@ -678,18 +681,35 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 
 ## Metrics
 
-- **File**: `src/orchestration/eventsat_metrics.py`
-- **7 research metrics**: utility, data_downlink_efficiency, mean_latency_s,
-  robustness_mean_recovery_steps, resource_efficiency, operator_load,
-  explainability_score
-- **Cross-episode**: robustness_cv (coefficient of variation of utility)
+- **File**: src/orchestration/eventsat_metrics.py
+- **Canonical EventSat metrics measured**: M-01 mission utility, M-02 mean AoI,
+  M-03 peak AoI, M-04 autonomous recovery efficiency, M-05 safety-override rate,
+  M-06 resource efficiency, M-07 decision latency, M-08 explainability coverage,
+  M-09 cross-episode robustness CV, M-11 downlink efficiency, M-12 value of
+  information, M-13 constraint-violation rate, and M-14 commanding effort.
+  M-10 scale efficiency remains reserved for the future multi-satellite scenario.
+- **VoI implementation**: EventSat tracks raw-equivalent captured value and
+  raw-equivalent delivered value through the compression/OBC/downlink pipeline;
+  value_of_information = downlink_raw_equivalent_mb / total_raw_captured_mb.
+- **AoI implementation**: mean_aoi_s and peak_aoi_s are computed from
+  per-step fresh downlink delivery; each step_downlinked_mb > 0 resets age.
+- **Resource-efficiency implementation**: resource_efficiency = utility / total_energy_consumed_wh; this is utility per Wh consumed, not normalized by an episode energy budget.
+
+- **Recovery implementation**: robustness_mean_recovery_steps counts from
+  anomaly onset until the anomaly is cleared and the spacecraft is no longer in
+  safe mode; incomplete recoveries are horizon-censored.
+- **Constraint and command ledgers**: constraint_violation_rate counts
+  environment-clamped invalid commands, excluding anomaly-forced safe mode;
+  commanding_effort counts requested-mode changes plus weighted manual
+  interventions per mission-day.
+- **Cross-episode**: robustness_cv, the coefficient of variation of utility.
 - **OODA-specific** (Phase 3): mean_orient_latency_s, mean_orient_iterations,
-  mean_orient_urgency
+  mean_orient_urgency.
 - **ReAct-specific** (Phase 3): reasoning_depth, iterations, grounding_violations,
-  converged (per-step); aggregated over episodes for comparison
-- **AH-specific** (paradigm metrics, per episode): `onboard_overrides`, `onboard_override_rate` —
-  between-pass steps where the onboard core overrode the uplinked plan (surfaced in each episode's
-  `paradigm_metrics`).
+  converged; aggregated over episodes for comparison.
+- **AH-specific** (paradigm metrics, per episode): onboard_overrides and
+  onboard_override_rate, the between-pass steps where the onboard core overrode
+  the uplinked plan.
 
 ---
 
