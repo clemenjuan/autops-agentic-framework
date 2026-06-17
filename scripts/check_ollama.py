@@ -1,4 +1,4 @@
-"""One-call sanity check for TUM Ollama + qwen3.5:122b.
+"""One-call sanity check for TUM Ollama (uses the small qwen3.5:4b for speed).
 
 Usage::
 
@@ -26,7 +26,7 @@ def main() -> int:
 
     client = LLMClient({
         "llm_provider": "ollama",
-        "llm_model": "qwen3.5:122b",
+        "llm_model": "qwen3.5:4b",  # small/fast — just probing reachability, not quality
         "llm_temperature": 0.0,
     })
 

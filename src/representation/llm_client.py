@@ -40,7 +40,9 @@ class LLMClient:
         self.config = config or {}
         self.mock_mode: bool = self.config.get("llm_mock", False)
         self.temperature: float = self.config.get("llm_temperature", 0.0)
-        self.model: str = self.config.get("llm_model", "qwen3.5:122b")
+        # Default to the small/fast model; experiments pin their model explicitly
+        # (qwen3.6:35b). Avoids an unset-config path silently using the 122b giant.
+        self.model: str = self.config.get("llm_model", "qwen3.5:4b")
         self.provider: str = self.config.get("llm_provider", "auto")
 
         # Cache
@@ -167,8 +169,12 @@ class LLMClient:
         providers = self._resolve_provider_order()
         last_error: Exception | None = None
 
-        max_retries = self.config.get("llm_retries", 8)
-        backoff_cap_s = self.config.get("llm_backoff_cap_s", 60)
+        # Patient retry so a transient Ollama outage (GPU OOM dropping the model,
+        # cold reload ~44 s, colleague-VM restart) doesn't abort a multi-hour run.
+        # waits with cap=300 over 10 retries: 15,30,60,120,240,300,300,300,300,300
+        # ≈ 33 min per provider pass; ×3 scheduler retries ≈ survives a ~1.5 h outage.
+        max_retries = self.config.get("llm_retries", 10)
+        backoff_cap_s = self.config.get("llm_backoff_cap_s", 300)
         ollama_cooldown_s = self.config.get("llm_ollama_cooldown_s", 300)
         for provider in providers:
             for attempt in range(max_retries + 1):
