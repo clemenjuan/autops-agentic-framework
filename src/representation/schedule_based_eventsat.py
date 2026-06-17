@@ -67,7 +67,7 @@ class ScheduleBasedEventSat(Representation):
         self._compression_ratio: float = self.config.get("compression_ratio", 5.11)
         self._jetson_to_obc_rate_kbps: float = self.config.get("jetson_to_obc_rate_kbps", 50.0)
         self._daily_downlink_budget_mb: float = self.config.get("daily_downlink_budget_mb", 27.0)
-        self._obc_capacity_mb: float = self.config.get("obc_capacity_mb", 512.0)
+        self._obc_capacity_mb: float = self.config.get("obc_capacity_mb", 4096.0)
 
         # Planning parameters
         self._charge_reserve_fraction: float = self.config.get("charge_reserve_fraction", 0.12)
@@ -105,7 +105,7 @@ class ScheduleBasedEventSat(Representation):
                 "obc_data_mb": res.get("obc_data_mb", meta.get("obc_data_mb", 0.0)),
                 "jetson_raw_mb": meta.get("jetson_raw_mb", 0.0),
                 "jetson_compressed_mb": meta.get("jetson_compressed_mb", 0.0),
-                "storage_capacity_mb": meta.get("storage_capacity_mb", 512.0),
+                "storage_capacity_mb": meta.get("storage_capacity_mb", 4096.0),
                 "uncompressed_observations": meta.get("uncompressed_observations", 0),
                 "undetected_observations": meta.get("undetected_observations", 0),
                 "health_status": meta.get("health_status", "nominal"),

@@ -89,6 +89,7 @@ def _trace_to_step_metrics(trace_lines: List[Dict[str, Any]]) -> List[StepMetric
             "_soc_delta": soc_delta,
             "decision_latency_s": float(line.get("latency_s") or 0.0),
             "has_rationale": float(bool(line.get("has_rationale", False))),
+            "inference_allowed": float(bool(line.get("inference", line.get("inference_allowed", True)))),
             "orient_latency_s": float(line.get("orient_latency_s") or 0.0),
             "orient_iterations": float(line.get("orient_iterations") or 0.0),
             "orient_urgency": float(line.get("orient_urgency") or 0.0),

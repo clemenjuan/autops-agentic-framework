@@ -31,12 +31,24 @@ def test_schedule_prompt_reports_downlink_without_observation_hard_cap() -> None
         "uncompressed_observations": 0,
     })
     prompt = format_schedule_prompt(state, gap_steps=88)
+    assert "OBC ready for downlink: 271.52 / 4096 MB" in prompt
     assert "Downlink achievable at next pass: 1.89 MB" in prompt
     assert "observing more than this just fills storage you cannot deliver" in prompt
     assert "Already queued for future downlink" not in prompt
     assert "Remaining capacity for NEW SCIENCE observations" not in prompt
     assert "payload_observe command budget" not in prompt
     assert "HARD RULE" not in prompt
+
+def test_schedule_prompt_explicitly_reports_obc_capacity_for_full_storage_context() -> None:
+    state = _fresh_pass_state()
+    state.update({
+        "achievable_downlink_mb": 2.35,
+        "obc_data_mb": 519.99,
+    })
+    prompt = format_schedule_prompt(state, gap_steps=757)
+
+    assert "OBC ready for downlink: 519.99 / 4096 MB" in prompt
+
 
 
 def test_hllm_safety_shield_vetoes_critical_states_not_observation_volume() -> None:

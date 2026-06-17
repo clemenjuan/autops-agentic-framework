@@ -78,7 +78,7 @@ METRICS = [
     ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                 "environment-veto fraction; operator-intervention proxy"),
     ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured",                 "utility per Wh consumed"),
     ("M-07", "Decision Latency",          "mean_latency_s",           "measured",                 "mean wall-clock per decision cycle (live calls)"),
-    ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence)",      "rationale-presence floor; faithfulness scorer deferred"),
+    ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence)",      "rationale-presence per decision cycle; faithfulness scorer deferred"),
     ("M-09", "Robustness (CV)",           None,                       "measured (≥30 ep)",        "cross-episode CV of utility"),
     ("M-10", "Scale Efficiency",          None,                       "deferred",                 "multi-satellite scenario"),
     ("M-11", "Downlink Efficiency",       "data_downlink_efficiency", "measured",                 "delivered / max-achievable through S-band"),
@@ -234,6 +234,10 @@ TEMPLATE = r"""<!DOCTYPE html>
  .mcell.placeholder { background:#fbf2dd; color:#9a6200; }
  .mcell.notrun { background:#fafafa; color:#bbb; }
  .mcell .sub { display:block; font-size:9.5px; color:#777; font-weight:400; }
+ .mcell.pair { padding:0; overflow:hidden; }
+ .pairline { display:block; padding:7px 10px; font-size:12px; min-width:62px; font-variant-numeric:tabular-nums; }
+ .pairline + .pairline { border-top:1px solid rgba(255,255,255,0.55); }
+ .pairline b { font-family:'Computer Modern Sans',Arial,sans-serif; font-size:10px; margin-right:4px; }
  .mlegend { font-size:11px; color:#666; margin:6px 0 0; font-family:'Computer Modern Sans',Arial,sans-serif; }
  .kpis { display:flex; gap:26px; margin:10px 0 4px; }
  .kpi b { font-size:21px; display:block; color:#0065BD; } .kpi { font-size:12px; color:#555; }
@@ -391,17 +395,21 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
         } else if (c && c.status==="placeholder"){
           cls="placeholder"; txt="▢"; tip=`${par} · ${c.id} (placeholder cell)`;
         } else if (c){ tip=`${par} · ${c.id} (not yet run)`; }
-        let sub="";
         if (isConv && conv){
-          const cv = (conv.status==="measured" && conv.mean[metric]!=null) ? fmtMetric(metric, conv.mean[metric])
-                   : (conv.status==="placeholder" ? "▢" : "·");
-          // CG rides inside the AG cell, which is filled by AG's value; adapt the
-          // sub colour to that fill (dark fill → light text) so CG stays legible
-          // (was a fixed #777 that vanished on dark-blue cells).
-          sub = `<span class="sub" style="color:${dark?'#dce8f7':'#555'}">CG ${cv}</span>`;
+          const pairLine = (label, cell) => {
+            if (cell && cell.status==="measured" && cell.mean[metric]!=null){
+              const t = norm(cell.mean[metric]);
+              const darkLine = t>0.55;
+              return `<span class="pairline" style="background:${colour(t)};color:${darkLine?'#fff':'#111'}"><b>${label}</b>${fmtMetric(metric, cell.mean[metric])}</span>`;
+            }
+            const fallback = cell && cell.status==="placeholder" ? "▢" : "·";
+            return `<span class="pairline"><b>${label}</b>${fallback}</span>`;
+          };
           tip += ` | Conventional: ${conv.id}`;
+          h += `<td class="mcell pair" title="${tip}">${pairLine("AG", c)}${pairLine("CG", conv)}</td>`;
+          continue;
         }
-        h += `<td class="mcell ${cls}" style="${style}" title="${tip}">${txt}${sub}</td>`;
+        h += `<td class="mcell ${cls}" style="${style}" title="${tip}">${txt}</td>`;
       }
       h += "</tr>";
     }
@@ -459,14 +467,15 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
     Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.downlinked_mb),
       marker:{color:BAR}, width:0.62}], LAY("architecture","delivered data (MB / episode)"), {displayModeBar:false});
   }
+  const parName = p => ({conventional:"Conventional", ag:"AG", ao:"AO", ah:"AH"}[p] || p);
   const cog = P.cells.filter(c=>c.status==="measured" && c.mean.utility!=null && c.mean.mean_latency_s>0)
-    .map(c=>({nm:`${c.rep} (n=${c.n})`, x:c.mean.mean_latency_s, y:c.mean.utility}));
+    .map(c=>({nm:`${parName(c.paradigm)} · ${c.rep} (n=${c.n})`, x:c.mean.mean_latency_s, y:c.mean.utility}));
   if (cog.length){
     Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
       x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
       LAY("decision latency  (s, log scale)","mission utility",
           {xaxis:Object.assign(axx("decision latency  (s, log scale)"),{type:"log"}),
-           showlegend:true, legend:{font:{size:12}, x:0.02, y:0.98, bgcolor:"rgba(255,255,255,0.6)"}}),
+           showlegend:true, legend:{orientation:"h", font:{size:11}, x:0, y:-0.28, xanchor:"left", yanchor:"top", bgcolor:"rgba(255,255,255,0)"}, margin:{t:12,b:110,l:70,r:16}}),
       {displayModeBar:false});
   }
 })();

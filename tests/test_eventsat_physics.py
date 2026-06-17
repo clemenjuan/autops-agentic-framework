@@ -913,6 +913,40 @@ class TestCanonicalEventSatMetrics:
         assert 0.0 <= agg["constraint_violation_rate"] <= 1.0
         assert agg["commanding_effort"] >= 0.0
 
+    def test_explainability_coverage_uses_decision_cycle_denominator(self):
+        from src.orchestration.eventsat_metrics import EventSatMetricsCollector
+        from src.orchestration.metrics_collector import StepMetrics
+
+        collector = EventSatMetricsCollector(config={"step_duration_s": 60.0})
+        steps = []
+        for i in range(4):
+            inference_allowed = 1.0 if i in (0, 3) else 0.0
+            steps.append(StepMetrics(
+                timestep=i,
+                metrics={
+                    "battery_soc": 0.8,
+                    "data_downlinked_mb": 0.0,
+                    "step_downlinked_mb": 0.0,
+                    "observation_hours": 0.0,
+                    "max_achievable_downlink_mb": 1.0,
+                    "anomaly": 0.0,
+                    "anomaly_active": 0.0,
+                    "in_safe_mode": 0.0,
+                    "safety_override": 0.0,
+                    "constraint_violation": 0.0,
+                    "total_raw_captured_mb": 0.0,
+                    "downlink_raw_equivalent_mb": 0.0,
+                    "energy_consumed_wh": 1.0,
+                    "decision_latency_s": 0.0,
+                    "inference_allowed": inference_allowed,
+                    "has_rationale": inference_allowed,
+                },
+                metadata={"requested_mode": "charging"},
+            ))
+
+        agg = collector.aggregate_episode_metrics(steps).aggregated
+        assert agg["explainability_score"] == pytest.approx(1.0)
+
     def test_environment_tracks_raw_equivalent_voi_through_downlink(self):
         from unittest.mock import patch
 

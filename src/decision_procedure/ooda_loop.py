@@ -227,7 +227,7 @@ class OODALoop(DecisionProcedure):
             return SITUATION_PASS_OPPORTUNITY
 
         jetson_raw_mb = state.get("jetson_raw_mb", 0.0)
-        cap_mb = state.get("storage_capacity_mb", 512.0)
+        cap_mb = state.get("storage_capacity_mb", 4096.0)
         if cap_mb > 0 and jetson_raw_mb > cap_mb * 0.8:
             return SITUATION_STORAGE_CRITICAL
 

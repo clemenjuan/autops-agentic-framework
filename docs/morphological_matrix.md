@@ -141,7 +141,7 @@ Monte-Carlo (shared seeds → paired comparisons); robustness is the cross-episo
 | **M-05** | Safety-Override Rate | \(OIR\) | \(N_{override}/N_{steps}\) — fraction of steps in protective safe mode (anomaly or critical battery); operator-intervention proxy; disjoint from M-13 | ✅ measured |
 | **M-06** | Resource Efficiency | \(\eta_R\) | \(U/E_{consumed}\), utility per Wh consumed | ✅ measured |
 | **M-07** | Decision Latency | \(L_{dec}\) | mean wall-clock per decision cycle | ✅ measured |
-| **M-08** | Explainability Coverage | \(\xi\) | rationale-bearing steps / episode steps; presence only | ✅ measured (presence) |
+| **M-08** | Explainability Coverage | \(\xi\) | rationale-bearing decision cycles / decision cycles; presence only | ✅ measured (presence) |
 | **M-09** | Robustness | \(CV_U\) | \(\sigma_U/\mu_U\) of utility across episodes (≥30 ep) | ✅ measured |
 | **M-10** | Scale Efficiency | \(\eta_{scale}\) | \(U(N)/N\) normalised to \(U(1)\) | 🔭 multi-sat scenario |
 | **M-11** | Downlink Efficiency | \(\eta_{dl}\) | delivered / max-achievable through the S-band channel | ✅ measured |

@@ -24,7 +24,7 @@ Research metrics (per episode):
   robustness_mean_recovery_steps — mean steps to recover after anomaly onset
   resource_efficiency — utility / total_energy_consumed_wh
   operator_load       — fraction of steps with environment safety overrides
-  explainability_score — fraction of steps with a rationale string
+  explainability_score — fraction of decision cycles with a rationale string
 
 Step-level metrics tracked:
   battery_soc, data_stored_mb, data_downlinked_mb, observation_hours,
@@ -286,10 +286,22 @@ class EventSatMetricsCollector(MetricsCollector):
         operator_load = safety_overrides / n
 
         # --- Research Metric 8: Explainability ---
-        decisions_with_rationale = sum(
-            1 for s in step_metrics if s.metrics.get("has_rationale", 0.0) > 0
+        # Coverage is over decision cycles, not episode steps. Ground paradigms only
+        # decide at contact opportunities; schedule playback between contacts should
+        # not dilute an otherwise explained ground decision down to ~1%.
+        decision_cycle_count = sum(
+            1 for s in step_metrics if s.metrics.get("inference_allowed", 1.0) > 0
         )
-        explainability_score = decisions_with_rationale / n
+        decisions_with_rationale = sum(
+            1
+            for s in step_metrics
+            if s.metrics.get("inference_allowed", 1.0) > 0
+            and s.metrics.get("has_rationale", 0.0) > 0
+        )
+        explainability_score = (
+            decisions_with_rationale / decision_cycle_count
+            if decision_cycle_count > 0 else 0.0
+        )
 
         # --- Pipeline Efficiency (C4) ---
         max_dl_mb = last.metrics.get("max_achievable_downlink_mb", 0.0)

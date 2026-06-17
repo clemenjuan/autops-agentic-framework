@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
+DEFAULT_STORAGE_CAPACITY_MB = 4096.0
+
 
 # ======================================================================
 # System prompt
@@ -72,7 +74,7 @@ def format_state_prompt(state: Dict[str, Any], enrichments: Dict[str, Any] | Non
     jetson_raw = state.get("jetson_raw_mb", 0.0)
     jetson_comp = state.get("jetson_compressed_mb", 0.0)
     data_mb = state.get("data_stored_mb", 0.0)
-    cap_mb = state.get("storage_capacity_mb", 512.0)
+    cap_mb = state.get("storage_capacity_mb", DEFAULT_STORAGE_CAPACITY_MB)
     uncomp = state.get("uncompressed_observations", 0)
     undetected = state.get("undetected_observations", 0)
     health = state.get("health_status", "nominal")
@@ -89,7 +91,7 @@ def format_state_prompt(state: Dict[str, Any], enrichments: Dict[str, Any] | Non
         "DATA PIPELINE:",
         f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
-        f"  OBC ready for downlink: {obc_mb:.2f} MB",
+        f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
         f"  Total stored: {data_mb:.1f} / {cap_mb:.0f} MB ({data_mb/cap_mb*100:.0f}%)",
     ]
     if achievable is not None:
@@ -211,6 +213,7 @@ def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
     obc_mb = state.get("obc_data_mb", 0.0)
     jetson_raw = state.get("jetson_raw_mb", 0.0)
     jetson_comp = state.get("jetson_compressed_mb", 0.0)
+    cap_mb = state.get("storage_capacity_mb", DEFAULT_STORAGE_CAPACITY_MB)
     uncomp = state.get("uncompressed_observations", 0)
     undetected = state.get("undetected_observations", 0)
     budget_mb = state.get("daily_downlink_budget_mb", 27.0)
@@ -229,7 +232,7 @@ def format_schedule_prompt(state: Dict[str, Any], gap_steps: int) -> str:
         f"  Battery SoC: {soc:.2f} (sunlight: {'yes' if in_sunlight else 'no'})",
         f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
-        f"  OBC ready for downlink: {obc_mb:.2f} MB",
+        f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
         cap_line,
         "",
         f"Produce a schedule whose segment durations sum to about {gap_steps} steps. "

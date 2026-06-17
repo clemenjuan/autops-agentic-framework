@@ -18,6 +18,7 @@ import json
 from typing import Any, Dict, List, Optional
 
 from src.representation.agentic_tools import get_tool_schemas
+from src.representation.llm_prompts import DEFAULT_STORAGE_CAPACITY_MB
 
 
 # ======================================================================
@@ -122,6 +123,7 @@ def format_planning_prompt(
     obc_mb = state.get("obc_data_mb", 0.0)
     jetson_raw = state.get("jetson_raw_mb", 0.0)
     jetson_comp = state.get("jetson_compressed_mb", 0.0)
+    cap_mb = state.get("storage_capacity_mb", DEFAULT_STORAGE_CAPACITY_MB)
     uncomp = state.get("uncompressed_observations", 0)
     undetected = state.get("undetected_observations", 0)
     health = state.get("health_status", "nominal")
@@ -137,7 +139,7 @@ def format_planning_prompt(
         "DATA PIPELINE:",
         f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
-        f"  OBC ready for downlink: {obc_mb:.2f} MB",
+        f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
         f"  Daily downlink budget: {budget_mb:.0f} MB",
     ]
 

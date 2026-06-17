@@ -68,7 +68,7 @@ class RuleBasedEventSat(Representation):
                 "obc_data_mb": res.get("obc_data_mb", meta.get("obc_data_mb", 0.0)),
                 "jetson_raw_mb": meta.get("jetson_raw_mb", 0.0),
                 "jetson_compressed_mb": meta.get("jetson_compressed_mb", 0.0),
-                "storage_capacity_mb": meta.get("storage_capacity_mb", 512.0),
+                "storage_capacity_mb": meta.get("storage_capacity_mb", 4096.0),
                 "uncompressed_observations": meta.get("uncompressed_observations", 0),
                 "compression_progress": meta.get("compression_progress", 0),
                 "total_observation_s": meta.get("total_observation_s", 0.0),
@@ -100,7 +100,7 @@ class RuleBasedEventSat(Representation):
         data_mb = state.get("data_stored_mb", 0.0)
         obc_mb = state.get("obc_data_mb", 0.0)
         jetson_compressed_mb = state.get("jetson_compressed_mb", 0.0)
-        cap_mb = state.get("storage_capacity_mb", 512.0)
+        cap_mb = state.get("storage_capacity_mb", 4096.0)
         uncomp = state.get("uncompressed_observations", 0)
         undetected = state.get("undetected_observations", 0)
         health = state.get("health_status", "nominal")
@@ -257,7 +257,7 @@ class RuleBasedEventSat(Representation):
         obc_mb = state.get("obc_data_mb", 0.0)
         jetson_compressed_mb = state.get("jetson_compressed_mb", 0.0)
         data_mb = state.get("data_stored_mb", 0.0)
-        cap_mb = state.get("storage_capacity_mb", 512.0)
+        cap_mb = state.get("storage_capacity_mb", 4096.0)
         daily_budget_mb = state.get("daily_downlink_budget_mb", 27.0)
 
         if health != "nominal":

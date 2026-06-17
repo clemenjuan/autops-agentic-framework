@@ -224,7 +224,7 @@ class AgenticEventSat(Representation):
                 "obc_data_mb": res.get("obc_data_mb", meta.get("obc_data_mb", 0.0)),
                 "jetson_raw_mb": meta.get("jetson_raw_mb", 0.0),
                 "jetson_compressed_mb": meta.get("jetson_compressed_mb", 0.0),
-                "storage_capacity_mb": meta.get("storage_capacity_mb", 512.0),
+                "storage_capacity_mb": meta.get("storage_capacity_mb", 4096.0),
                 "uncompressed_observations": meta.get("uncompressed_observations", 0),
                 "compression_progress": meta.get("compression_progress", 0),
                 "total_observation_s": meta.get("total_observation_s", 0.0),

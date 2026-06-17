@@ -31,10 +31,11 @@ for rj in Path("data/results").glob("*/results.json"):
         r = json.loads(rj.read_text())
     except Exception:
         continue
+    rid = r.get("experiment_id", rj.parent.name)
     eps = r.get("episodes", [])
     mean = r.get("experiment_statistics", {}).get("mean", {})
-    data[r.get("experiment_id", rj.parent.name)] = {
-        "id": r.get("experiment_id", rj.parent.name), "n": len(eps),
+    data[rid] = {
+        "id": rid, "n": len(eps),
         "mean": {k: mean.get(k) for k in KEYS},
         "per_ep": {k: [(e.get("episode_metrics", {}).get("aggregated", {}) or {}).get(k) for e in eps]
                    for k in KEYS},
