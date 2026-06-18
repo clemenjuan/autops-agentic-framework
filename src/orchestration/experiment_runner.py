@@ -261,6 +261,7 @@ class ExperimentRunner:
         """Factory for the satellite environment."""
         scenario = self.config.environment.scenario
         env_cfg = {
+            "constellation_size": self.config.environment.constellation_size,
             "step_duration_s": self.config.environment.timestep_seconds,
             "max_steps": self.config.max_steps,
             **self.config.environment.scenario_config,
@@ -272,6 +273,10 @@ class ExperimentRunner:
             # can_self_recover_anomaly() capability once the paradigm is built
             # (see initialise()); the env default holds until then.
             return EventSatEnvironment(config=env_cfg)
+
+        if scenario == "flamingo":
+            from src.environment.scenarios.flamingo import FlamingoEnvironment
+            return FlamingoEnvironment(config=env_cfg)
 
         logger.warning("Unknown scenario '%s', returning None.", scenario)
         return None
@@ -358,11 +363,13 @@ class ExperimentRunner:
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
         import src.representation.placeholder_cells  # register hrl / llm-a placeholder cells
         import src.representation.llm_scheduler_eventsat  # register the real single-shot LLM ground planner
+        import src.representation.rule_based_flamingo  # register Flamingo-lite symbolic planner
         emergence = BehaviourController(config=self.config.behaviour_config)
         # Primary per-step core: the onboard core for paradigms with an onboard
         # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
         repr_type = (
-            self.config.resolved_onboard_type
+            self.config.onboard_representation_config.get("type")
+            or self.config.resolved_onboard_type
             or self.config.resolved_representation_type
         )
         representation = emergence.get_representation(
@@ -470,6 +477,11 @@ class ExperimentRunner:
             if self._environment is not None and hasattr(self._environment, "battery_capacity_wh"):
                 metrics_cfg["battery_capacity_wh"] = self._environment.battery_capacity_wh
             return EventSatMetricsCollector(config=metrics_cfg)
+        if scenario == "flamingo":
+            from src.orchestration.flamingo_metrics import FlamingoMetricsCollector
+            metrics_cfg = self.config.metrics.model_dump()
+            metrics_cfg["constellation_size"] = self.config.environment.constellation_size
+            return FlamingoMetricsCollector(config=metrics_cfg)
         logger.warning("No metrics collector for scenario '%s'.", scenario)
         return None
 

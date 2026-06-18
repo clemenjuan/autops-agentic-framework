@@ -1,0 +1,24 @@
+# Flamingo-lite Scenario Definition
+# =================================
+#
+# Minimal multi-satellite SSA scenario for opening the Organisation axis.
+# This is intentionally coarse: it models target visibility and coordination
+# pressure before adding mission-partner fidelity.
+
+scenario_name: flamingo
+scenario_version: "0.1"
+description: >
+  Lightweight SSA tracking scenario for a small constellation. Satellites select
+  RSO targets from time-varying visibility windows; duplicate or infeasible
+  assignments expose coordination costs.
+
+constellation_size: 3
+max_steps: 1440
+visibility_period_steps: 12
+visibility_window_steps: 3
+observation_data_mb: 1.0
+
+targets:
+  count: 6
+  priorities: [3.0, 2.0, 1.0]
+

@@ -12,7 +12,9 @@ KEYS = ["utility","mean_aoi_s","peak_aoi_s","robustness_mean_recovery_steps",
         "anomaly_events","safety_overrides","resource_efficiency",
         "llm_api_calls","llm_cache_hits","llm_cache_hit_rate","llm_total_latency_s",
         "llm_mean_call_latency_s","llm_tokens_prompt","llm_tokens_completion",
-        "llm_schedule_entries"]
+        "llm_schedule_entries",
+        "coverage_rate","successful_observations","duplicate_observation_rate",
+        "mean_revisit_steps"]
 
 # Episodes excluded by substrate-integrity screening (run_id -> episode indices).
 # Append-only, manual, evidence required — same policy as MEASURED status flips.
@@ -65,4 +67,5 @@ if changed:
     EXTRACT.write_text(json.dumps(list(data.values())))
 subprocess.run([sys.executable, "scripts/extract_telemetry.py"], check=True)
 subprocess.run([sys.executable, "scripts/build_results_board.py"], check=True)
+subprocess.run([sys.executable, "scripts/build_flamingo_board.py"], check=True)
 print(f"refreshed {changed} experiment(s)")

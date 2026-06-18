@@ -50,8 +50,13 @@ class AutonomousGround(OperationsParadigm):
         # Schedule: list of [mode, remaining_steps] pairs (mutable for countdown)
         self._schedule: List[List] = []
         self._schedule_index: int = 0
+        self._pass_through_observation = bool(
+            self.config.get("pass_through_observation", False)
+        )
 
     def filter_observation(self, full_observation: Any, step: int) -> Any:
+        if self._pass_through_observation:
+            return full_observation
         return self._stale_ground_observation(full_observation, step)
 
     def should_allow_inference(self, step: int, ground_pass_active: bool) -> bool:
@@ -76,6 +81,12 @@ class AutonomousGround(OperationsParadigm):
         Between passes: consume the schedule step by step.
         """
         if ground_pass_active:
+            # Non-EventSat scenarios, such as Flamingo-lite, use native action
+            # dictionaries keyed by satellite id rather than EventSat mode
+            # schedules. Keep the EventSat schedule path below untouched.
+            if "eventsat_0" not in action:
+                return action
+
             # Extract and store schedule if provided by the representation
             sat_action = action.get("eventsat_0", {})
             if "schedule" in sat_action:

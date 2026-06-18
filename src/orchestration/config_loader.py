@@ -564,6 +564,7 @@ class ExperimentConfig(BaseModel):
         # cells (see src/representation/placeholder_schedulers.py).
         if (
             ops in self._GROUND_PARADIGMS
+            and self.environment.scenario == "eventsat"
             and rep_type
             and rep_type not in self._SCHEDULE_PRODUCING_TYPES
         ):

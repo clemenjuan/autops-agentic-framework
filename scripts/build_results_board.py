@@ -281,18 +281,26 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>3&emsp;Measured utility distributions (verified runs)</h2>
+ <h2>3&emsp;EventSat LLM closeout</h2>
+ <div class="caption">Frozen interpretation from <a href="../../docs/eventsat_llm_closeout.md">docs/eventsat_llm_closeout.md</a>:
+ the completed 100-episode AG LLM runs are mission-comparable; latency must be read with cache state visible.</div>
+ <table id="llmCloseout"></table>
+ <div class="guide" id="llmCloseoutNote"></div>
+</section>
+
+<section>
+ <h2>4&emsp;Measured utility distributions (verified runs)</h2>
  <div id="dist" class="plot"></div>
 </section>
 
 <section>
- <h2>4&emsp;Metric registry — M-01 &hellip; M-14</h2>
+ <h2>5&emsp;Metric registry — M-01 &hellip; M-14</h2>
  <div class="caption">Measured set populated from verified runs; deferred metrics marked.</div>
  <table id="mx"></table>
 </section>
 
 <section>
- <h2>5&emsp;Architecture comparison (verified runs)</h2>
+ <h2>6&emsp;Architecture comparison (verified runs)</h2>
  <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown
  runs (1 = best of this set — relative). Right: paired per-episode utility differences (shared
  launch-lottery seeds).</div>
@@ -303,7 +311,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>6&emsp;Episode inspector — simulation telemetry</h2>
+ <h2>7&emsp;Episode inspector — simulation telemetry</h2>
  <div class="caption">One simulated week, step by step: battery state of charge, data stored and
  downlinked, ground-contact windows (grey), anomaly-forced safe periods (red), and the operating mode
  at every step.</div>
@@ -313,7 +321,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>7&emsp;Statistical adequacy (pre-registered)</h2>
+ <h2>8&emsp;Statistical adequacy (pre-registered)</h2>
  <div class="guide" id="guide"></div>
  <div class="twocol">
   <div id="powcurve" class="plot" style="height:290px"></div>
@@ -480,7 +488,43 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
   }
 })();
 
-// ---- 3: distributions
+// ---- 3: EventSat LLM closeout
+(function(){
+  const runs = [
+    ["eventsat_sas_ag_symb", "symbolic AG baseline"],
+    ["eventsat_sas_ag_llm-s", "LLM single-shot AG"],
+    ["eventsat_sas_ag_hllm-s", "hybrid LLM + symbolic shield AG"]
+  ];
+  const row = ([id, label]) => {
+    const c = CELLS[id] || {};
+    const m = c.mean || {};
+    return `<tr><td><code>${id}</code><br><span style="color:#666;font-size:12px">${label}</span></td>`+
+      `<td class="num">${c.n || "&mdash;"}</td>`+
+      `<td class="num">${fmtMetric("utility", m.utility)}</td>`+
+      `<td class="num">${fmtMetric("downlinked_mb", m.downlinked_mb)}</td>`+
+      `<td class="num">${fmtMetric("data_downlink_efficiency", m.data_downlink_efficiency)}</td>`+
+      `<td class="num">${fmtMetric("mean_aoi_s", m.mean_aoi_s)}</td>`+
+      `<td class="num">${fmtMetric("constraint_violation_rate", m.constraint_violation_rate)}</td>`+
+      `<td class="num">${fmtMetric("explainability_score", m.explainability_score)}</td>`+
+      `<td class="num">${fmtMetric("mean_latency_s", m.mean_latency_s)}</td>`+
+      `<td class="num">${fmtMetric("llm_cache_hit_rate", m.llm_cache_hit_rate)}</td>`+
+      `<td class="num">${fmtMetric("llm_mean_call_latency_s", m.llm_mean_call_latency_s)}</td></tr>`;
+  };
+  document.getElementById("llmCloseout").innerHTML =
+    "<tr><th>run</th><th class=\"num\">episodes</th><th class=\"num\">utility</th>"+
+    "<th class=\"num\">downlinked</th><th class=\"num\">downlink eff.</th>"+
+    "<th class=\"num\">mean AoI</th><th class=\"num\">constraint viol.</th>"+
+    "<th class=\"num\">explainability</th><th class=\"num\">decision latency</th>"+
+    "<th class=\"num\">cache hit</th><th class=\"num\">LLM call latency</th></tr>" +
+    runs.map(row).join("");
+  document.getElementById("llmCloseoutNote").innerHTML =
+    `<b>Frozen interpretation:</b> LLM single-shot and hybrid-LLM AG are effectively tied on
+    mission metrics and sit slightly above symbolic AG. <b>Latency caveat:</b> the raw latency
+    delta is cache-dominated in this completed campaign, so paper-facing claims should report
+    mission performance separately from live-call cost and label cache state explicitly.`;
+})();
+
+// ---- 4: distributions
 const dists = P.cells.filter(c=>c.status==="measured" && c.per_ep_utility.some(v=>v!=null)).map(c=>({
   y:c.per_ep_utility, x:Array(c.n).fill(`${c.paradigm} · ${c.rep}`), type:"box", boxpoints:"all",
   jitter:0.5, pointpos:0, marker:{color:"#333",size:4,opacity:0.7}, line:{color:"#111"}, fillcolor:"#eee",
@@ -489,7 +533,7 @@ Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showle
   font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13,color:"#111"},
   yaxis:{title:"utility",gridcolor:"#eee"}, margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:18}});
 
-// ---- 4: metric registry
+// ---- 5: metric registry
 const vcols = P.cells.filter(c=>c.status==="measured");
 document.getElementById("mx").innerHTML =
  "<tr><th>metric</th><th>status</th>" + vcols.map(c=>`<th class="num">${c.rep}<br><span style="font-weight:400;color:#777">${c.paradigm}</span></th>`).join("") + "<th>note</th></tr>" +
@@ -499,7 +543,7 @@ document.getElementById("mx").innerHTML =
     vcols.map(c=>`<td class="num">${key?fmtMetric(key, c.mean[key]):"—"}</td>`).join("") +
     `<td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
 
-// ---- 5a: radar
+// ---- 6a: radar
 const RMETRICS = [
   ["utility","mission utility"],
   ["mean_aoi_s","mean AoI (inverted)"],
@@ -527,7 +571,7 @@ if (vcols.length){
   })), {paper_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
        polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
 }
-// ---- 5b: paired differences (AH - AO, symbolic)
+// ---- 6b: paired differences (AH - AO, symbolic)
 const aoR = CELLS["eventsat_sas_ao_symb"], ahR = CELLS["eventsat_sas_ah_symb_symb"];
 if (aoR && ahR && aoR.status==="measured" && ahR.status==="measured"){
   const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
@@ -547,7 +591,7 @@ if (aoR && ahR && aoR.status==="measured" && ahR.status==="measured"){
       showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
 }
 
-// ---- 6: episode inspector
+// ---- 7: episode inspector
 const T = P.telemetry, tids = Object.keys(T);
 const tsel = document.getElementById("teleSel");
 tsel.innerHTML = tids.map(id=>`<option value="${id}">${T[id].label}</option>`).join("");
@@ -584,7 +628,7 @@ function renderTele(){
 }
 if (tids.length){ tsel.addEventListener("change", renderTele); renderTele(); }
 
-// ---- 7: statistics
+// ---- 8: statistics
 document.getElementById("rhoval").textContent = P.rho;
 document.getElementById("sigval").textContent = P.sigma;
 document.getElementById("guide").innerHTML =
