@@ -328,15 +328,17 @@ class ExperimentRunner:
 
         # These organizations are registered (configs round-trip, classes
         # exist) but their distribute_observation()/collect_actions() are
-        # deferred to the Flamingo N>=3 scenarios and only raise
-        # NotImplementedError. Fail early here with an actionable message
-        # rather than crashing mid-episode deep in the decision loop.
-        deferred = {"decentralized_mas", "independent_mas", "hybrid_mas"}
+        # deferred and only raise NotImplementedError. Fail early here with an
+        # actionable message rather than crashing mid-episode deep in the
+        # decision loop. IndependentMAS is now implemented for the Flamingo
+        # organisation sweep; decentralized/hybrid remain deferred.
+        deferred = {"decentralized_mas", "hybrid_mas"}
         if self.config.agent_organization in deferred:
             raise NotImplementedError(
                 f"agent_organization='{self.config.agent_organization}' is "
-                f"deferred to Flamingo N>=3 scenarios and not yet instantiated. "
-                f"Use 'sas' or 'centralized_mas' for runnable experiments."
+                f"deferred to later Flamingo increments and not yet instantiated. "
+                f"Use 'sas', 'centralized_mas', or 'independent_mas' for runnable "
+                f"experiments."
             )
 
         org_cls = org_map.get(self.config.agent_organization)

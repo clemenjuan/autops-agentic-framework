@@ -56,11 +56,16 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Risk**: Independent error amplification (17.2× per Kim et al.) if consensus fails. Suited for parallelisable tasks, predicted to underperform on sequential satellite scheduling.
 - **Status**: Stub (`NotImplementedError`). Deferred to constellation scenarios (N≥3); peer-to-peer coordination is degenerate at N=1.
 
-### IndependentMAS — Placeholder (deferred to N≥3)
+### IndependentMAS — Implemented (Flamingo N≥3)
 
 - **File**: `src/agent_organization/independent_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, no inter-agent coordination.
-- **Status**: Stub (`NotImplementedError`). Meaningful only with subsystem-level agents (ADCS/payload/comms) or N≥3 satellites.
+- **Structure**: A = {sat_agent_0 … sat_agent_{n−1}}, one agent per satellite; C = ∅; Ω = independent (no consensus, no manager).
+- **Flamingo design decisions**:
+  - `distribute_observation`: agent `sat_agent_i` is mapped by index to the i-th satellite and receives a **local view** containing only that satellite's state and only that satellite's visible tasks — it cannot see what the others see or intend.
+  - `collect_actions`: per-satellite actions are merged **verbatim, without deconfliction**, so independent agents that pick the same RSO reach the environment as duplicate observations (the coordination cost the organisation axis measures).
+  - Contention is supplied by the scenario, not the org: `configs/scenarios/flamingo.yaml` sets `satellite_phase_shift: 0` so the constellation shares visibility windows and the agents must compete. Validated: under that scenario SAS/CMAS keep duplicate rate at 0 while IMAS wastes ≈⅔ of attempts and loses utility/coverage.
+- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_imas_ag_symb.yaml`). Degenerate at N=1 (equivalent to SAS, no coordination overhead).
 
 ### HybridMAS — Placeholder (deferred to N≥3)
 
@@ -727,7 +732,8 @@ for the framing.
 | --- | --- | --- | --- | --- |
 | SingleAgentSystem (SAS) | `src/agent_organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
 | CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
-| Decentralized/Independent/Hybrid MAS | `src/agent_organization/{decentralized,independent,hybrid}_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to Flamingo N≥3 |
+| IndependentMAS (IMAS) | `src/agent_organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
+| Decentralized/Hybrid MAS | `src/agent_organization/{decentralized,hybrid}_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to later Flamingo increments |
 | SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
 | OODA loop | `src/decision_procedure/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
 | ReAct loop | `src/decision_procedure/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |

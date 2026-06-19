@@ -28,18 +28,49 @@ These are the five organization configs to preserve from the literature plan.
 The filename token is short; the YAML `agent_organization` value uses the runner's
 current internal name.
 
-| Planned config ID | YAML organization | Literature role |
-|---|---|---|
-| `flamingo_sas_ag_symb` | `sas` | one global agent controls the constellation |
-| `flamingo_cmas_ag_symb` | `centralized_mas` | mission manager / orchestrator with local satellite agents |
-| `flamingo_imas_ag_symb` | `independent_mas` | local satellite agents, no inter-agent communication |
-| `flamingo_dmas_ag_symb` | `decentralized_mas` | peer-to-peer coordination with consensus |
-| `flamingo_hmas_ag_symb` | `hybrid_mas` | clustered or heterogeneous hierarchy plus peer/local behavior |
+| Planned config ID | YAML organization | Status | Literature role |
+|---|---|---|---|
+| `flamingo_sas_ag_symb` | `sas` | runnable | one global agent controls the constellation |
+| `flamingo_cmas_ag_symb` | `centralized_mas` | runnable | mission manager / orchestrator with local satellite agents |
+| `flamingo_imas_ag_symb` | `independent_mas` | runnable | local satellite agents, no inter-agent communication |
+| `flamingo_dmas_ag_symb` | `decentralized_mas` | deferred | peer-to-peer coordination with consensus |
+| `flamingo_hmas_ag_symb` | `hybrid_mas` | deferred | clustered or heterogeneous hierarchy plus peer/local behavior |
 
 Decentralized MAS should be part of the first organization sweep, not a later
 optional add-on. The first DMAS implementation can use all-to-all consensus for
 `N = 3`; topology ablations such as ring, mesh, or visibility-limited links can
 come after the five-config baseline is runnable.
+
+### How the organisation axis is made measurable (and a CMAS caveat)
+
+The symbolic representation `rule_based_flamingo` plans only the satellites
+present in *its* observation. The organisation therefore controls the outcome
+through **what each agent sees** and **how the actions are merged**:
+
+- `sas` — one agent sees the whole constellation and produces a globally
+  deconflicted assignment.
+- `independent_mas` (IMAS) — each agent sees only its own satellite (and only
+  that satellite's visible tasks) and acts alone; `collect_actions` merges the
+  per-satellite actions **without deconfliction**, so independent agents collide
+  on the same high-priority RSO and the environment counts duplicates.
+
+For the axis to actually separate these, the scenario must contain contention:
+`configs/scenarios/flamingo.yaml` sets `satellite_phase_shift: 0` so the whole
+constellation sees the **same** RSO windows at the same time and must compete for
+the top-priority targets. Under that scenario SAS keeps duplicates at zero while
+IMAS wastes a large fraction of its observations (and loses utility/coverage).
+
+**CMAS honesty note.** `centralized_mas` currently gives its mission manager and
+every local agent the *full* observation and, via `rule_based_flamingo`, each
+produces the same global greedy assignment; `collect_actions` then returns one
+local agent's (already global) plan. So with this representation **CMAS is
+expected to match SAS exactly on mission metrics** — the manager directive is
+threaded as a message but the symbolic core does not read it. CMAS only diverges
+from SAS once the representation consumes the manager directive or the manager
+hands out non-overlapping target *partitions* to the locals; until then CMAS
+differs from SAS only in coordination cost (it runs `N + 1` agent loops), not in
+mission outcome. The measurable contrast in this first sweep is therefore
+**{SAS, CMAS} vs IMAS**, not SAS vs CMAS.
 
 ## Scenario MVP
 

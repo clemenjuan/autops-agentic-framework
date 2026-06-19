@@ -386,9 +386,7 @@ class TestRunnerMemoryWiring:
 class TestDeferredOrganizationGuard:
     """Deferred MAS variants must fail early with an actionable message."""
 
-    @pytest.mark.parametrize(
-        "org", ["decentralized_mas", "independent_mas", "hybrid_mas"]
-    )
+    @pytest.mark.parametrize("org", ["decentralized_mas", "hybrid_mas"])
     def test_deferred_org_raises_not_implemented(self, org: str, tmp_path: Path) -> None:
         cfg = ExperimentConfig(
             experiment_id=f"deferred_{org}",
@@ -399,8 +397,22 @@ class TestDeferredOrganizationGuard:
             environment={"constellation_size": 12},
         )
         runner = ExperimentRunner(config=cfg)
-        with pytest.raises(NotImplementedError, match="deferred to Flamingo"):
+        with pytest.raises(NotImplementedError, match="deferred to later Flamingo"):
             runner._create_organization()
+
+    def test_independent_mas_is_runnable(self, tmp_path: Path) -> None:
+        """IMAS is implemented now — it must instantiate, not raise."""
+        cfg = ExperimentConfig(
+            experiment_id="imas_runnable",
+            num_episodes=1,
+            max_steps=2,
+            output_dir=str(tmp_path),
+            agent_organization="independent_mas",
+            environment={"scenario": "flamingo", "constellation_size": 3},
+        )
+        runner = ExperimentRunner(config=cfg)
+        org = runner._create_organization()
+        assert len(org.get_agents()) == 3
 
 
 class TestMatrixRestructureNaming:

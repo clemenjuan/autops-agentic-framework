@@ -61,6 +61,17 @@ class FlamingoEnvironment(SatelliteEnvironment):
         self.visibility_window_steps = int(
             self.scenario.get("visibility_window_steps", 3)
         )
+        # How strongly each satellite's visibility window is phase-shifted from
+        # its neighbours. 1 (default) de-synchronises the constellation so every
+        # satellite sees a different target each step — there is no contention
+        # and any sensible planner deconflicts trivially. 0 makes every
+        # satellite see the *same* windows, so several satellites compete for the
+        # same high-priority RSO: this is the coordination bottleneck that
+        # separates organisation topologies (an uncoordinated org wastes capacity
+        # on duplicates, a coordinated one spreads across targets).
+        self.satellite_phase_shift = int(
+            self.scenario.get("satellite_phase_shift", 1)
+        )
         self.observation_data_mb = float(self.scenario.get("observation_data_mb", 1.0))
         self.ground_pass_active = bool(self.scenario.get("ground_pass_active", True))
         self.targets = self._build_targets(self.scenario)
@@ -223,7 +234,11 @@ class FlamingoEnvironment(SatelliteEnvironment):
         if target is None:
             return False
         sat_idx = self.satellite_ids.index(sat_id)
-        phase = self.current_step + sat_idx + target.phase_offset
+        phase = (
+            self.current_step
+            + sat_idx * self.satellite_phase_shift
+            + target.phase_offset
+        )
         return (phase % self.visibility_period_steps) < self.visibility_window_steps
 
     def _target_by_id(self, target_id: str) -> Optional[RSOTarget]:

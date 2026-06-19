@@ -195,17 +195,55 @@ class TestIndependentMAS:
         org.initialize(constellation_size=3)
         assert len(org.get_agents()) == 3
 
-    def test_distribute_not_implemented(self) -> None:
-        org = IndependentMAS(config={})
-        org.initialize(constellation_size=1)
-        with pytest.raises(NotImplementedError):
-            org.distribute_observation({})
+    def test_distribute_gives_each_agent_only_its_own_satellite(self) -> None:
+        from src.environment.satellite_env import (
+            ConstellationState,
+            EnvironmentObservation,
+            SatelliteState,
+        )
 
-    def test_collect_not_implemented(self) -> None:
+        env_obs = EnvironmentObservation(
+            constellation_state=ConstellationState(
+                timestep=0,
+                epoch_seconds=0.0,
+                satellites={
+                    "flamingo_0": SatelliteState(satellite_id="flamingo_0"),
+                    "flamingo_1": SatelliteState(satellite_id="flamingo_1"),
+                },
+            ),
+            tasks=[
+                {"satellite_id": "flamingo_0", "target_id": "rso_0", "priority": 3.0},
+                {"satellite_id": "flamingo_1", "target_id": "rso_1", "priority": 2.0},
+            ],
+        )
+
         org = IndependentMAS(config={})
-        org.initialize(constellation_size=1)
-        with pytest.raises(NotImplementedError):
-            org.collect_actions({})
+        org.initialize(constellation_size=2)
+        result = org.distribute_observation(env_obs)
+
+        # Agent 0 sees only flamingo_0 and only flamingo_0's task (C = ∅).
+        local0 = result["sat_agent_0"].local_state["full_observation"]
+        assert list(local0.constellation_state.satellites.keys()) == ["flamingo_0"]
+        assert [t["target_id"] for t in local0.tasks] == ["rso_0"]
+        local1 = result["sat_agent_1"].local_state["full_observation"]
+        assert list(local1.constellation_state.satellites.keys()) == ["flamingo_1"]
+
+    def test_collect_merges_without_deconfliction(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=2)
+        # Both independent agents pick the same RSO — the merge must keep the
+        # collision (no deconfliction), composing one env action per satellite.
+        actions = {
+            "sat_agent_0": AgentAction(
+                agent_id="sat_agent_0", action={"flamingo_0": {"target_id": "rso_0"}}
+            ),
+            "sat_agent_1": AgentAction(
+                agent_id="sat_agent_1", action={"flamingo_1": {"target_id": "rso_0"}}
+            ),
+        }
+        env_actions = org.collect_actions(actions)
+        assert env_actions["flamingo_0"] == {"target_id": "rso_0"}
+        assert env_actions["flamingo_1"] == {"target_id": "rso_0"}
 
 
 # ======================================================================
