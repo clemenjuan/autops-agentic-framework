@@ -171,17 +171,42 @@ class TestDecentralizedMAS:
         agents = org.get_agents()
         assert len(agents) == 4
 
-    def test_distribute_not_implemented(self) -> None:
+    def test_distribute_all_to_all_full_observation(self) -> None:
         org = DecentralizedMAS(config={})
-        org.initialize(constellation_size=2)
-        with pytest.raises(NotImplementedError):
-            org.distribute_observation({})
+        org.initialize(constellation_size=3)
+        result = org.distribute_observation({"sensor": 7})
+        # Every peer (no manager) receives the full observation.
+        assert set(result.keys()) == {"sat_agent_0", "sat_agent_1", "sat_agent_2"}
+        for agent_id, obs in result.items():
+            assert obs.local_state["full_observation"] == {"sensor": 7}
 
-    def test_collect_not_implemented(self) -> None:
+    def test_collect_reaches_consensus_and_reports_cost(self) -> None:
         org = DecentralizedMAS(config={})
-        org.initialize(constellation_size=2)
-        with pytest.raises(NotImplementedError):
-            org.collect_actions({})
+        org.initialize(constellation_size=3)
+        # Deterministic peers propose the same global plan -> unanimous consensus.
+        plan = {"flamingo_0": {"target_id": "rso_0"}, "flamingo_1": {"target_id": "rso_1"}}
+        actions = {
+            aid: AgentAction(agent_id=aid, action=dict(plan))
+            for aid in org.get_agents()
+        }
+        env_actions = org.collect_actions(actions)
+        assert env_actions == plan
+        # All-to-all cost for N=3 is n*(n-1) = 6 messages, one consensus round.
+        metrics = org.get_metrics()
+        assert metrics["coordination_messages"] == 6.0
+        assert metrics["consensus_rounds"] == 1.0
+
+    def test_collect_plurality_breaks_disagreement(self) -> None:
+        org = DecentralizedMAS(config={})
+        org.initialize(constellation_size=3)
+        majority = {"flamingo_0": {"target_id": "rso_0"}}
+        minority = {"flamingo_0": {"target_id": "rso_9"}}
+        actions = {
+            "sat_agent_0": AgentAction(agent_id="sat_agent_0", action=dict(majority)),
+            "sat_agent_1": AgentAction(agent_id="sat_agent_1", action=dict(majority)),
+            "sat_agent_2": AgentAction(agent_id="sat_agent_2", action=dict(minority)),
+        }
+        assert org.collect_actions(actions) == majority
 
 
 # ======================================================================

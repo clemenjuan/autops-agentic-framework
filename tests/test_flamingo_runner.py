@@ -146,3 +146,26 @@ def test_imas_wastes_capacity_while_sas_deconflicts(tmp_path: Path) -> None:
     # Coordination pays off in mission utility under contention.
     assert imas_m["utility"] < sas_m["utility"]
 
+
+def test_dmas_coordinates_like_sas_at_a_message_cost(tmp_path: Path) -> None:
+    """DMAS reaches consensus (no duplicates) but pays an all-to-all message cost.
+
+    With shared full information the peers converge on the same deconflicted plan
+    as SAS — so unlike IMAS, DMAS wastes nothing — while the all-to-all channel
+    carries a measurable coordination cost that SAS does not. Asserts direction,
+    not pinned numbers.
+    """
+    sas = ExperimentRunner(config=_contended_cfg("sas", tmp_path / "sas")).run()
+    dmas = ExperimentRunner(
+        config=_contended_cfg("decentralized_mas", tmp_path / "dmas")
+    ).run()
+    sas_m = sas["experiment_statistics"].mean
+    dmas_m = dmas["experiment_statistics"].mean
+
+    # DMAS consensus deconflicts → no duplicates, matching SAS mission utility.
+    assert dmas_m["duplicate_observation_rate"] == 0.0
+    assert dmas_m["utility"] == sas_m["utility"]
+    # The all-to-all channel costs messages; SAS has no coordination overhead.
+    assert dmas_m["coordination_messages"] > 0.0
+    assert sas_m["coordination_messages"] == 0.0
+

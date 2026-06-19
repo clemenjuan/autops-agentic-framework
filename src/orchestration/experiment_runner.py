@@ -330,15 +330,15 @@ class ExperimentRunner:
         # exist) but their distribute_observation()/collect_actions() are
         # deferred and only raise NotImplementedError. Fail early here with an
         # actionable message rather than crashing mid-episode deep in the
-        # decision loop. IndependentMAS is now implemented for the Flamingo
-        # organisation sweep; decentralized/hybrid remain deferred.
-        deferred = {"decentralized_mas", "hybrid_mas"}
+        # decision loop. SAS/CMAS/IMAS/DMAS are implemented for the Flamingo
+        # organisation sweep; hybrid remains deferred.
+        deferred = {"hybrid_mas"}
         if self.config.agent_organization in deferred:
             raise NotImplementedError(
                 f"agent_organization='{self.config.agent_organization}' is "
                 f"deferred to later Flamingo increments and not yet instantiated. "
-                f"Use 'sas', 'centralized_mas', or 'independent_mas' for runnable "
-                f"experiments."
+                f"Use 'sas', 'centralized_mas', 'independent_mas', or "
+                f"'decentralized_mas' for runnable experiments."
             )
 
         org_cls = org_map.get(self.config.agent_organization)
@@ -719,6 +719,12 @@ class ExperimentRunner:
         # 5. Collect actions (the onboard core's per-step action)
         if self._organization is not None:
             env_actions = self._organization.collect_actions(agent_actions)
+            # Surface organisation-level coordination cost (e.g. all-to-all
+            # message count / consensus rounds for DecentralizedMAS) so the
+            # cost side of the organisation axis is measurable.
+            org_metrics = self._organization.get_metrics()
+            if org_metrics:
+                decision_metrics.update(org_metrics)
         else:
             env_actions = {}
 

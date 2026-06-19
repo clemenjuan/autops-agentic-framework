@@ -33,13 +33,13 @@ current internal name.
 | `flamingo_sas_ag_symb` | `sas` | runnable | one global agent controls the constellation |
 | `flamingo_cmas_ag_symb` | `centralized_mas` | runnable | mission manager / orchestrator with local satellite agents |
 | `flamingo_imas_ag_symb` | `independent_mas` | runnable | local satellite agents, no inter-agent communication |
-| `flamingo_dmas_ag_symb` | `decentralized_mas` | deferred | peer-to-peer coordination with consensus |
+| `flamingo_dmas_ag_symb` | `decentralized_mas` | runnable | peer-to-peer coordination with consensus |
 | `flamingo_hmas_ag_symb` | `hybrid_mas` | deferred | clustered or heterogeneous hierarchy plus peer/local behavior |
 
-Decentralized MAS should be part of the first organization sweep, not a later
-optional add-on. The first DMAS implementation can use all-to-all consensus for
-`N = 3`; topology ablations such as ring, mesh, or visibility-limited links can
-come after the five-config baseline is runnable.
+Decentralized MAS is part of the first organization sweep, not a later optional
+add-on. The DMAS implementation uses all-to-all consensus at `N = 3`; topology
+ablations such as ring, mesh, or visibility-limited links come next. Only
+HybridMAS remains deferred.
 
 ### How the organisation axis is made measurable (and a CMAS caveat)
 
@@ -53,12 +53,24 @@ through **what each agent sees** and **how the actions are merged**:
   that satellite's visible tasks) and acts alone; `collect_actions` merges the
   per-satellite actions **without deconfliction**, so independent agents collide
   on the same high-priority RSO and the environment counts duplicates.
+- `decentralized_mas` (DMAS) — every peer receives the *full* observation
+  (all-to-all exchange) and, running the shared deterministic protocol on
+  identical information, converges on the same deconflicted plan; `collect_actions`
+  returns that consensus. DMAS therefore deconflicts like SAS but pays a
+  measurable coordination cost (`coordination_messages = n·(n-1)`, threaded into
+  the Flamingo metrics).
 
 For the axis to actually separate these, the scenario must contain contention:
 `configs/scenarios/flamingo.yaml` sets `satellite_phase_shift: 0` so the whole
 constellation sees the **same** RSO windows at the same time and must compete for
-the top-priority targets. Under that scenario SAS keeps duplicates at zero while
-IMAS wastes a large fraction of its observations (and loses utility/coverage).
+the top-priority targets. Validated under that scenario (N = 3): SAS, CMAS and
+DMAS all reach utility 660 with zero duplicates, while IMAS drops to 390 with a
+0.667 duplicate rate and 0.75 coverage. DMAS additionally reports 6 coordination
+messages per step where SAS reports none. So the axis separates on **outcome**
+({SAS, CMAS, DMAS} vs IMAS) and on **coordination cost** (DMAS > CMAS > SAS) —
+matching Kim et al.'s capability-saturation prediction that, for sequential
+constraint satisfaction, organisation moves cost more than outcome unless an org
+withholds information (IMAS).
 
 **CMAS honesty note.** `centralized_mas` currently gives its mission manager and
 every local agent the *full* observation and, via `rule_based_flamingo`, each

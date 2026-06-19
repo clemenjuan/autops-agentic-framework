@@ -46,6 +46,9 @@ class FlamingoMetricsCollector(MetricsCollector):
             "step_constraint_violations": float(
                 info.get("step_constraint_violations", 0.0)
             ),
+            "coordination_messages": float(
+                decision_metrics.get("coordination_messages", 0.0)
+            ),
         }
         return StepMetrics(
             timestep=timestep,
@@ -103,6 +106,10 @@ class FlamingoMetricsCollector(MetricsCollector):
                 if self.config.get("constellation_size", 1) > 0 else 0.0
             ),
             "operator_load": float(last.get("duplicate_observation_rate", 0.0)),
+            "coordination_messages": (
+                sum(s.metrics.get("coordination_messages", 0.0) for s in step_metrics)
+                / n
+            ),
         }
         return EpisodeMetrics(
             num_steps=n,

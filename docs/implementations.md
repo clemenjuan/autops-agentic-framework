@@ -48,13 +48,17 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Latency: `ExperimentRunner` accumulates manager + local agent latencies as the total step latency (sequential execution, both contribute to decision overhead).
 - **Scope**: the MAS organisations (cmas/imas/dmas/hmas) belong to the **future multi-satellite scenario** and are not exercised by the EventSat benchmark (morphological_matrix.md §1). The code below is the single-satellite wiring kept for that future work; no EventSat configs use it.
 
-### DecentralizedMAS — Placeholder (deferred to N≥3)
+### DecentralizedMAS — Implemented (Flamingo N≥3)
 
 - **File**: `src/agent_organization/decentralized_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(aᵢ, aⱼ) : ∀i,j, i≠j}, Ω = consensus, complexity O(dnk).
-- **Structure**: Each satellite has its own agent; agents communicate peer-to-peer. Consensus formation through debate rounds. Enables parallel exploration but incurs coordination tax and information fragmentation.
-- **Risk**: Independent error amplification (17.2× per Kim et al.) if consensus fails. Suited for parallelisable tasks, predicted to underperform on sequential satellite scheduling.
-- **Status**: Stub (`NotImplementedError`). Deferred to constellation scenarios (N≥3); peer-to-peer coordination is degenerate at N=1.
+- **Structure**: One peer agent per satellite, no manager. All-to-all exchange: every peer shares what it sees, so each ends up with the same global information.
+- **Flamingo design decisions**:
+  - `distribute_observation`: every peer receives the full observation (the decentralized counterpart of SAS's global view), plus the other peers' previous-step proposals as `messages` (the all-to-all channel C).
+  - `collect_actions`: peers running the shared deterministic protocol on identical information converge on the same deconflicted plan; the **consensus** (plurality, ties by agent index) is returned. So DMAS deconflicts like SAS/CMAS and — unlike IMAS — wastes nothing.
+  - `get_metrics`: surfaces the coordination cost — `coordination_messages = n·(n-1)` per round (6 at N=3) and `consensus_rounds`. The runner threads this into the Flamingo metrics, so the cost side of the axis is measured.
+  - **Outcome vs cost**: with the capable global `rule_based_flamingo`, DMAS matches SAS/CMAS mission utility (validated: utility 660, duplicate rate 0 under the contended scenario) while paying a strictly higher message cost. A decentralized org only loses *outcome* when consensus fails (Kim et al. 17.2× error amplification), which a single deterministic round does not trigger.
+- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_dmas_ag_symb.yaml`), all-to-all topology. Ring/mesh/visibility-limited topology ablations are future work. Degenerate at N=1.
 
 ### IndependentMAS — Implemented (Flamingo N≥3)
 
@@ -733,7 +737,8 @@ for the framing.
 | SingleAgentSystem (SAS) | `src/agent_organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
 | CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
 | IndependentMAS (IMAS) | `src/agent_organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
-| Decentralized/Hybrid MAS | `src/agent_organization/{decentralized,hybrid}_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to later Flamingo increments |
+| DecentralizedMAS (DMAS) | `src/agent_organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
+| HybridMAS | `src/agent_organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to later Flamingo increments |
 | SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
 | OODA loop | `src/decision_procedure/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
 | ReAct loop | `src/decision_procedure/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |
