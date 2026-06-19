@@ -80,6 +80,7 @@ class TestGroundScheduleGuard:
                 representation=rep,
                 representation_config={"type": rep_type},
                 operations_paradigm=ops,
+                environment={"scenario": "eventsat"},
                 **extra,
             )
 

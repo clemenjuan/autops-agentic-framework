@@ -62,6 +62,7 @@ class TestCombinationGuardrails:
             decision_procedure=loop,
             operations_paradigm=ops,
             representation_config={"type": rep_type},
+            environment={"scenario": "eventsat"},
         )
 
     def test_deterministic_rep_ground_non_sda_warns(self) -> None:
