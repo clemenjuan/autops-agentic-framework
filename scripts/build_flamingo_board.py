@@ -35,21 +35,21 @@ FLAMINGO_ORGS = [
         "label": "IMAS",
         "organization": "independent_mas",
         "role": "local satellite agents, no inter-agent communication",
-        "status_if_missing": "deferred",
+        "status_if_missing": "notrun",
     },
     {
         "id": "flamingo_dmas_ag_symb",
         "label": "DMAS",
         "organization": "decentralized_mas",
-        "role": "peer-to-peer coordination with consensus",
-        "status_if_missing": "deferred",
+        "role": "peer-to-peer all-to-all consensus",
+        "status_if_missing": "notrun",
     },
     {
         "id": "flamingo_hmas_ag_symb",
         "label": "HMAS",
         "organization": "hybrid_mas",
-        "role": "clustered or heterogeneous hierarchy plus peer/local behavior",
-        "status_if_missing": "deferred",
+        "role": "clustered: coordinate within, independent across",
+        "status_if_missing": "notrun",
     },
 ]
 
@@ -57,8 +57,12 @@ VALUE_KEYS = [
     "utility", "coverage_rate", "successful_observations",
     "duplicate_observation_rate", "constraint_violation_rate",
     "mean_revisit_steps", "mean_latency_s", "resource_efficiency",
-    "operator_load", "explainability_score",
+    "operator_load", "explainability_score", "coordination_messages",
 ]
+
+# token -> display label for the organisation scale sweep.
+ORG_LABELS = {"sas": "SAS", "cmas": "CMAS", "imas": "IMAS", "dmas": "DMAS", "hmas": "HMAS"}
+SCALE_RE = re.compile(r"^flamingo_(sas|cmas|imas|dmas|hmas)_ag_symb_n(\d+)$")
 
 
 def _run_text(rid: str, limit: int = 200_000) -> str:
@@ -98,6 +102,10 @@ def _rows(data: dict[str, dict]) -> list[dict]:
         rec = data[rid]
         if not rec.get("n"):
             continue
+        # The N=1/3/6/12 scale-sweep runs belong to the scale-efficiency section,
+        # not the (fixed-N) organisation sweep table.
+        if SCALE_RE.match(rid):
+            continue
         rows.append({
             "id": rid,
             "label": rid.replace("flamingo_", ""),
@@ -115,6 +123,57 @@ def _rows(data: dict[str, dict]) -> list[dict]:
     return rows
 
 
+def _stdev(values: list) -> float:
+    vals = [v for v in values if v is not None]
+    if len(vals) < 2:
+        return 0.0
+    mean = sum(vals) / len(vals)
+    return (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+
+
+def _scale_series(data: dict[str, dict]) -> dict:
+    """Per-organisation M-10 = (U(N)/N)/U(1) across the scale sweep.
+
+    Reads the ``flamingo_<org>_ag_symb_n<N>`` runs, normalises every point by the
+    shared N=1 anchor, and carries per-episode spread through to error bars.
+    """
+    anchor_rec = data.get("flamingo_sas_ag_symb_n1", {})
+    anchor = (anchor_rec.get("mean") or {}).get("utility")
+
+    series: dict[str, list] = {}
+    for rid, rec in data.items():
+        m = SCALE_RE.match(rid)
+        if not m or not rec.get("n"):
+            continue
+        org, n = m.group(1), int(m.group(2))
+        utility = (rec.get("mean") or {}).get("utility")
+        if utility is None:
+            continue
+        per_ep = (rec.get("per_ep") or {}).get("utility", []) or []
+        point = {
+            "N": n,
+            "utility": utility,
+            "utility_std": _stdev(per_ep),
+            "episodes": rec.get("n", 0),
+        }
+        if anchor:
+            point["m10"] = (utility / n) / anchor
+            effs = [(v / n) / anchor for v in per_ep if v is not None]
+            point["m10_std"] = _stdev(effs)
+        series.setdefault(org, []).append(point)
+
+    # Shared N=1 anchor point (M-10 = 1 by definition) so every line starts there.
+    for org, points in series.items():
+        if anchor and not any(p["N"] == 1 for p in points):
+            points.append({"N": 1, "utility": anchor, "utility_std": _stdev(
+                (anchor_rec.get("per_ep") or {}).get("utility", []) or []),
+                "m10": 1.0, "m10_std": 0.0, "episodes": anchor_rec.get("n", 0)})
+        points.sort(key=lambda p: p["N"])
+
+    return {"anchor": anchor, "labels": ORG_LABELS,
+            "series": {ORG_LABELS[o]: pts for o, pts in series.items()}}
+
+
 def main() -> None:
     data = {d["id"]: d for d in json.loads(EXTRACT.read_text())}
     rows = _rows(data)
@@ -122,10 +181,13 @@ def main() -> None:
         "rows": rows,
         "planned": FLAMINGO_ORGS,
         "metric_keys": VALUE_KEYS,
+        "scale": _scale_series(data),
     }
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
     measured = sum(1 for row in rows if row["status"] == "measured")
-    print(f"wrote {OUT}: {measured}/{len(FLAMINGO_ORGS)} planned Flamingo configs measured")
+    scale_pts = sum(len(v) for v in payload["scale"]["series"].values())
+    print(f"wrote {OUT}: {measured}/{len(FLAMINGO_ORGS)} planned Flamingo configs "
+          f"measured, {scale_pts} scale points")
 
 
 TEMPLATE = r"""<!DOCTYPE html>
@@ -166,7 +228,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 
 <section>
  <h2>1&emsp;Organisation sweep</h2>
- <div class="caption">Five planned Flamingo configs. Pending rows stay visible so the decentralized/independent/hybrid MAS work is not lost.</div>
+ <div class="caption">All five literature organisations are implemented and measured at N = 3 (paired seeds, stochastic catalog). Coordination cost (coord. msgs) is the all-to-all/intra-cluster message count per step.</div>
  <div class="kpis" id="kpis"></div>
  <table id="orgTable"></table>
  <div class="guide" id="note"></div>
@@ -182,8 +244,16 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>3&emsp;Scale-efficiency staging</h2>
- <div class="caption">M-10 will become measurable after an N = 1 Flamingo anchor plus N = 3, 6, and 12 paired runs.</div>
+ <h2>3&emsp;Scale efficiency (M-10)</h2>
+ <div class="caption">M-10 = (U(N)/N) / U(1) — does per-satellite productivity hold as the constellation grows?
+ The RSO catalog scales with N (count = 2N) and seeds are paired, so this isolates coordination cost rather than
+ target scarcity. The dashed line is ideal linear scaling. Coordinated organisations (SAS/CMAS/DMAS) stay flat;
+ an uncoordinated one (IMAS) collapses as duplicate observations grow with N. Source runs:
+ <code>flamingo_&lt;org&gt;_ag_symb_n&lt;N&gt;</code>.</div>
+ <div class="twocol">
+  <div id="m10Plot" class="plot"></div>
+  <div id="scaleUtilPlot" class="plot"></div>
+ </div>
  <table id="scaleTable"></table>
 </section>
 
@@ -194,7 +264,7 @@ const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const PERCENT = new Set(["coverage_rate","duplicate_observation_rate",
   "constraint_violation_rate","operator_load","explainability_score"]);
 const UNITS = {successful_observations:"obs/ep", mean_revisit_steps:"steps",
-  mean_latency_s:"s/decision", resource_efficiency:"U/sat"};
+  mean_latency_s:"s/decision", resource_efficiency:"U/sat", coordination_messages:"msgs/step"};
 function fmtMetric(k, v){
   if (v==null) return "—";
   const x = +v;
@@ -225,7 +295,8 @@ document.getElementById("orgTable").innerHTML =
   "<tr><th>config</th><th>organisation</th><th>status</th><th class=\"num\">N</th>"+
   "<th class=\"num\">steps</th><th class=\"num\">episodes</th><th class=\"num\">utility</th>"+
   "<th class=\"num\">coverage</th><th class=\"num\">successes</th><th class=\"num\">duplicates</th>"+
-  "<th class=\"num\">violations</th><th class=\"num\">mean revisit</th><th class=\"num\">latency</th><th>role</th></tr>"+
+  "<th class=\"num\">violations</th><th class=\"num\">mean revisit</th><th class=\"num\">latency</th>"+
+  "<th class=\"num\">coord. msgs</th><th>role</th></tr>"+
   rows.map(r=>{
     const m = r.mean || {};
     return `<tr><td><code>${r.id}</code>${r.source?`<br><span style="color:#777;font-size:12px">${r.source}</span>`:""}</td>`+
@@ -241,11 +312,14 @@ document.getElementById("orgTable").innerHTML =
       `<td class="num">${fmtMetric("constraint_violation_rate", m.constraint_violation_rate)}</td>`+
       `<td class="num">${fmtMetric("mean_revisit_steps", m.mean_revisit_steps)}</td>`+
       `<td class="num">${fmtMetric("mean_latency_s", m.mean_latency_s)}</td>`+
+      `<td class="num">${fmtMetric("coordination_messages", m.coordination_messages)}</td>`+
       `<td style="color:#666;font-size:12px">${r.role}</td></tr>`;
   }).join("");
 document.getElementById("note").innerHTML =
-  `<b>Scope lock:</b> this board is separate from EventSat. The first sweep keeps representation = symbolic and paradigm = AG
-  so the measured difference is organisation. DMAS is part of the baseline five-config plan, not a later optional add-on.`;
+  `<b>Reading the axis:</b> representation = symbolic and paradigm = AG are held fixed, so the only difference is organisation.
+  Under contention the axis separates on <b>outcome</b> (SAS = CMAS = DMAS &gt; HMAS &gt; IMAS) and on <b>coordination cost</b>
+  (DMAS &gt; HMAS &gt; SAS). SAS = CMAS = DMAS because the symbolic core reaches the same deconflicted plan from full information;
+  HMAS coordinates only within clusters; IMAS not at all. Separate from the EventSat board.`;
 
 const FONT = {family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:13, color:"#111"};
 const baseLayout = (xTitle, yTitle, extra) => Object.assign({
@@ -276,23 +350,44 @@ if (measured.length){
     `<div class="guide">The duplicate/violation plot will populate from <code>data/results/flamingo_*/results.json</code>.</div>`;
 }
 
-const scaleNs = [1,3,6,12];
-const byN = {};
-for (const r of measured){
-  const n = r.constellation_size;
-  if (n && (!byN[n] || (r.mean.utility || 0) > (byN[n].mean.utility || 0))) byN[n] = r;
+const SCALE = P.scale || {series:{}, anchor:null};
+const scaleOrgs = Object.keys(SCALE.series);
+const ORG_COLORS = {SAS:"#0065BD", CMAS:"#1e8449", DMAS:"#7d3c98", HMAS:"#9a6200", IMAS:"#a13026"};
+const scaleLine = (key, stdKey) => scaleOrgs.map(org=>{
+  const pts = SCALE.series[org];
+  return {type:"scatter", mode:"lines+markers", name:org,
+    x:pts.map(p=>p.N), y:pts.map(p=>p[key]),
+    error_y:{type:"data", array:pts.map(p=>p[stdKey]||0), visible:true, thickness:1, width:3},
+    line:{color:ORG_COLORS[org]||"#444", width:2}, marker:{size:7}};
+});
+if (scaleOrgs.length && SCALE.anchor){
+  const Ns = [1,3,6,12];
+  const m10Traces = scaleLine("m10","m10_std");
+  m10Traces.push({type:"scatter", mode:"lines", name:"ideal (linear)", x:Ns, y:Ns.map(()=>1),
+    line:{color:"#bbb", dash:"dash", width:1.5}, hoverinfo:"skip"});
+  Plotly.newPlot("m10Plot", m10Traces, baseLayout("constellation size N", "M-10 = (U(N)/N)/U(1)", {
+    legend:{orientation:"h", y:1.16}, xaxis:{title:"constellation size N", tickvals:Ns, gridcolor:"#eee"}
+  }), {displayModeBar:false});
+  Plotly.newPlot("scaleUtilPlot", scaleLine("utility","utility_std"),
+    baseLayout("constellation size N", "total utility U(N)", {
+    legend:{orientation:"h", y:1.16}, xaxis:{title:"constellation size N", tickvals:Ns, gridcolor:"#eee"}
+  }), {displayModeBar:false});
+  const allN = [...new Set([].concat(...scaleOrgs.map(o=>SCALE.series[o].map(p=>p.N))))].sort((a,b)=>a-b);
+  document.getElementById("scaleTable").innerHTML =
+    "<tr><th>organisation</th>"+allN.map(n=>`<th class=\"num\">M-10 @ N=${n}</th>`).join("")+"</tr>"+
+    scaleOrgs.map(org=>{
+      const byNloc = Object.fromEntries(SCALE.series[org].map(p=>[p.N,p]));
+      return `<tr><td><b>${org}</b></td>`+allN.map(n=>{
+        const p = byNloc[n];
+        return `<td class="num">${p?fmtMetric("scale_efficiency", p.m10):"—"}</td>`;
+      }).join("")+"</tr>";
+    }).join("");
+} else {
+  document.getElementById("m10Plot").innerHTML =
+    `<div class="guide"><b>Scale sweep not run yet.</b> Run <code>scripts/run_flamingo_scale.py</code>, then refresh this board.</div>`;
+  document.getElementById("scaleUtilPlot").innerHTML =
+    `<div class="guide">M-10 needs the N = 1 anchor (<code>flamingo_sas_ag_symb_n1</code>) plus the N = 3/6/12 paired runs.</div>`;
 }
-const anchor = byN[1] && byN[1].mean.utility;
-document.getElementById("scaleTable").innerHTML =
-  "<tr><th>N</th><th>best measured run</th><th class=\"num\">utility</th><th class=\"num\">scale efficiency</th><th>status</th></tr>"+
-  scaleNs.map(n=>{
-    const r = byN[n];
-    const scaleEff = (r && anchor) ? (r.mean.utility / n) / anchor : null;
-    return `<tr><td><b>${n}</b></td><td>${r?`<code>${r.id}</code>`:"—"}</td>`+
-      `<td class="num">${r?fmtMetric("utility", r.mean.utility):"—"}</td>`+
-      `<td class="num">${fmtMetric("scale_efficiency", scaleEff)}</td>`+
-      `<td>${r?stc("measured","measured"):stc("notrun","not run")}</td></tr>`;
-  }).join("");
 </script></body></html>
 """
 

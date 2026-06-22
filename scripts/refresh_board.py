@@ -14,7 +14,7 @@ KEYS = ["utility","mean_aoi_s","peak_aoi_s","robustness_mean_recovery_steps",
         "llm_mean_call_latency_s","llm_tokens_prompt","llm_tokens_completion",
         "llm_schedule_entries",
         "coverage_rate","successful_observations","duplicate_observation_rate",
-        "mean_revisit_steps"]
+        "mean_revisit_steps","coordination_messages"]
 
 # Episodes excluded by substrate-integrity screening (run_id -> episode indices).
 # Append-only, manual, evidence required — same policy as MEASURED status flips.

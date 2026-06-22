@@ -112,6 +112,32 @@ instance-by-instance (utility 716 ± 87, duplicate rate 0), while IMAS sits at
 `stochastic: false` (or omit it) for the fixed deterministic catalog used by the
 mechanics tests.
 
+### Scale efficiency (M-10) — measured
+
+`scripts/run_flamingo_scale.py` runs the M-10 sweep: each organisation at
+`N ∈ {3, 6, 12}` plus a shared `N = 1` anchor, paired seeds, into
+`data/results/flamingo_<org>_ag_symb_n<N>/`. `scripts/build_flamingo_board.py`
+renders the per-organisation `M-10 = (U(N)/N) / U(1)` curves (board section 3).
+
+The RSO catalog **scales with the constellation** (`count = 2·N`) so the
+per-satellite task load is roughly constant and M-10 isolates *coordination cost*
+rather than target scarcity. Measured (8 paired episodes):
+
+| org | M-10 @ N=3 | N=6 | N=12 |
+|---|---|---|---|
+| SAS / CMAS / DMAS | 1.29 | 1.24 | 1.18 |
+| HMAS | 1.18 | 1.13 | 1.11 |
+| IMAS | 0.82 | 0.56 | 0.33 |
+
+The coordinated organisations hold per-satellite productivity roughly flat as the
+constellation grows (they scale); IMAS collapses ≈ `1/N` because every satellite
+piles onto the same contested RSO regardless of constellation size, so wasted
+duplicate observations grow with `N`. HMAS, coordinating only within its clusters,
+tracks just below the coordinated curve. This is the headline multi-satellite
+result: under the symbolic AG baseline, **organisation governs how the system
+scales, and the only organisation that fails to scale is the one with no
+inter-agent coordination.**
+
 ## Scenario MVP
 
 The environment should implement only the minimum dynamics needed to compare
