@@ -272,24 +272,81 @@ class TestIndependentMAS:
 
 
 # ======================================================================
-# HybridMAS — placeholder, deferred to constellation scenarios
+# HybridMAS — clustered: coordinate within, independent across
 # ======================================================================
 
 
 class TestHybridMAS:
-    def test_agents(self) -> None:
-        org = HybridMAS(config={})
+    def test_one_cluster_head_per_cluster(self) -> None:
+        org = HybridMAS(config={"num_clusters": 2})
         org.initialize(constellation_size=5)
-        assert len(org.get_agents()) == 5
+        # 5 satellites into 2 contiguous near-equal clusters -> 2 head agents.
+        assert org.get_agents() == ["cluster_agent_0", "cluster_agent_1"]
 
-    def test_distribute_not_implemented(self) -> None:
-        org = HybridMAS(config={})
-        org.initialize(constellation_size=1)
-        with pytest.raises(NotImplementedError):
-            org.distribute_observation({})
+    def test_explicit_clusters_partition(self) -> None:
+        org = HybridMAS(config={"clusters": [[0, 1, 2], [3, 4]]})
+        org.initialize(constellation_size=5)
+        assert len(org.get_agents()) == 2
 
-    def test_collect_not_implemented(self) -> None:
-        org = HybridMAS(config={})
-        org.initialize(constellation_size=1)
-        with pytest.raises(NotImplementedError):
-            org.collect_actions({})
+    def test_distribute_gives_each_head_only_its_cluster(self) -> None:
+        from src.environment.satellite_env import (
+            ConstellationState,
+            EnvironmentObservation,
+            SatelliteState,
+        )
+
+        env_obs = EnvironmentObservation(
+            constellation_state=ConstellationState(
+                timestep=0,
+                epoch_seconds=0.0,
+                satellites={
+                    f"flamingo_{i}": SatelliteState(satellite_id=f"flamingo_{i}")
+                    for i in range(3)
+                },
+            ),
+            tasks=[
+                {"satellite_id": f"flamingo_{i}", "target_id": f"rso_{i}", "priority": 1.0}
+                for i in range(3)
+            ],
+        )
+        org = HybridMAS(config={"num_clusters": 2})
+        org.initialize(constellation_size=3)
+        result = org.distribute_observation(env_obs)
+        # Cluster 0 = {flamingo_0, flamingo_1}, cluster 1 = {flamingo_2}.
+        head0 = result["cluster_agent_0"].local_state["full_observation"]
+        assert set(head0.constellation_state.satellites.keys()) == {
+            "flamingo_0",
+            "flamingo_1",
+        }
+        head1 = result["cluster_agent_1"].local_state["full_observation"]
+        assert set(head1.constellation_state.satellites.keys()) == {"flamingo_2"}
+
+    def test_collect_merges_clusters_and_reports_localised_cost(self) -> None:
+        org = HybridMAS(config={"num_clusters": 2})
+        org.initialize(constellation_size=3)
+        actions = {
+            "cluster_agent_0": AgentAction(
+                agent_id="cluster_agent_0",
+                action={"flamingo_0": {"target_id": "rso_0"},
+                        "flamingo_1": {"target_id": "rso_1"}},
+            ),
+            "cluster_agent_1": AgentAction(
+                agent_id="cluster_agent_1",
+                action={"flamingo_2": {"target_id": "rso_0"}},
+            ),
+        }
+        merged = org.collect_actions(actions)
+        assert set(merged.keys()) == {"flamingo_0", "flamingo_1", "flamingo_2"}
+        # Localised cost: clusters of size 2 and 1 -> 2*1 + 1*0 = 2 messages.
+        assert org.get_metrics()["coordination_messages"] == 2.0
+
+    def test_num_clusters_spans_the_spectrum(self) -> None:
+        # One cluster -> SAS-like all-to-all cost; singletons -> IMAS-like (zero).
+        one = HybridMAS(config={"num_clusters": 1})
+        one.initialize(constellation_size=4)
+        one.collect_actions({})
+        assert one.get_metrics()["coordination_messages"] == 12.0  # 4*3
+        singletons = HybridMAS(config={"num_clusters": 4})
+        singletons.initialize(constellation_size=4)
+        singletons.collect_actions({})
+        assert singletons.get_metrics()["coordination_messages"] == 0.0

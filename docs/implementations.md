@@ -71,11 +71,17 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Contention is supplied by the scenario, not the org: `configs/scenarios/flamingo.yaml` sets `satellite_phase_shift: 0` so the constellation shares visibility windows and the agents must compete. Validated: under that scenario SAS/CMAS keep duplicate rate at 0 while IMAS wastes ≈⅔ of attempts and loses utility/coverage.
 - **Status**: Runnable at N≥3 (`configs/experiments/flamingo_imas_ag_symb.yaml`). Degenerate at N=1 (equivalent to SAS, no coordination overhead).
 
-### HybridMAS — Placeholder (deferred to N≥3)
+### HybridMAS — Implemented (Flamingo N≥3)
 
 - **File**: `src/agent_organization/hybrid_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Hybrid MAS — heterogeneous mixed topology combining star + all-to-all + independent sub-topologies.
-- **Status**: Stub (`NotImplementedError`). Reserved for complex multi-cluster constellations.
+- **Structure**: the constellation is partitioned into clusters; each cluster has a head agent (`cluster_agent_i`). Coordination happens *within* a cluster, none *across* clusters — C = heterogeneous, Ω = hybrid.
+- **Flamingo design decisions**:
+  - `distribute_observation`: each cluster head receives a view of only its own cluster's satellites and their visible tasks; running `rule_based_flamingo` on it deconflicts that cluster (a mini-SAS).
+  - `collect_actions`: per-cluster assignments are merged **without cross-cluster deconfliction**, so satellites in different clusters can still collide on the same RSO.
+  - **Tunable midpoint**: `num_clusters` (default 2) spans the whole organisation axis — `1` ≡ SAS (one cluster sees all → 0 duplicates), `n` ≡ IMAS (singletons → maximal duplicates), in between partial coordination. `get_metrics` reports the localised cost `coordination_messages = Σ c_i·(c_i-1)` (= `n·(n-1)` at one cluster, `0` at singletons). Explicit `clusters` partitions are also accepted.
+  - Validated at N=3 (default 2 clusters): utility 607 ± 78, duplicate rate 0.376, coordination 2 — strictly between SAS/CMAS/DMAS (716 ± 87, dup 0) and IMAS (404 ± 57, dup 0.667).
+- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_hmas_ag_symb.yaml`). Visibility-/capability-based clustering is future work.
 
 ---
 
@@ -738,7 +744,7 @@ for the framing.
 | CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
 | IndependentMAS (IMAS) | `src/agent_organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
 | DecentralizedMAS (DMAS) | `src/agent_organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
-| HybridMAS | `src/agent_organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Deferred to later Flamingo increments |
+| HybridMAS (HMAS) | `src/agent_organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on Flamingo N≥3 |
 | SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
 | OODA loop | `src/decision_procedure/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
 | ReAct loop | `src/decision_procedure/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |

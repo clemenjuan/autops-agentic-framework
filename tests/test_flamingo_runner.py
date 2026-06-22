@@ -170,6 +170,36 @@ def test_dmas_coordinates_like_sas_at_a_message_cost(tmp_path: Path) -> None:
     assert sas_m["coordination_messages"] == 0.0
 
 
+def test_hmas_is_intermediate_between_sas_and_imas(tmp_path: Path) -> None:
+    """Clustered HMAS partially coordinates: it sits between SAS and IMAS.
+
+    HMAS deconflicts within a cluster but not across clusters, so it wastes some
+    capacity (more than SAS, less than IMAS) at a localised message cost (less
+    than DMAS's all-to-all). Asserts the spectrum ordering, not pinned numbers.
+    """
+    sas = ExperimentRunner(config=_contended_cfg("sas", tmp_path / "sas")).run()
+    imas = ExperimentRunner(
+        config=_contended_cfg("independent_mas", tmp_path / "imas")
+    ).run()
+    dmas = ExperimentRunner(
+        config=_contended_cfg("decentralized_mas", tmp_path / "dmas")
+    ).run()
+    hmas = ExperimentRunner(
+        config=_contended_cfg("hybrid_mas", tmp_path / "hmas")
+    ).run()
+    sas_m = sas["experiment_statistics"].mean
+    imas_m = imas["experiment_statistics"].mean
+    dmas_m = dmas["experiment_statistics"].mean
+    hmas_m = hmas["experiment_statistics"].mean
+
+    # Outcome: SAS >= HMAS >= IMAS, with HMAS strictly intermediate.
+    assert imas_m["utility"] < hmas_m["utility"] < sas_m["utility"]
+    assert sas_m["duplicate_observation_rate"] < hmas_m["duplicate_observation_rate"]
+    assert hmas_m["duplicate_observation_rate"] < imas_m["duplicate_observation_rate"]
+    # Cost: HMAS coordinates within clusters only → 0 < HMAS < DMAS all-to-all.
+    assert 0.0 < hmas_m["coordination_messages"] < dmas_m["coordination_messages"]
+
+
 def test_stochastic_scenario_produces_per_episode_variance(tmp_path: Path) -> None:
     """Stochastic catalog → episodes differ → utility has nonzero spread.
 
