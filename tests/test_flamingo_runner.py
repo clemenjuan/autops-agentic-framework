@@ -169,3 +169,41 @@ def test_dmas_coordinates_like_sas_at_a_message_cost(tmp_path: Path) -> None:
     assert dmas_m["coordination_messages"] > 0.0
     assert sas_m["coordination_messages"] == 0.0
 
+
+def test_stochastic_scenario_produces_per_episode_variance(tmp_path: Path) -> None:
+    """Stochastic catalog → episodes differ → utility has nonzero spread.
+
+    A deterministic env gives identical episodes (std = 0), which makes
+    multi-episode runs and seed pairing meaningless. Enabling `stochastic` must
+    draw a fresh per-episode instance so the results carry real variance.
+    """
+    cfg = ExperimentConfig(
+        experiment_id="flamingo_stochastic",
+        agent_organization="sas",
+        decision_procedure="sda",
+        representation="symb",
+        representation_config={"type": "rule_based_flamingo"},
+        operations_paradigm="autonomous_ground",
+        operations_paradigm_config={"pass_through_observation": True},
+        environment={
+            "scenario": "flamingo",
+            "constellation_size": 3,
+            "timestep_seconds": 60,
+            "max_steps": 60,
+            "scenario_config": {
+                "scenario_params": {
+                    "stochastic": True,
+                    "satellite_phase_shift": 0,
+                    "visibility_period_steps": 12,
+                    "targets": {"count": 8, "priorities": [5.0, 3.0, 2.0, 1.0]},
+                }
+            },
+        },
+        num_episodes=4,
+        max_steps=60,
+        output_dir=str(tmp_path / "flamingo_stochastic"),
+    )
+
+    stats = ExperimentRunner(config=cfg).run()["experiment_statistics"]
+    assert stats.std["utility"] > 0.0
+

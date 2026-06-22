@@ -84,6 +84,26 @@ differs from SAS only in coordination cost (it runs `N + 1` agent loops), not in
 mission outcome. The measurable contrast in this first sweep is therefore
 **{SAS, CMAS} vs IMAS**, not SAS vs CMAS.
 
+### Stochastic instances (so the comparison has error bars)
+
+`configs/scenarios/flamingo.yaml` sets `stochastic: true`. Each episode draws a
+fresh RSO catalog (per-target visibility phase uniform in `[0, period)`, priority
+sampled from the configured set) from a seeded RNG. The runner resets every
+episode with `seed = config.seed + episode_id`, so:
+
+- repeated episodes are genuinely different instances → mission metrics carry
+  real variance (a deterministic env gives `std = 0`, making multi-episode runs
+  and seeds meaningless);
+- because every organisation runs the same `config.seed`, they all see the
+  **same catalog per episode** — the organisation comparison is a fair
+  within-instance contrast, not a comparison across different luck.
+
+Validated at N = 3 over 8 paired episodes: SAS, CMAS and DMAS are identical
+instance-by-instance (utility 716 ± 87, duplicate rate 0), while IMAS sits at
+404 ± 57 with a 0.667 duplicate rate — the gap survives the variance. Set
+`stochastic: false` (or omit it) for the fixed deterministic catalog used by the
+mechanics tests.
+
 ## Scenario MVP
 
 The environment should implement only the minimum dynamics needed to compare

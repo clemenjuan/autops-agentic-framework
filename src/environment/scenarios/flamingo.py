@@ -9,6 +9,7 @@ duplicating observations or requesting infeasible targets.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -74,7 +75,22 @@ class FlamingoEnvironment(SatelliteEnvironment):
         )
         self.observation_data_mb = float(self.scenario.get("observation_data_mb", 1.0))
         self.ground_pass_active = bool(self.scenario.get("ground_pass_active", True))
-        self.targets = self._build_targets(self.scenario)
+
+        # Per-episode RSO catalog. Deterministic by default (reproducible smoke
+        # tests); when ``stochastic`` is set, each episode draws a fresh catalog
+        # from a seeded RNG so repeated episodes form a real distribution and
+        # organisation comparisons get error bars. Paired seeds (every org runs
+        # the same config.seed) hand each org the *same* catalog per episode, so
+        # the organisation comparison stays a fair within-instance contrast.
+        catalog = self.scenario.get("targets", {})
+        self.target_count = int(catalog.get("count", 6))
+        self.target_priorities = [
+            float(p) for p in catalog.get("priorities", [3.0, 2.0, 1.0])
+        ]
+        self.stochastic = bool(self.scenario.get("stochastic", False))
+        self._rng = random.Random(0)
+        self.targets = self._build_targets(None)
+
         self.satellite_ids = [
             f"flamingo_{idx}" for idx in range(self.constellation_size)
         ]
@@ -90,6 +106,12 @@ class FlamingoEnvironment(SatelliteEnvironment):
 
     def reset(self, seed: Optional[int] = None) -> EnvironmentObservation:
         self.current_step = 0
+        # Seed the per-episode RNG (the runner passes config.seed + episode_id,
+        # so seeds are paired across organisations). Draw a fresh catalog only in
+        # stochastic mode; the deterministic default keeps its fixed catalog.
+        self._rng = random.Random(0 if seed is None else seed)
+        if self.stochastic:
+            self.targets = self._build_targets(self._rng)
         self.successful_observations = 0
         self.duplicate_observations = 0
         self.constraint_violations = 0
@@ -255,18 +277,28 @@ class FlamingoEnvironment(SatelliteEnvironment):
                 return yaml.safe_load(handle) or {}
         return dict(config.get("scenario_params", {}))
 
-    @staticmethod
-    def _build_targets(scenario: Dict[str, Any]) -> List[RSOTarget]:
-        catalog = scenario.get("targets", {})
-        count = int(catalog.get("count", 6))
-        priorities = catalog.get("priorities", [3.0, 2.0, 1.0])
-        targets = []
-        for idx in range(count):
+    def _build_targets(self, rng: Optional[random.Random]) -> List[RSOTarget]:
+        """Build the RSO catalog.
+
+        With ``rng`` (stochastic mode) each target draws a random visibility
+        phase and a priority sampled from the configured set, so every episode is
+        a different SSA instance. Without ``rng`` the catalog is the fixed
+        deterministic layout (phase_offset = index, priorities cycled).
+        """
+        priorities = self.target_priorities or [1.0]
+        targets: List[RSOTarget] = []
+        for idx in range(self.target_count):
+            if rng is not None:
+                phase_offset = rng.randrange(self.visibility_period_steps)
+                priority = float(rng.choice(priorities))
+            else:
+                phase_offset = idx
+                priority = float(priorities[idx % len(priorities)])
             targets.append(
                 RSOTarget(
                     target_id=f"rso_{idx}",
-                    priority=float(priorities[idx % len(priorities)]),
-                    phase_offset=idx,
+                    priority=priority,
+                    phase_offset=phase_offset,
                 )
             )
         return targets

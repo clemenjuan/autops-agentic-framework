@@ -24,9 +24,17 @@ visibility_window_steps: 3
 satellite_phase_shift: 0
 observation_data_mb: 1.0
 
+# stochastic: true draws a fresh RSO catalog each episode from the per-episode
+# seed (runner uses config.seed + episode_id), so repeated episodes form a real
+# distribution and organisation comparisons get error bars. Paired seeds hand
+# every organisation the same catalog per episode → fair within-instance contrast.
+stochastic: true
+
 # Skewed priorities give a clearly contested top target. With three satellites
 # all seeing the same ~3-target window, a global planner books the top three
 # priorities (no waste) while independent agents all grab the single best one.
+# In stochastic mode each target's priority is sampled from this set and its
+# visibility phase is drawn uniformly, varying the instance episode to episode.
 targets:
   count: 8
   priorities: [5.0, 3.0, 2.0, 1.0]

@@ -73,3 +73,60 @@ def test_flamingo_duplicate_observations_are_counted() -> None:
     assert metrics["successful_observations"] == 1.0
     assert metrics["duplicate_observation_rate"] == 0.5
 
+
+def _catalog(env: FlamingoEnvironment) -> list[tuple[float, int]]:
+    return [(t.priority, t.phase_offset) for t in env.targets]
+
+
+def _stochastic_env() -> FlamingoEnvironment:
+    return FlamingoEnvironment(
+        config={
+            "constellation_size": 3,
+            "max_steps": 10,
+            "scenario_params": {
+                "stochastic": True,
+                "visibility_period_steps": 12,
+                "targets": {"count": 8, "priorities": [5.0, 3.0, 2.0, 1.0]},
+            },
+        }
+    )
+
+
+def test_flamingo_stochastic_catalog_is_reproducible_per_seed() -> None:
+    """Same seed → identical catalog (so paired-seed org comparison is fair)."""
+    env = _stochastic_env()
+    env.reset(seed=42)
+    first = _catalog(env)
+    env.reset(seed=42)
+    assert _catalog(env) == first
+
+
+def test_flamingo_stochastic_catalog_varies_across_seeds() -> None:
+    """Different seeds draw different SSA instances (real per-episode variance)."""
+    env = _stochastic_env()
+    catalogs = []
+    for seed in range(5):
+        env.reset(seed=seed)
+        catalogs.append(tuple(_catalog(env)))
+    assert len(set(catalogs)) > 1
+
+
+def test_flamingo_deterministic_mode_ignores_seed() -> None:
+    """Without `stochastic`, the catalog is fixed regardless of seed."""
+    env = FlamingoEnvironment(
+        config={
+            "constellation_size": 3,
+            "max_steps": 10,
+            "scenario_params": {
+                "visibility_period_steps": 12,
+                "targets": {"count": 8, "priorities": [5.0, 3.0, 2.0, 1.0]},
+            },
+        }
+    )
+    env.reset(seed=1)
+    first = _catalog(env)
+    env.reset(seed=99)
+    assert _catalog(env) == first
+    # Deterministic layout: phase_offset = index.
+    assert [phase for _, phase in first] == list(range(8))
+
