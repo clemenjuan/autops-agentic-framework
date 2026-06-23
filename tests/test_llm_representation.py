@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 
-from src.decision_procedure.context import DecisionContext
-from src.representation.llm_client import LLMClient
-from src.representation.llm_eventsat import LLMEventSat, VALID_MODES
-from src.representation.llm_prompts import (
+from src.core.decision_procedure.context import DecisionContext
+from src.core.llm_client import LLMClient
+from src.eventsat.llm import LLMEventSat, VALID_MODES
+from src.eventsat.llm_prompts import (
     SYSTEM_PROMPT,
     format_reasoning_prompt,
     format_state_prompt,
@@ -240,7 +240,7 @@ class TestLLMEventSat(unittest.TestCase):
         self.rep = LLMEventSat(_mock_config())
 
     def test_registration(self):
-        from src.behaviour.controller import _REPRESENTATION_REGISTRY
+        from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
         self.assertIn("llm_eventsat", _REPRESENTATION_REGISTRY)
 
     def test_encode_observation_returns_dict(self):
@@ -442,7 +442,7 @@ class TestLLMWithPatchedResponses(unittest.TestCase):
         self.assertEqual(rep._last_parse_retries, 1)
 
     def test_llm_all_retries_fail_raises_integrity_error(self):
-        # Substrate integrity (decision_matrix §7): an LLM cell whose calls fail
+        # Substrate integrity: an LLM cell whose calls fail
         # must fail the episode, never substitute a symbolic decision.
         rep = LLMEventSat(_mock_config())
         rep._client.generate = MagicMock(side_effect=RuntimeError("LLM down"))
@@ -483,10 +483,10 @@ class TestLoopIntegration(unittest.TestCase):
         action = rep.select_action(ctx)
         self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
 
-    def test_ooda_context_with_enrichments(self):
+    def test_context_with_situation_enrichments(self):
         rep = LLMEventSat(_mock_config())
         ctx = _make_context(
-            loop_type="ooda",
+            loop_type="sda",
             enrichments={
                 "situation_class": "nominal_sunlight",
                 "urgency": 0.3,
@@ -496,10 +496,10 @@ class TestLoopIntegration(unittest.TestCase):
         action = rep.select_action(ctx)
         self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
 
-    def test_react_context_with_reasoning(self):
+    def test_context_with_reasoning_enrichments(self):
         rep = LLMEventSat(_mock_config())
         ctx = _make_context(
-            loop_type="react",
+            loop_type="sda",
             enrichments={
                 "reasoning_steps": [
                     {"check": "battery", "value": 0.7, "implication": "ok"},
@@ -518,22 +518,21 @@ class TestConfigValidation(unittest.TestCase):
     """Test experiment config validation for hybrid representation."""
 
     def test_hybrid_representation_accepted(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
         config = ExperimentConfig(
             representation="hybrid",
             representation_config={"type": "llm_eventsat", "llm_mock": True},
         )
         self.assertEqual(config.representation, "hybrid")
 
-    def test_hybrid_with_all_loops(self):
-        from src.orchestration.config_loader import ExperimentConfig
-        for loop in ["sda", "ooda", "react"]:
-            config = ExperimentConfig(
-                representation="hybrid",
-                decision_procedure=loop,
-                representation_config={"type": "llm_eventsat", "llm_mock": True},
-            )
-            self.assertEqual(config.decision_procedure, loop)
+    def test_hybrid_uses_sda_driver(self):
+        from src.core.config_loader import ExperimentConfig
+        config = ExperimentConfig(
+            representation="hybrid",
+            decision_procedure="sda",
+            representation_config={"type": "llm_eventsat", "llm_mock": True},
+        )
+        self.assertEqual(config.decision_procedure, "sda")
 
     def test_hybrid_with_all_ops_paradigms(self):
         """The hybrid (LLM) family works under all paradigms via the right type.
@@ -541,7 +540,7 @@ class TestConfigValidation(unittest.TestCase):
         Ground paradigms need a schedule producer, so they use the LLM scheduler
         placeholder; AH uses the per-step llm_eventsat controller.
         """
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
         type_for_ops = {
             "autonomous_hybrid": "llm_eventsat",
             "autonomous_ground": "llm_scheduler_eventsat",

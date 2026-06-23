@@ -8,7 +8,7 @@ from typing import Any, Dict, Tuple
 
 import pytest
 
-from src.decision_procedure.base import DecisionProcedure
+from src.core.decision_procedure.base import DecisionProcedure
 
 
 class DummyDecisionProcedure(DecisionProcedure):

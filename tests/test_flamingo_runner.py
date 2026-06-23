@@ -6,8 +6,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from src.orchestration.config_loader import ExperimentConfig
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.config_loader import ExperimentConfig
+from src.core.experiment_runner import ExperimentRunner
 
 
 def test_runner_executes_flamingo_smoke(tmp_path: Path) -> None:

@@ -17,7 +17,7 @@ its paper basis, and key design decisions. Grows as new components are added.
 > are all real now: single-shot (`llm_scheduler_eventsat` hllm-s / `llm_single_scheduler_eventsat`
 > llm-s) and **agentic** (`agentic_scheduler_eventsat` hllm-a / `llm_agentic_scheduler_eventsat`
 > llm-a). Still pending: the real `hrl` core (RL + symbolic, documented placeholder in
-> `placeholder_cells.py`) and the PPO-trained `subsymbolic_scheduler` learned-scheduling line.
+> `placeholders.py`) and the PPO-trained `subsymbolic_scheduler` learned-scheduling line.
 > The component descriptions below document the **current code** — map them to the
 > framework via `morphological_matrix.md` §2.
 
@@ -33,7 +33,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### SingleAgentSystem (SAS)
 
-- **File**: `src/agent_organization/single_agent_system.py`
+- **File**: `src/core/organization/single_agent_system.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Single-Agent System (SAS) — |A|=1, single reasoning locus, C undefined, Ω direct, complexity O(k).
 - **Structure**: One central agent receives full constellation observation and selects actions for all satellites. No inter-agent communication. Zero coordination overhead.
 - **Key property**: Maximum context integration (unified memory stream, full prior-history access). Upper bound for context-quality; lower bound for parallelism.
@@ -41,7 +41,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### CentralizedMAS
 
-- **File**: `src/agent_organization/centralized_mas.py`
+- **File**: `src/core/organization/centralized_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Centralized MAS — orchestrator routes to sub-agents, C = {(a_orch, aᵢ) : ∀i}, Ω = hierarchical, complexity O(rnk). Also: ECSS-E-ST-70-11C autonomy levels (mission management layer vs onboard autonomy layer).
 - **Structure**: A = {mission_manager, sat_agent_0}; C = star (manager→local, unidirectional); Ω = hierarchical (local agent action is used; manager action stored as directive for next step).
 - **EventSat design decisions**:
@@ -53,7 +53,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### DecentralizedMAS — Implemented (Flamingo N≥3)
 
-- **File**: `src/agent_organization/decentralized_mas.py`
+- **File**: `src/core/organization/decentralized_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(aᵢ, aⱼ) : ∀i,j, i≠j}, Ω = consensus, complexity O(dnk).
 - **Structure**: One peer agent per satellite, no manager. All-to-all exchange: every peer shares what it sees, so each ends up with the same global information.
 - **Flamingo design decisions**:
@@ -65,7 +65,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### IndependentMAS — Implemented (Flamingo N≥3)
 
-- **File**: `src/agent_organization/independent_mas.py`
+- **File**: `src/core/organization/independent_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, no inter-agent coordination.
 - **Structure**: A = {sat_agent_0 … sat_agent_{n−1}}, one agent per satellite; C = ∅; Ω = independent (no consensus, no manager).
 - **Flamingo design decisions**:
@@ -76,7 +76,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### HybridMAS — Implemented (Flamingo N≥3)
 
-- **File**: `src/agent_organization/hybrid_mas.py`
+- **File**: `src/core/organization/hybrid_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Hybrid MAS — heterogeneous mixed topology combining star + all-to-all + independent sub-topologies.
 - **Structure**: the constellation is partitioned into clusters; each cluster has a head agent (`cluster_agent_i`). Coordination happens *within* a cluster, none *across* clusters — C = heterogeneous, Ω = hybrid.
 - **Flamingo design decisions**:
@@ -92,7 +92,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### SDA (Sense-Decide-Act) — Phase 2 baseline
 
-- **File**: `src/decision_procedure/sda_loop.py`
+- **File**: `src/core/decision_procedure/sda_loop.py`
 - **Paper basis**: Classic reactive agent pattern (sense-decide-act cycle)
 - **Structure**: Single-pass — encode observation via representation, select action, return.
   No iteration, reflection, or memory interaction.
@@ -112,7 +112,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Rule-Based EventSat — Phase 2 baseline
 
-- **File**: `src/representation/rule_based_eventsat.py`
+- **File**: `src/eventsat/symbolic.py`
 - **Registered as**: `rule_based_eventsat`
 - **Paper basis**: Hand-designed priority rule chain (domain engineering)
 - **Structure**: Priority rules across categories (R1-R7 + default).
@@ -124,7 +124,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Schedule-Based EventSat — Phase 2 baseline
 
-- **File**: `src/representation/schedule_based_eventsat.py`
+- **File**: `src/eventsat/schedule_symbolic.py`
 - **Registered as**: `schedule_based_eventsat`
 - **Paper basis**: Traditional ground operations scheduling — greedy cyclic
   battery-aware planner with power model from PDR Table 6.2.
@@ -135,7 +135,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Conventional Schedule EventSat — Phase 3 (human-realistic)
 
-- **File**: `src/representation/conventional_schedule_eventsat.py`
+- **File**: `src/eventsat/conventional.py`
 - **Registered as**: `conventional_schedule_eventsat`
 - **Paper basis**:
   - Sellmaier, Uhlig & Schmidhuber (2022), "Spacecraft Operations" [SGJTLF4D] —
@@ -171,7 +171,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Placeholder Schedulers — ground-paradigm stand-ins (non-symbolic AG/CG cells)
 
-- **File**: `src/representation/placeholder_schedulers.py`
+- **File**: `src/eventsat/placeholders.py`
 - **Registered as**: `subsymbolic_scheduler_eventsat` (the **only remaining
   placeholder** scheduler). The LLM ground schedulers it once stood beside are now
   real: `llm_scheduler_eventsat` / `llm_single_scheduler_eventsat` (single-shot, see
@@ -203,7 +203,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Subsymbolic EventSat — Phase 4b (RL learned)
 
-- **File**: `src/representation/subsymbolic_eventsat.py`
+- **File**: `src/eventsat/rl.py`
 - **Registered as**: `subsymbolic_eventsat`
 - **Paradigm**: Subsymbolic (deep RL policy; Brooks 1991, Colelough & Regli 2025)
 - **Paper basis**:
@@ -238,14 +238,14 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
 - **Orthogonality**: Works with the fixed SDA decision driver and all 4 ops paradigms (ao/ah/ag/conventional)
 - **Training script**: `scripts/train_subsymbolic.py`
-- **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
-- **Supporting modules**: `src/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/behaviour/training_pipeline.py` (PPOTrainer)
+- **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (EventSatGymnasium)
+- **Supporting modules**: `src/core/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/core/behaviour/training_pipeline.py` (PPOTrainer)
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
 - **Configs** (rl cell): `eventsat_sas_ao_rl.yaml`, `eventsat_sas_ag_rl.yaml`, `eventsat_sas_ah_rl_rl.yaml`
 
 ### LLM EventSat — Phase 4a (hybrid)
 
-- **File**: `src/representation/llm_eventsat.py`
+- **File**: `src/eventsat/llm.py`
 - **Registered as**: `llm_eventsat`
 - **Substrate / action space**: Hybrid (subsymbolic LLM + symbolic safety constraints), **reactive** action space (single-shot encode→call→select)
 - **Paper basis**:
@@ -265,7 +265,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Anomaly → forced safe mode (no LLM override).
   - Communication requires active ground pass.
   - SoC < 0.20 → forced charging (hard safety limit).
-- **LLM infrastructure** (`src/representation/llm_client.py`):
+- **LLM infrastructure** (`src/core/llm_client.py`):
   - Dual provider: TUM Ollama (primary, via `OLLAMA_HOST`) + OpenAI API (fallback).
   - File-based response cache (`data/llm_cache/`) keyed on prompt hash.
   - Mock mode (`llm_mock: true`) for CI — no live LLM calls.
@@ -288,12 +288,12 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
-- **File**: `src/representation/agentic_eventsat.py`
+- **File**: `src/eventsat/agentic.py`
 - **Registered as**: `agentic_eventsat`
 - **Substrate / action space**: Hybrid (LLM agent + symbolic tools + grounding constraints), **agentic** action space (tool-call loop + structured memory). Same substrate as `llm_eventsat`; differs only in action space.
 - **Supporting modules**:
-  - `src/representation/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
-  - `src/representation/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
+  - `src/eventsat/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
+  - `src/eventsat/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
 - **Paper basis**:
   - Sumers et al. (2024), "Cognitive Architectures for Language Agents" [CoALA] —
     4-memory architecture (working, episodic, semantic, procedural), action decomposition
@@ -360,7 +360,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 
 ### Agentic EventSat Scheduler — Phase 4.e (agentic ground planner: hllm-a / llm-a)
 
-- **File**: `src/representation/agentic_scheduler_eventsat.py`
+- **File**: `src/eventsat/agentic_scheduler.py`
 - **Registered as**: `agentic_scheduler_eventsat` (hllm-a) and
   `llm_agentic_scheduler_eventsat` (llm-a) — **replacing the former placeholders**.
 - **Substrate / action space**: the **agentic** schedule producer — the agentic
@@ -441,7 +441,7 @@ paradigms carry no overhead.
 
 ### Autonomous Onboard — onboard-only primitive
 
-- **File**: `src/operations/autonomous_onboard.py`
+- **File**: `src/core/operations/autonomous_onboard.py`
 - **Structure**: Pass-through observation (full real-time state), acts every step, no ground plan /
   no schedule — a single per-step onboard core, closed-loop. `has_onboard_autonomy()=True`.
 - **Resolves to**: the onboard core (symbolic→`rule_based_eventsat`, subsymbolic→`subsymbolic_eventsat`).
@@ -452,7 +452,7 @@ paradigms carry no overhead.
 
 ### Autonomous Hybrid — dual-slot (onboard + ground planner)
 
-- **File**: `src/operations/autonomous_hybrid.py`
+- **File**: `src/core/operations/autonomous_hybrid.py`
 - **Two cores**: the runner runs the **onboard** loop (`resolved_onboard_type`) every step on full
   real-time state, and a **ground-planner** loop (`resolved_ground_planner_type`, the same artifact
   AG uses) at ground passes on the stale view → `set_uplinked_plan`.
@@ -475,7 +475,7 @@ paradigms carry no overhead.
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 
-- **File**: `src/operations/autonomous_ground.py`
+- **File**: `src/core/operations/autonomous_ground.py`
 - **Paper basis**:
   - Sellmaier, Uhlig & Schmidhuber (2022), "Spacecraft Operations" [SGJTLF4D]
   - Castano et al. (2022), "Operations for Autonomous Spacecraft" [2IJJ7ILS]
@@ -493,7 +493,7 @@ paradigms carry no overhead.
 
 ### Conventional Ground — Phase 3 (human-realistic)
 
-- **File**: `src/operations/conventional_ground.py`
+- **File**: `src/core/operations/conventional_ground.py`
 - **Paper basis**:
   - Sellmaier, Uhlig & Schmidhuber (2022), "Spacecraft Operations" [SGJTLF4D] —
     ground operations planning cycle, pass-based commanding.
@@ -538,7 +538,7 @@ paradigms carry no overhead.
 
 ### FixedMemory — All variants (default)
 
-- **File**: `src/memory/fixed_memory.py`
+- **File**: `src/core/memory/fixed_memory.py`
 - **Used by**: All hand-designed variants and all non-CoALA learned variants.
 - **Structure**: Sliding-window history (default depth 100), task queue, resource state,
   constellation state. Fully read-only from the agent's perspective — no write API.
@@ -547,7 +547,7 @@ paradigms carry no overhead.
 
 ### WritableMemory — `_lec_` variants only (CoALA learning)
 
-- **File**: `src/memory/writable_memory.py`
+- **File**: `src/core/memory/writable_memory.py`
 - **Used by**: Only `behaviour_config.mechanism = "writable_coala"` configs.
 - **Wiring (source of truth)**: `ExperimentRunner._create_memory()` constructs the
   `WritableMemory` (for `writable_coala`) or `FixedMemory` (everything else) and the
@@ -587,14 +587,14 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 
 ### PPO Training — `_le_` subsymbolic variants
 
-- **File**: `src/behaviour/training_pipeline.py` (PPOTrainer)
+- **File**: `src/core/behaviour/training_pipeline.py` (PPOTrainer)
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml`
 - **Output**: `data/trained_models/<experiment_id>/policy.pt`
 
 ### PromptOptimizer — `_lep_` LLM/agentic variants
 
-- **File**: `src/behaviour/prompt_optimizer.py`
+- **File**: `src/core/behaviour/prompt_optimizer.py`
 - **Mechanism**: `behaviour_config.mechanism = "prompt_optimized"`
 - **Paper basis**: Khattab et al. (2023) [DSPy] — programmatic prompt optimization; bootstrap
   few-shot and MIPRO as reference algorithms. Implemented as a minimal in-house bootstrap
@@ -635,7 +635,7 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 
 ## Metrics
 
-- **File**: src/orchestration/eventsat_metrics.py
+- **File**: src/eventsat/metrics.py
 - **Canonical EventSat metrics measured**: M-01 mission utility, M-02 mean AoI,
   M-03 peak AoI, M-04 autonomous recovery efficiency, M-05 safety-override rate,
   M-06 resource efficiency, M-07 decision latency, M-08 explainability coverage,
@@ -675,29 +675,29 @@ for the framing.
 
 | Component | File / module | Bhati layer | Existing paper basis | Cross-domain note |
 | --- | --- | --- | --- | --- |
-| SingleAgentSystem (SAS) | `src/agent_organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
-| CentralizedMAS | `src/agent_organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
-| IndependentMAS (IMAS) | `src/agent_organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
-| DecentralizedMAS (DMAS) | `src/agent_organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
-| HybridMAS (HMAS) | `src/agent_organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on Flamingo N≥3 |
-| SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
-| Rule-Based / Schedule-Based EventSat | `src/representation/...rule_based_eventsat`, `schedule_based_eventsat` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
-| Conventional Schedule EventSat | `src/representation/...conventional_schedule_eventsat` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
-| Subsymbolic EventSat | `src/representation/...subsymbolic_eventsat` | **L0** (policy net) + **L1** | Wang et al. 2022 (DRL) | L0 is the RL policy network rather than an LLM |
-| LLM EventSat | `src/representation/...llm_eventsat`, `llm_client.py` | **L0** (LLM) + **L1** | Rodriguez-Fernandez et al. 2024 | L0 substrate: Ollama / OpenAI backend |
-| Agentic EventSat | `src/representation/...agentic_eventsat` | **L0** (LLM) + **L1** (CoALA) | Sumers et al. 2024 (CoALA) | Direct sibling of Bhati's L1 cognitive scaffolding |
-| FixedMemory | `src/memory/fixed_memory.py` | **L1** Memory | fairness invariant | Read-only short/long-term state |
-| WritableMemory | `src/memory/writable_memory.py` | **L1** Memory | Sumers et al. 2024 (CoALA §3) | Writable semantic + episodic stores — closest analogue of Bhati L1 "memory files" |
-| BehaviourController | `src/behaviour/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
-| PPOTrainer | `src/behaviour/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
-| PromptOptimizer | `src/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
+| SingleAgentSystem (SAS) | `src/core/organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
+| CentralizedMAS | `src/core/organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
+| IndependentMAS (IMAS) | `src/core/organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
+| DecentralizedMAS (DMAS) | `src/core/organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
+| HybridMAS (HMAS) | `src/core/organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on Flamingo N≥3 |
+| SDA loop | `src/core/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
+| Rule-Based / Schedule-Based EventSat | `src/eventsat/symbolic.py`, `src/eventsat/schedule_symbolic.py` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
+| Conventional Schedule EventSat | `src/eventsat/conventional.py` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
+| Subsymbolic EventSat | `src/eventsat/rl.py` | **L0** (policy net) + **L1** | Wang et al. 2022 (DRL) | L0 is the RL policy network rather than an LLM |
+| LLM EventSat | `src/eventsat/llm.py`, `src/core/llm_client.py` | **L0** (LLM) + **L1** | Rodriguez-Fernandez et al. 2024 | L0 substrate: Ollama / OpenAI backend |
+| Agentic EventSat | `src/eventsat/agentic.py` | **L0** (LLM) + **L1** (CoALA) | Sumers et al. 2024 (CoALA) | Direct sibling of Bhati's L1 cognitive scaffolding |
+| FixedMemory | `src/core/memory/fixed_memory.py` | **L1** Memory | fairness invariant | Read-only short/long-term state |
+| WritableMemory | `src/core/memory/writable_memory.py` | **L1** Memory | Sumers et al. 2024 (CoALA §3) | Writable semantic + episodic stores — closest analogue of Bhati L1 "memory files" |
+| BehaviourController | `src/core/behaviour/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
+| PPOTrainer | `src/core/behaviour/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
+| PromptOptimizer | `src/core/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
 | WritableCoALA | `_lec_` configs | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
-| Tools (BaseTool + scenario actions) | `src/tools/` | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
-| Satellite environment | `src/environment/`, `src/environment/orbital/`, `src/environment/scenarios/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
-| Autonomous Hybrid | `src/operations/autonomous_hybrid.py` | **L5** Governance & Safety | Rossi et al. 2023 | Onboard FDIR; no ground gate; closest to "auto" autonomy level |
-| Autonomous Ground | `src/operations/autonomous_ground.py` | **L5** Governance & Safety | Sellmaier et al. 2022 | Ground-pass gating — analogue of human approval at high-impact actions |
-| Conventional Ground | `src/operations/conventional_ground.py` | **L5** Governance & Safety | ECSS standards | Human-realistic ground operator; analogue of traditional SDLC supervision |
-| Env-enforced safe mode | `src/environment/scenarios/eventsat_env.py` | **L5** (cross-cutting) | mission-safety invariant | Feedback flows downward (Bhati Fig. 3): safety overrides cross all representations |
+| Scenario actions/tools | `src/eventsat/agentic_tools.py` and scenario action dictionaries | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
+| Satellite environment | `src/core/satellite_env.py`, `src/eventsat/`, `src/flamingo/`, `src/orbital/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
+| Autonomous Hybrid | `src/core/operations/autonomous_hybrid.py` | **L5** Governance & Safety | Rossi et al. 2023 | Onboard FDIR; no ground gate; closest to "auto" autonomy level |
+| Autonomous Ground | `src/core/operations/autonomous_ground.py` | **L5** Governance & Safety | Sellmaier et al. 2022 | Ground-pass gating — analogue of human approval at high-impact actions |
+| Conventional Ground | `src/core/operations/conventional_ground.py` | **L5** Governance & Safety | ECSS standards | Human-realistic ground operator; analogue of traditional SDLC supervision |
+| Env-enforced safe mode | `src/eventsat/env.py` | **L5** (cross-cutting) | mission-safety invariant | Feedback flows downward (Bhati Fig. 3): safety overrides cross all representations |
 
 **The L0 gap.** Pure-symbolic variants (`symb`) have no L0 substrate in Bhati's sense
 — there is no foundation model. They sit at L1 directly. This asymmetry is
@@ -840,7 +840,7 @@ both blocks keeps the single-`representation` behaviour (AO/AG/CG, single-rep AH
 
 **Pending** (later increments): generating all 21 `ah_<onboard>_<ground>` pairs
 (config generator); the `hrl` / `llm-s` / `llm-a` real cores (currently documented
-placeholders, `placeholder_cells.py`); and the learned ground LLM schedulers.
+placeholders, `placeholders.py`); and the learned ground LLM schedulers.
 Learned behaviour is wired via `behaviour_config` (`ppo` for RL, `writable_coala`
 for agentic online learning), not separate cells.
 

@@ -10,15 +10,15 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.memory.fixed_memory import FixedMemory
-from src.orchestration.config_loader import (
+from src.core.memory.fixed_memory import FixedMemory
+from src.core.config_loader import (
     ExperimentConfig,
     EnvironmentConfig,
     MetricsConfig,
     load_config,
     save_config,
 )
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.experiment_runner import ExperimentRunner
 
 
 # ======================================================================
@@ -293,7 +293,7 @@ class TestRunnerMemoryWiring:
     """
 
     def test_writable_coala_gets_writable_memory(self, tmp_path: Path) -> None:
-        from src.memory.writable_memory import WritableMemory
+        from src.core.memory.writable_memory import WritableMemory
 
         cfg = ExperimentConfig(
             experiment_id="lec_mem",
@@ -476,7 +476,7 @@ class TestAutonomousOnboard:
                              representation_config={"action_space": "agentic"})
 
     def test_paradigm_is_passthrough_onboard(self) -> None:
-        from src.operations.autonomous_onboard import AutonomousOnboard
+        from src.core.operations.autonomous_onboard import AutonomousOnboard
         ao = AutonomousOnboard()
         act = {"eventsat_0": {"mode": "payload_observe"}}
         assert ao.filter_observation("OBS", 0) == "OBS"          # real-time
@@ -489,10 +489,10 @@ class TestAutonomousOnboard:
         """Onboard paradigms (AO/AH) self-recover anomalies; ground paradigms
         (AG/CG) require a ground pass. This capability is the single source of
         truth the runner uses to set env.anomaly_requires_ground_pass."""
-        from src.operations.autonomous_onboard import AutonomousOnboard
-        from src.operations.autonomous_hybrid import AutonomousHybrid
-        from src.operations.autonomous_ground import AutonomousGround
-        from src.operations.conventional_ground import ConventionalGround
+        from src.core.operations.autonomous_onboard import AutonomousOnboard
+        from src.core.operations.autonomous_hybrid import AutonomousHybrid
+        from src.core.operations.autonomous_ground import AutonomousGround
+        from src.core.operations.conventional_ground import ConventionalGround
         assert AutonomousOnboard().can_self_recover_anomaly() is True
         assert AutonomousHybrid().can_self_recover_anomaly() is True
         assert AutonomousGround().can_self_recover_anomaly() is False
@@ -560,8 +560,8 @@ class TestRepresentationVocabulary:
         assert cfg.resolved_representation_type == expected
 
     def test_placeholder_cells_flagged(self) -> None:
-        import src.representation.placeholder_cells  # noqa: F401  (registers cells)
-        from src.behaviour.controller import _REPRESENTATION_REGISTRY
+        import src.eventsat.placeholders  # noqa: F401  (registers cells)
+        from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
 
         # Real cores (NOT placeholders): the LLM ground schedulers — single-shot
         # llm_single_scheduler_eventsat (llm-s) / llm_scheduler_eventsat (hllm-s) and
@@ -660,7 +660,7 @@ class TestDualCoreAH:
         assert cfg.onboard is None and cfg.ground is None
 
     def test_example_configs_load(self) -> None:
-        from src.orchestration.config_loader import load_config
+        from src.core.config_loader import load_config
         from pathlib import Path
         import warnings
         with warnings.catch_warnings():
@@ -677,7 +677,7 @@ class TestAutonomousHybridArbitration:
     """Dual-slot AH: plan-default between passes, onboard override on safety modes."""
 
     def _ah_with_plan(self):
-        from src.operations.autonomous_hybrid import AutonomousHybrid
+        from src.core.operations.autonomous_hybrid import AutonomousHybrid
         ah = AutonomousHybrid()
         ah.set_uplinked_plan(
             {"eventsat_0": {"schedule": [("payload_observe", 3), ("charging", 2)]}}
@@ -708,7 +708,7 @@ class TestAutonomousHybridArbitration:
         assert out["eventsat_0"]["mode"] == "communication"  # real-time during contact
 
     def test_no_plan_falls_back_to_onboard(self) -> None:
-        from src.operations.autonomous_hybrid import AutonomousHybrid
+        from src.core.operations.autonomous_hybrid import AutonomousHybrid
         ah = AutonomousHybrid()
         out = ah.process_action(
             {"eventsat_0": {"mode": "payload_observe"}}, step=1, ground_pass_active=False

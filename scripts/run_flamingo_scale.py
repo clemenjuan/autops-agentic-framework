@@ -19,8 +19,8 @@ Usage:  uv run python scripts/run_flamingo_scale.py
 """
 from __future__ import annotations
 
-from src.orchestration.config_loader import ExperimentConfig
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.config_loader import ExperimentConfig
+from src.core.experiment_runner import ExperimentRunner
 
 # token -> internal agent_organization name
 ORGS = {

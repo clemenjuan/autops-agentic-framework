@@ -1,13 +1,11 @@
 """
-AUTOPS CLI — unified entry point for running experiments and analysis.
+AUTOPS CLI — unified entry point for running experiments.
 
 Usage::
 
     uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml
-    uv run autops run configs/experiments/eventsat_sas_ah_symb_symb.yaml --episodes 3 --analyze
     uv run autops batch configs/experiments/generated/
     uv run autops generate --template configs/experiments/template.yaml
-    uv run autops analyze data/results/eventsat_sas_ah_symb_symb/
 
     # Config name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
     uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml               # PPO
@@ -24,8 +22,8 @@ from typing import List
 
 def cmd_run(args: argparse.Namespace) -> None:
     """Run a single experiment."""
-    from src.orchestration.config_loader import load_config, apply_overrides
-    from src.orchestration.experiment_runner import ExperimentRunner
+    from src.core.config_loader import load_config, apply_overrides
+    from src.core.experiment_runner import ExperimentRunner
 
     cfg = load_config(args.config)
     cfg = apply_overrides(
@@ -43,16 +41,11 @@ def cmd_run(args: argparse.Namespace) -> None:
           f"({results['num_episodes']} episodes)")
     print(f"Results saved to: {cfg.output_dir}")
 
-    if args.analyze:
-        print("\n--- Analysis ---\n")
-        from src.orchestration.auto_analyze import run_analysis
-        run_analysis(cfg.output_dir)
-
 
 def cmd_batch(args: argparse.Namespace) -> None:
     """Run multiple experiments."""
-    from src.orchestration.config_loader import load_config, apply_overrides
-    from src.orchestration.experiment_runner import ExperimentRunner
+    from src.core.config_loader import load_config, apply_overrides
+    from src.core.experiment_runner import ExperimentRunner
 
     configs = _discover_configs(args.configs)
     if not configs:
@@ -111,7 +104,7 @@ def cmd_generate(args: argparse.Namespace) -> None:
 
 
 def cmd_train(args: argparse.Namespace) -> None:
-    """Train a learned-emergence representation for the given config.
+    """Train a learned-behaviour representation for the given config.
 
     Dispatches based on ``representation`` × ``behaviour_config.mechanism``:
 
@@ -119,7 +112,7 @@ def cmd_train(args: argparse.Namespace) -> None:
     - hybrid    + prompt_optimized → PromptOptimizer (writes prompt.txt)
     - hybrid    + writable_coala   → no pre-training; memory accretes online
     """
-    from src.orchestration.config_loader import load_config, apply_overrides
+    from src.core.config_loader import load_config, apply_overrides
 
     cfg = load_config(args.config)
     cfg = apply_overrides(cfg, seed=args.seed, output_dir=args.output_dir)
@@ -159,7 +152,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PPOTrainer for subsymbolic representation."""
     try:
-        from src.behaviour.training_pipeline import PPOTrainer
+        from src.core.behaviour.training_pipeline import PPOTrainer
     except ImportError as e:
         print(
             f"ERROR: PPO training requires torch. Install with:\n"
@@ -191,7 +184,7 @@ def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
     """Invoke PromptOptimizer for prompt_optimized LLM/agentic representations."""
-    from src.behaviour.prompt_optimizer import PromptOptimizer
+    from src.core.behaviour.prompt_optimizer import PromptOptimizer
 
     # Derive the baseline source dir (hand-designed sibling)
     source_dir = args.source_dir or ""
@@ -225,12 +218,6 @@ def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:
         f"Prompt length: {len(prompt)} characters"
     )
 
-
-def cmd_analyze(args: argparse.Namespace) -> None:
-    """Analyze experiment results."""
-    from src.orchestration.auto_analyze import run_analysis
-
-    run_analysis(args.results_dir, output_dir=args.output_dir)
 
 
 def _discover_configs(paths: List[str]) -> List[Path]:
@@ -272,8 +259,6 @@ def main() -> None:
     p_run.add_argument("--output-dir", help="Override output directory")
     p_run.add_argument("--log-level", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                        help="Override log_level (DEBUG enables per-step trace)")
-    p_run.add_argument("--analyze", action="store_true",
-                       help="Run analysis after experiment completes")
     p_run.set_defaults(func=cmd_run)
 
     # --- batch ---
@@ -297,19 +282,10 @@ def main() -> None:
     p_gen.add_argument("--seed", type=int, default=42, help="Base random seed")
     p_gen.set_defaults(func=cmd_generate)
 
-    # --- analyze ---
-    p_analyze = subparsers.add_parser("analyze",
-                                      help="Analyze experiment results")
-    p_analyze.add_argument("results_dir",
-                           help="Path to results directory or results.json")
-    p_analyze.add_argument("--output-dir",
-                           help="Directory for figure output (default: data/figures/)")
-    p_analyze.set_defaults(func=cmd_analyze)
-
     # --- train ---
     p_train = subparsers.add_parser(
         "train",
-        help="Train a learned-emergence representation (PPO / prompt-optimized / writable-CoALA)",
+        help="Train a learned-behaviour representation (PPO / prompt-optimized / writable-CoALA)",
     )
     p_train.add_argument("config", help="Path to an RL (ppo) or writable_coala experiment YAML")
     p_train.add_argument("--timesteps", type=int,

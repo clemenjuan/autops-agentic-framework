@@ -23,7 +23,7 @@ import traceback
 from pathlib import Path
 from typing import List
 
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.experiment_runner import ExperimentRunner
 
 
 def discover_configs(paths: List[str]) -> List[Path]:

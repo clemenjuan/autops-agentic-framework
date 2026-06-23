@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.environment.satellite_env import (
+from src.core.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
     SatelliteEnvironment,

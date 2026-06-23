@@ -28,31 +28,31 @@ for the per-component mapping see
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  L5  Governance & Safety                                                │
-│      src/operations/  (AO / AH / AG / CG)                               │
-│      env-enforced safe mode (eventsat_env.py)                           │
+│      src/core/operations/  (AO / AH / AG / CG)                               │
+│      env-enforced safe mode (src/eventsat/env.py)                           │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L4  Orchestration                                                      │
-│      src/agent_organization/  (SAS / CentralizedMAS / DMAS / IMAS / HMAS)│
-│      src/orchestration/experiment_runner.py                             │
+│      src/core/organization/  (SAS / CentralizedMAS / DMAS / IMAS / HMAS)│
+│      src/core/experiment_runner.py                             │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L3  Tools & Environment                                                │
-│      src/environment/  (satellite_env, scenarios, orbital)              │
+│      src/core/satellite_env.py, src/eventsat/, src/flamingo/, src/orbital/              │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L2  Agent–Computer Interface                                           │
-│      src/tools/  (BaseTool + scenario action defs)                      │
+│      scenario action schemas and tools (for example src/eventsat/agentic_tools.py)                      │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L1  Reasoning · Memory · Self-Reflection                               │
-│      src/decision_procedure/  (SDA / OODA / ReAct)                           │
-│      src/memory/  (FixedMemory / WritableMemory)                        │
-│      src/behaviour/  (BehaviourController, PPO, PromptOptimizer)        │
+│      src/core/decision_procedure/  (SDA)                           │
+│      src/core/memory/  (FixedMemory / WritableMemory)                        │
+│      src/core/behaviour/  (BehaviourController, PPO, PromptOptimizer)        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L0  Foundation Model    [gap for symbolic variants]                    │
-│      src/representation/llm_client.py  (LLM backend)                    │
+│      src/core/llm_client.py  (LLM backend)                    │
 │      subsymbolic policy network  (RL substrate)                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-The `src/decision_procedure/` loops (SDA / OODA / ReAct) at L1 are **held fixed** in
+The `src/core/decision_procedure/` SDA driver at L1 is **held fixed** in
 the EventSat benchmark — they are not a framework component (see
 [`morphological_matrix.md`](morphological_matrix.md)).
 
@@ -131,7 +131,7 @@ Each run writes to `data/results/<experiment_id>/` (git-ignored):
 
 ### Orbital Context
 
-Eclipse intervals and ground station passes are **pre-computed at episode reset** for the entire simulation duration. The `OrbitalContext` object (in `src/environment/orbital/context.py`) stores these events and is queried each step to determine sunlight status and pass availability.
+Eclipse intervals and ground station passes are **pre-computed at episode reset** for the entire simulation duration. The `OrbitalContext` object (in `src/orbital/context.py`) stores these events and is queried each step to determine sunlight status and pass availability.
 
 Two computation backends are supported:
 - **Simplified** (always available): Analytical phase-fraction model for eclipses, stochastic pass generation for ground access.
@@ -141,17 +141,16 @@ Two computation backends are supported:
 
 | Directory | Purpose |
 |-----------|---------|
-| `src/environment/` | Satellite environment (abstract + scenario subclasses) |
-| `src/environment/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
-| `src/environment/scenarios/` | Scenario environments (EventSat, Flamingo, ...) |
-| `src/agent_organization/` | Agent coordination patterns |
-| `src/decision_procedure/` | Decision-making temporal patterns |
-| `src/representation/` | Knowledge & decision representations |
-| `src/memory/` | `FixedMemory` (all cells, default); `WritableMemory` (agentic online-learning — CoALA §3) |
-| `src/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
-| `src/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
-| `src/tools/` | Action interfaces per scenario |
-| `src/orchestration/` | Experiment runner, config, metrics, analysis |
+| `src/core/satellite_env.py` | Shared satellite environment interfaces |
+| `src/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
+| `src/eventsat/` | EventSat environment, metrics, representations, trace export |
+| `src/flamingo/` | Flamingo environment, metrics, symbolic planner |
+| `src/core/organization/` | Agent coordination patterns |
+| `src/core/decision_procedure/` | Decision-making temporal patterns |
+| `src/core/memory/` | `FixedMemory` (all cells, default); `WritableMemory` (agentic online-learning — CoALA §3) |
+| `src/core/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/core/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
+| `src/core/` | Experiment runner, config, shared metrics collector, base interfaces |
 | `configs/` | YAML experiment configurations |
 | `tests/` | Comprehensive test suite |
 | `docs/` | Architecture and design documentation |
@@ -162,7 +161,7 @@ Two computation backends are supported:
 
 All architecture variants access the **same** `FixedMemory` structure by default to ensure fair comparison. Only the representation module determines how stored information is interpreted and used. This isolates the effect of the cognitive architecture from memory design choices.
 
-**Exception**: the agentic online-learning variant (`behaviour_config.mechanism = "writable_coala"`) uses `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — it is compared against the same agentic cell with fixed memory, not against other cells. See `src/memory/writable_memory.py` and CLAUDE.md.
+**Exception**: the agentic online-learning variant (`behaviour_config.mechanism = "writable_coala"`) uses `WritableMemory`, which adds writable semantic and episodic stores on top of `FixedMemory`. This deviation is intentional — it is compared against the same agentic cell with fixed memory, not against other cells. See `src/core/memory/writable_memory.py` and CLAUDE.md.
 
 ### Why YAML Configuration?
 

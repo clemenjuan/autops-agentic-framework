@@ -1,5 +1,7 @@
 # AUTOPS Experimental Framework
 
+**NO TRASH FILES.** Keep the repo concise: add only necessary source, configs, tests, and canonical docs. Generated data, notebooks, coverage reports, caches, scratch experiments, and one-off artifacts stay ignored or outside the repo.
+
 Systematic experimental framework for comparing cognitive architectures in autonomous satellite constellation management.
 
 Part of the AUTOPS project at TUM Chair of Spacecraft Systems.
@@ -29,7 +31,7 @@ EventSat·SAS yields **32 experiments**, named `eventsat_sas_<paradigm>_<rep>` (
 
 Implemented components (the code is being mapped onto the 7-representation framework step by step — see `morphological_matrix.md`):
 - **Operational paradigms**: Autonomous Onboard (per-step real-time), Autonomous Hybrid (onboard + ground plan + override), Autonomous Ground (algorithmic scheduler, pass-based), Conventional Ground (human-realistic, one-pass planning delay). Jetson-based onboard cores (RL/hybrid onboard, AO/AH) add a ~7 W Jetson-on draw (`power.onboard_compute_w`) to non-Jetson modes; symbolic onboard runs on the OBC with no overhead.
-- **Representation cores** (current `@register` classes): `rule_based_eventsat` (symbolic), `subsymbolic_eventsat` (RL/PPO, Juan Oliver et al. 2025), `llm_eventsat` (single-shot LLM, Rodriguez-Fernandez et al. 2024), `agentic_eventsat` (tool-using loop, CoALA — Sumers et al. 2024). Ground-slot schedule producers (`*_scheduler_eventsat`) are currently symbolic placeholders (`is_placeholder`).
+- **Representation cores** (current `@register` classes): `rule_based_eventsat` (symbolic), `subsymbolic_eventsat` (RL/PPO, Juan Oliver et al. 2025), `llm_eventsat` (single-shot LLM, Rodriguez-Fernandez et al. 2024), `agentic_eventsat` (tool-using loop, CoALA — Sumers et al. 2024). Ground-slot schedule producers are real for symbolic, hybrid LLM, pure LLM, and agentic LLM cells; only HRL/RL scheduler placeholders remain explicitly flagged.
 - **`autops train` CLI**: PPO training and online CoALA memory accretion.
 - Complete environment simulation (power, 3-pool data pipeline, comms, anomalies, detection); orbital mechanics (analytical + optional Orekit J2, launch lottery); the 14 metrics.
 - 683 tests (passing; 23 RL tests skipped without the `rl` extra)
@@ -46,7 +48,7 @@ Implemented components (the code is being mapped onto the 7-representation frame
 uv sync --extra dev --extra orbital
 
 # Run the test suite
-uv run python -m pytest tests/ -v -o "addopts="
+uv run python -m pytest tests/ -v
 ```
 
 ### Running an Experiment
@@ -60,9 +62,6 @@ uv run autops run configs/experiments/eventsat_sas_ah_rl_llm-s.yaml   # RL onboa
 
 # Quick smoke test (1 episode, 100 steps)
 uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --episodes 1 --steps 100
-
-# Run and auto-generate analysis figures
-uv run autops run configs/experiments/eventsat_sas_ag_symb.yaml --analyze
 ```
 
 ### Training Learned-Emergence Variants
@@ -91,38 +90,31 @@ uv run autops batch configs/experiments/
 uv run autops batch configs/experiments --episodes 5 --steps 10080
 ```
 
-### Analyzing Results
+### Results Board
+Refresh the generated boards and open `data/figures/index.html`:
+
 ```bash
-# Generate figures and summary from existing results
-uv run autops analyze data/results/eventsat_sas_ag_symb/
+uv run python scripts/refresh_board.py
 ```
 
-For interactive exploration, use the Jupyter notebooks:
-- `notebooks/telemetry.ipynb` — per-step satellite telemetry (battery, data, modes)
-- `notebooks/analysis.ipynb` — research metrics comparison across architectures
+Exploratory notebooks are local scratch artifacts and are intentionally not part of the committed repo.
+Coverage is opt-in. Use `uv run python -m pytest tests/ --cov=src --cov-report=term` only when coverage is needed; do not leave generated coverage artifacts behind.
 
 ## Project Structure
 
 ```
 autops-demo/
 +-- src/
-|   +-- environment/          # Satellite constellation simulation (ABC + scenarios)
-|   |   +-- orbital/          # Orbital mechanics (eclipse, ground access, Orekit wrapper)
-|   |   +-- scenarios/        # Scenario environments (eventsat_env.py, ...)
-|   +-- agent_organization/   # SAS / CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS
-|   +-- decision_procedure/        # SDA / OODA / ReAct (+ DecisionContext interface)
-|   +-- representation/       # Symbolic / Subsymbolic / Hybrid + LLM client + agentic tools
-|   +-- memory/               # FixedMemory (all variants) + WritableMemory (agentic online-learning, CoALA §3)
-|   +-- behaviour/            # controller.py, training_pipeline.py (PPO), prompt_optimizer.py
-|   +-- operations/           # Operations paradigm (autonomous_onboard, autonomous_hybrid, autonomous_ground, conventional_ground)
-|   +-- orchestration/        # Config loader, experiment runner, metrics, analysis
+|   +-- core/                 # Runner, config, base interfaces, org, ops, memory, SDA, behaviour
+|   +-- eventsat/             # EventSat env, metrics, representations, rewards, trace export
+|   +-- flamingo/             # Flamingo env, metrics, symbolic planner
+|   +-- orbital/              # Orbital mechanics (eclipse, ground access, Orekit wrapper)
 +-- configs/
 |   +-- experiments/          # EventSat experiment configs + 1 template
 |   +-- scenarios/            # Scenario definitions (eventsat.yaml, ...)
 +-- scripts/
 |   +-- generate_experiment_configs.py
 |   +-- run_batch.py
-|   +-- train_subsymbolic.py  # PPO training script for RL representation
 +-- tests/                    # 683 tests (passing; 23 RL skipped without --extra rl)
 +-- docs/
 |   +-- morphological_matrix.md  # Canonical O-framework spec (3 components, 32 experiments, 14 metrics)
@@ -166,14 +158,15 @@ representation class is then resolved from `representation × action_space × op
 
 ```bash
 # All tests
-uv run python -m pytest tests/ -v -o "addopts="
+uv run python -m pytest tests/ -v
 
 # Specific module
-uv run python -m pytest tests/test_eventsat_physics.py -v -o "addopts="
+uv run python -m pytest tests/test_eventsat_physics.py -v
 ```
 
 ## Documentation
 
+- [Research Tracker](docs/research-tracker.md) — current EventSat, Flamingo, and world-model scheduling handoffs
 - [Operations-System (O) Framework](docs/morphological_matrix.md) — the canonical spec: 3 components, 7 representations, 4 paradigms, 32 EventSat experiments, naming, and the 14 metrics
 - [Implementation Registry](docs/implementations.md) — all components, paper basis, design decisions
 - [Architecture Overview](docs/architecture.md)

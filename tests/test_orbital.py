@@ -8,20 +8,20 @@ installed.
 import pytest
 import random
 
-from src.environment.orbital.eclipse import (
+from src.orbital.eclipse import (
     EclipseInterval,
     compute_eclipses_simplified,
     is_in_sunlight,
 )
-from src.environment.orbital.ground_access import (
+from src.orbital.ground_access import (
     GroundPass,
     compute_passes_simplified,
 )
-from src.environment.orbital.context import (
+from src.orbital.context import (
     OrbitalContext,
     compute_orbital_context,
 )
-from src.environment.orbital.propagator import is_available as orekit_available
+from src.orbital.propagator import is_available as orekit_available
 
 
 # -----------------------------------------------------------------
@@ -215,7 +215,7 @@ class TestComputeOrbitalContext:
 class TestEventSatWithOrbitalContext:
     def test_environment_uses_orbital_context(self):
         """EventSat should use OrbitalContext after reset."""
-        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+        from src.eventsat.env import EventSatEnvironment
 
         env = EventSatEnvironment(config={
             "step_duration_s": 60,
@@ -227,8 +227,8 @@ class TestEventSatWithOrbitalContext:
 
     def test_end_to_end_still_works(self, tmp_path):
         """Full experiment should produce same quality results."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         cfg = ExperimentConfig(
             experiment_id="orbital_test",
@@ -271,7 +271,7 @@ class TestEventSatWithOrbitalContext:
 class TestOrekitPropagation:
     def test_keplerian_propagator(self):
         from datetime import datetime, timezone
-        from src.environment.orbital.propagator import create_keplerian_propagator
+        from src.orbital.propagator import create_keplerian_propagator
 
         propagator = create_keplerian_propagator(
             a_km=6878.137, e=0.001, i_deg=97.4,
@@ -282,8 +282,8 @@ class TestOrekitPropagation:
 
     def test_orekit_eclipses(self):
         from datetime import datetime, timezone
-        from src.environment.orbital.propagator import create_keplerian_propagator
-        from src.environment.orbital.eclipse import compute_eclipses_orekit
+        from src.orbital.propagator import create_keplerian_propagator
+        from src.orbital.eclipse import compute_eclipses_orekit
 
         propagator = create_keplerian_propagator(
             a_km=6878.137, e=0.001, i_deg=97.4,
@@ -295,8 +295,8 @@ class TestOrekitPropagation:
 
     def test_orekit_ground_passes(self):
         from datetime import datetime, timezone
-        from src.environment.orbital.propagator import create_keplerian_propagator
-        from src.environment.orbital.ground_access import compute_passes_orekit
+        from src.orbital.propagator import create_keplerian_propagator
+        from src.orbital.ground_access import compute_passes_orekit
 
         propagator = create_keplerian_propagator(
             a_km=6878.137, e=0.001, i_deg=97.4,
@@ -336,7 +336,7 @@ class TestOrekitPropagation:
     def test_j2_propagator_created(self):
         """J2 (EcksteinHechler) propagator should be created without error."""
         from datetime import datetime, timezone
-        from src.environment.orbital.propagator import create_j2_propagator
+        from src.orbital.propagator import create_j2_propagator
 
         propagator = create_j2_propagator(
             a_km=6778.137, e=0.001, i_deg=97.4,
@@ -354,7 +354,7 @@ class TestOrekitPropagation:
         """
         import math
         from datetime import datetime, timezone
-        from src.environment.orbital.propagator import create_j2_propagator
+        from src.orbital.propagator import create_j2_propagator
 
         epoch = datetime(2026, 6, 1, tzinfo=timezone.utc)
         propagator = create_j2_propagator(
@@ -380,7 +380,7 @@ class TestOrekitPropagation:
 
     def test_launch_lottery_varies_raan(self):
         """Different seeds must produce different RAAN/ArgP/TA values."""
-        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+        from src.eventsat.env import EventSatEnvironment
 
         env = EventSatEnvironment(config={
             "step_duration_s": 60,

@@ -8,10 +8,6 @@ dependencies = [
     "numpy",
     "pyyaml",           # Configuration
     "pydantic>=2.12.5",    # Data validation
-    "pandas",           # Results analysis
-    "matplotlib",       # Visualization
-    "seaborn",          # Statistical plots
-    "scipy",            # Statistical tests
 ]
 
 [project.optional-dependencies]
@@ -40,11 +36,6 @@ rl = [
     "gymnasium",       # Standard RL interface (optional)
 ]
 
-viz = [
-    "cartopy",         # World map projections for ground track animation
-    "pillow",          # GIF output for animate_ground_track
-]
-
 [project.scripts]
 autops = "src.cli:main"
 
@@ -59,7 +50,7 @@ packages = ["src"]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
-addopts = "--cov=src --cov-report=html --cov-report=term"
+# Keep normal test runs artifact-free; request coverage explicitly when needed.
 
 [tool.black]
 line-length = 100

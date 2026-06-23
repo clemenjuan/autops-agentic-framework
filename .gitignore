@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -43,6 +43,10 @@ uv.lock
 .DS_Store
 Thumbs.db
 
+# Local notebooks / exploratory artifacts
+notebooks/
+*.ipynb
+
 # Logs
 *.log
 logs/
@@ -59,6 +63,7 @@ data/trained_models/*/
 data/figures/*
 !data/figures/README.md
 data/llm_cache/*
+data/world_model/
 
 # Generated experiment configs
 configs/experiments/generated/

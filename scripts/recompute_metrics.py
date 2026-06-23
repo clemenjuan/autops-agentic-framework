@@ -4,7 +4,7 @@ Recompute research metrics from raw per-step decision traces.
 Reads ``decisions_ep<N>.jsonl`` files written by ``ExperimentRunner`` when
 ``log_level: DEBUG``, plus the saved ``config.json``, and re-runs the metric
 aggregator (:class:`EventSatMetricsCollector`).  Lets you change metric
-*definitions* in :mod:`src.orchestration.eventsat_metrics` and regenerate
+*definitions* in :mod:`src.eventsat.metrics` and regenerate
 numbers without re-rolling expensive LLM episodes.
 
 Usage::
@@ -30,8 +30,8 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.orchestration.eventsat_metrics import EventSatMetricsCollector
-from src.orchestration.metrics_collector import StepMetrics
+from src.eventsat.metrics import EventSatMetricsCollector
+from src.core.metrics_collector import StepMetrics
 
 
 def _trace_to_step_metrics(trace_lines: List[Dict[str, Any]]) -> List[StepMetrics]:

@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
-from src.orchestration.config_loader import ExperimentConfig
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.config_loader import ExperimentConfig
+from src.core.experiment_runner import ExperimentRunner
 
 
 def _make_config(seed: int, output_dir: str, max_steps: int = 50, num_episodes: int = 1) -> ExperimentConfig:

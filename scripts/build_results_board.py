@@ -21,7 +21,7 @@ import statistics as st
 import warnings
 from pathlib import Path
 
-from src.orchestration.config_loader import ExperimentConfig
+from src.core.config_loader import ExperimentConfig
 
 EXTRACT = Path("data/figures/extract.json")
 
@@ -30,8 +30,8 @@ EXTRACT = Path("data/figures/extract.json")
 PLACEHOLDER_TYPES = {
     "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
     "llm_single_onboard_eventsat",  # llm-s ground (llm_single_scheduler_eventsat) is REAL now
-    "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
-    "subsymbolic_scheduler_eventsat", "agentic_scheduler_eventsat",
+    "llm_agentic_onboard_eventsat",
+    "subsymbolic_scheduler_eventsat",
 }
 OUT = Path("data/figures/results_board.html")
 
@@ -39,12 +39,13 @@ OUT = Path("data/figures/results_board.html")
 # (scripts/generate_experiment_configs.py — the single source of truth), so it
 # never drifts from the configs. build_matrix() is imported at run time.
 GROUND_ORDER = ["symb", "rl", "hrl", "llm-s", "llm-a", "hllm-s", "hllm-a"]
-ONBOARD_ORDER = ["symb", "rl", "hrl"]
+ONBOARD_ORDER = ["symb", "rl", "hrl", "lewm-cem", "dreamerv3"]
 
 # Human-readable cell labels (never show raw tokens to the supervisor).
 REP_LABELS = {
     "symb": "symbolic", "rl": "RL", "hrl": "hybrid-RL", "llm-s": "LLM single-shot",
     "llm-a": "LLM agentic", "hllm-s": "hybrid LLM", "hllm-a": "agentic hybrid LLM",
+    "lewm-cem": "LeWM-CEM", "dreamerv3": "DreamerV3",
 }
 
 # Legacy run-id aliases (pre-refocus campaigns). Empty now that experiments run
@@ -56,6 +57,23 @@ NOTES = {
     "eventsat_sas_ag_symb": "review: ground-schedule playback at full episode length (passes vs ADCS settling).",
     "eventsat_sas_conventional_symb": "review: same ground-schedule playback caveat as AG.",
 }
+
+WORLD_MODEL_BASELINES = [
+    ("eventsat_sas_ao_lewm-cem", "LeWM-CEM", "lewm-cem"),
+    ("eventsat_sas_ao_dreamerv3", "DreamerV3", "dreamerv3"),
+]
+WORLD_MODEL_DIAGNOSTICS = [
+    ("planner_latency_s", "planner latency"),
+    ("orin_planner_latency_ms", "Orin latency"),
+    ("planner_rollouts_per_s", "rollouts/s"),
+    ("candidate_count", "candidates"),
+    ("cem_iterations", "CEM iters"),
+    ("model_size_mb", "model MB"),
+    ("peak_memory_mb", "peak memory MB"),
+    ("probe_validation_error", "probe error"),
+    ("train_dataset_steps", "training steps"),
+    ("constraint_violations_per_episode", "violations/ep"),
+]
 
 
 def _load_matrix() -> dict:
@@ -77,7 +95,7 @@ METRICS = [
     ("M-04", "Autonomous Recovery Eff.",  "robustness_mean_recovery_steps", "measured",             "steps from anomaly onset to cleared and nominal"),
     ("M-05", "Safety-Override Rate",      "operator_load",            "measured",                 "environment-veto fraction; operator-intervention proxy"),
     ("M-06", "Resource Efficiency",       "resource_efficiency",      "measured",                 "utility per Wh consumed"),
-    ("M-07", "Decision Latency",          "mean_latency_s",           "measured",                 "mean wall-clock per decision cycle (live calls)"),
+    ("M-07", "Decision Latency",          "mean_latency_s",           "measured",                 "run wall-clock per decision cycle; LLM live-call cost reported separately"),
     ("M-08", "Explainability Coverage",   "explainability_score",     "measured (presence)",      "rationale-presence per decision cycle; faithfulness scorer deferred"),
     ("M-09", "Robustness (CV)",           None,                       "measured (≥30 ep)",        "cross-episode CV of utility"),
     ("M-10", "Scale Efficiency",          None,                       "deferred",                 "multi-satellite scenario"),
@@ -93,9 +111,14 @@ VALUE_KEYS = ["utility", "mean_aoi_s", "peak_aoi_s", "value_of_information",
               "operator_load", "resource_efficiency", "mean_latency_s",
               "mean_ground_latency_s", "explainability_score", "data_downlink_efficiency",
               "observation_hours", "downlinked_mb",
-              "llm_api_calls", "llm_mean_call_latency_s", "llm_cache_hit_rate",
+              "llm_api_calls", "llm_cache_hits", "llm_live_calls",
+              "llm_mean_call_latency_s", "llm_cache_hit_rate",
               "llm_total_latency_s", "llm_tokens_prompt", "llm_tokens_completion",
-              "llm_schedule_entries"]
+              "llm_schedule_entries",
+              "planner_latency_s", "orin_planner_latency_ms", "planner_rollouts_per_s",
+              "candidate_count", "cem_iterations", "model_size_mb", "peak_memory_mb",
+              "probe_validation_error", "train_dataset_steps", "policy_loaded",
+              "constraint_violations_per_episode"]
 
 # Metrics selectable in the matrix heatmap dropdown: (key, label). "↓" = lower is better.
 METRIC_OPTIONS = [
@@ -112,13 +135,17 @@ METRIC_OPTIONS = [
     ("resource_efficiency", "Resource Efficiency, U/Wh (M-06)"),
     ("operator_load", "Safety-Override Rate, % (M-05) ↓"),
     ("explainability_score", "Explainability Coverage, % (M-08)"),
-    ("mean_latency_s", "Decision Latency, s/decision (M-07) ↓"),
+    ("mean_latency_s", "Decision Latency, s/decision (run wall-clock, M-07) ↓"),
     ("mean_ground_latency_s", "Diagnostic: ground-planner latency, s ↓"),
     ("llm_mean_call_latency_s", "Diagnostic: LLM live-call latency, s ↓"),
     ("llm_api_calls", "Diagnostic: LLM calls/episode"),
     ("llm_cache_hit_rate", "Diagnostic: LLM cache-hit rate, %"),
+    ("planner_latency_s", "Diagnostic: planner latency, s ↓"),
+    ("planner_rollouts_per_s", "Diagnostic: planner rollouts/s"),
+    ("candidate_count", "Diagnostic: candidate count"),
+    ("probe_validation_error", "Diagnostic: probe validation error ↓"),
 ]
-LOWER_BETTER = ["mean_aoi_s", "peak_aoi_s", "robustness_mean_recovery_steps", "constraint_violation_rate", "commanding_effort", "operator_load", "mean_latency_s", "mean_ground_latency_s", "llm_mean_call_latency_s"]
+LOWER_BETTER = ["mean_aoi_s", "peak_aoi_s", "robustness_mean_recovery_steps", "constraint_violation_rate", "commanding_effort", "operator_load", "mean_latency_s", "mean_ground_latency_s", "llm_mean_call_latency_s", "planner_latency_s", "probe_validation_error"]
 
 
 def _episode_steps(rid: str) -> int | None:
@@ -180,6 +207,29 @@ def main() -> None:
             "mean": {k: rec.get("mean", {}).get(k) for k in VALUE_KEYS},
             "per_ep_utility": rec.get("per_ep", {}).get("utility", []),
         })
+    world_models = []
+    for rid, label, token in WORLD_MODEL_BASELINES:
+        rec = data.get(rid) or {}
+        has = bool(rec.get("n"))
+        cell = {
+            "id": rid,
+            "paradigm": "ao",
+            "onboard": token,
+            "ground": None,
+            "rep": label,
+            "status": "measured" if has else "notrun",
+            "note": "world-model baseline",
+            "source": "",
+            "n": rec.get("n", 0),
+            "steps": _episode_steps(rec.get("id", "")) if has else None,
+            "mean": {k: rec.get("mean", {}).get(k) for k in VALUE_KEYS},
+            "per_ep_utility": rec.get("per_ep", {}).get("utility", []),
+            "baseline_family": "world_model",
+            "label": label,
+        }
+        cells.append(cell)
+        world_models.append(cell)
+
     by_id = {c["id"]: c for c in cells}
     ao = [v for v in by_id["eventsat_sas_ao_symb"]["per_ep_utility"] if v is not None]
     ah = [v for v in by_id["eventsat_sas_ah_symb_symb"]["per_ep_utility"] if v is not None]
@@ -192,6 +242,8 @@ def main() -> None:
                "rho": rho, "sigma": sigma,
                "onboard_order": ONBOARD_ORDER, "ground_order": GROUND_ORDER,
                "rep_labels": REP_LABELS,
+               "world_models": world_models,
+               "world_model_diagnostics": WORLD_MODEL_DIAGNOSTICS,
                "metric_options": METRIC_OPTIONS, "lower_better": LOWER_BETTER}
     OUT.write_text(TEMPLATE.replace("__PAYLOAD__", json.dumps(payload)))
     measured = sum(1 for c in cells if c["status"] == "measured")
@@ -252,13 +304,13 @@ TEMPLATE = r"""<!DOCTYPE html>
  event-camera CubeSat. An architecture is organisation &times; representation (cognitive substrate &times;
  action space) &times; operational paradigm; for EventSat the organisation is fixed at SAS and the
  comparison varies the <b>7 representation cells</b> across the <b>conventional&middot;ag&middot;ao&middot;ah</b>
- paradigms (32-experiment matrix). Values appear only for verified runs. Full spec:
+ paradigms (32-experiment matrix), with LeWM-CEM and DreamerV3 shown as additional AO baseline rows. Values appear only for verified runs. Full spec:
  <i>docs/morphological_matrix.md</i>.</div>
 </header>
 
 <section>
  <h2>1&emsp;Experiment matrix (O) — onboard &times; ground</h2>
- <div class="caption">All 32 experiments on one grid: rows = onboard core, columns = ground planner.
+ <div class="caption">The 32 canonical O-framework experiments plus world-model AO baselines on one grid: rows = onboard core, columns = ground planner.
  The operational paradigm is read from position — <b>ground only</b> (onboard&nbsp;=&nbsp;&mdash;) is AG,
  <b>onboard only</b> (ground&nbsp;=&nbsp;&mdash;) is AO, <b>both</b> is AH; the (&mdash;,&nbsp;symbolic) cell
  also carries Conventional. Pick a metric to colour the grid; values appear only for verified runs.</div>
@@ -282,25 +334,32 @@ TEMPLATE = r"""<!DOCTYPE html>
 
 <section>
  <h2>3&emsp;EventSat LLM closeout</h2>
- <div class="caption">Frozen interpretation from <a href="../../docs/eventsat_llm_closeout.md">docs/eventsat_llm_closeout.md</a>:
- the completed 100-episode AG LLM runs are mission-comparable; latency must be read with cache state visible.</div>
+ <div class="caption">Measured LLM-bearing EventSat runs plus available symbolic comparators.
+ Mission metrics come from the simulation results; latency columns separate cached replay wall-clock from weighted live-call LLM cost.</div>
  <table id="llmCloseout"></table>
  <div class="guide" id="llmCloseoutNote"></div>
 </section>
 
 <section>
- <h2>4&emsp;Measured utility distributions (verified runs)</h2>
+ <h2>4&emsp;World-Model baselines</h2>
+ <div class="caption">LeWM-CEM and DreamerV3 use the same EventSat simulator and M-01..M-14 metrics. They are also shown as AO cells in the matrix above; this table keeps their world-model diagnostics visible.</div>
+ <table id="worldModelBaselines"></table>
+ <div class="guide" id="worldModelNote"></div>
+</section>
+
+<section>
+ <h2>5&emsp;Measured utility distributions (verified runs)</h2>
  <div id="dist" class="plot"></div>
 </section>
 
 <section>
- <h2>5&emsp;Metric registry — M-01 &hellip; M-14</h2>
+ <h2>6&emsp;Metric registry — M-01 &hellip; M-14</h2>
  <div class="caption">Measured set populated from verified runs; deferred metrics marked.</div>
  <table id="mx"></table>
 </section>
 
 <section>
- <h2>6&emsp;Architecture comparison (verified runs)</h2>
+ <h2>7&emsp;Architecture comparison (verified runs)</h2>
  <div class="caption">Left: metric profile per architecture, min&ndash;max normalised across the shown
  runs (1 = best of this set — relative). Right: paired per-episode utility differences (shared
  launch-lottery seeds).</div>
@@ -311,7 +370,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>7&emsp;Episode inspector — simulation telemetry</h2>
+ <h2>8&emsp;Episode inspector — simulation telemetry</h2>
  <div class="caption">One simulated week, step by step: battery state of charge, data stored and
  downlinked, ground-contact windows (grey), anomaly-forced safe periods (red), and the operating mode
  at every step.</div>
@@ -321,7 +380,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>8&emsp;Statistical adequacy (pre-registered)</h2>
+ <h2>9&emsp;Statistical adequacy (pre-registered)</h2>
  <div class="guide" id="guide"></div>
  <div class="twocol">
   <div id="powcurve" class="plot" style="height:290px"></div>
@@ -335,18 +394,39 @@ TEMPLATE = r"""<!DOCTYPE html>
 <script>
 const P = __PAYLOAD__;
 const CELLS = {}; P.cells.forEach(c => CELLS[c.id] = c);
+const PAR_LABELS = {conventional:"Conventional", ag:"AG", ao:"AO", ah:"AH"};
+const PAR_ORDER = {conventional:0, ag:1, ao:2, ah:3};
+const parName = p => PAR_LABELS[p] || p;
+const rankIn = (xs, x) => { const i = xs.indexOf(x); return i < 0 ? 99 : i; };
+const cellSort = (a,b) =>
+  (PAR_ORDER[a.paradigm]??9) - (PAR_ORDER[b.paradigm]??9) ||
+  rankIn(P.onboard_order, a.onboard||"") - rankIn(P.onboard_order, b.onboard||"") ||
+  rankIn(P.ground_order, a.ground||"") - rankIn(P.ground_order, b.ground||"") ||
+  a.id.localeCompare(b.id);
+const MEASURED = P.cells.filter(c=>c.status==="measured").sort(cellSort);
+const runMeta = c => {
+  const bits = [`n=${c.n||0}`];
+  if (c.steps) bits.push(`${c.steps.toLocaleString()} steps`);
+  return bits.join(", ");
+};
+const cellName = c => `${parName(c.paradigm)} · ${c.rep}`;
+const axisCell = c => `${cellName(c)}<br><span style="font-size:10px;color:#888">${runMeta(c)}</span>`;
 const fmt = v => v==null ? "—" : (+v).toFixed(3);
 const UNITS = {
   mean_aoi_s:"s", peak_aoi_s:"s", robustness_mean_recovery_steps:"steps",
   commanding_effort:"cmd/day", observation_hours:"h/ep", downlinked_mb:"MB/ep",
   resource_efficiency:"U/Wh", mean_latency_s:"s/decision", mean_ground_latency_s:"s",
   llm_mean_call_latency_s:"s", llm_total_latency_s:"s", llm_api_calls:"calls/ep",
-  llm_cache_hits:"hits/ep", llm_tokens_prompt:"tok/ep", llm_tokens_completion:"tok/ep",
-  llm_schedule_entries:"entries/ep"
+  llm_cache_hits:"hits/ep", llm_live_calls:"live calls/ep",
+  llm_tokens_prompt:"tok/ep", llm_tokens_completion:"tok/ep",
+  llm_schedule_entries:"entries/ep",
+  planner_latency_s:"s", orin_planner_latency_ms:"ms", planner_rollouts_per_s:"rollouts/s",
+  candidate_count:"", cem_iterations:"", model_size_mb:"MB", peak_memory_mb:"MB",
+  train_dataset_steps:"steps", constraint_violations_per_episode:"violations/ep"
 };
 const PERCENT = new Set(["operator_load","data_downlink_efficiency","value_of_information",
   "constraint_violation_rate","explainability_score","llm_cache_hit_rate"]);
-const INTEGERISH = new Set(["llm_tokens_prompt","llm_tokens_completion"]);
+const INTEGERISH = new Set(["llm_tokens_prompt","llm_tokens_completion","candidate_count","cem_iterations","train_dataset_steps"]);
 function fmtMetric(k, v){
   if (v==null) return "—";
   const x = +v;
@@ -363,14 +443,52 @@ function fmtMetric(k, v){
   else body = x.toFixed(3);
   return UNITS[k] ? body + " " + UNITS[k] : body;
 }
+
+function isLLMCell(c){
+  const m = c.mean || {};
+  return /llm/i.test(c.id || "") || /LLM/.test(c.rep || "") || (+m.llm_api_calls || 0) > 0;
+}
+function liveCalls(c){
+  const m = c.mean || {};
+  if (m.llm_live_calls != null) return +m.llm_live_calls;
+  return Math.max(0, (+m.llm_api_calls || 0) - (+m.llm_cache_hits || 0));
+}
+function metricValue(c, k){
+  const m = c.mean || {};
+  const v = m[k];
+  if (k === "llm_mean_call_latency_s" && isLLMCell(c) && (+m.llm_api_calls || 0) > 0 && liveCalls(c) <= 0){
+    return null;
+  }
+  return v;
+}
+function metricMissingText(c, k){
+  const m = c.mean || {};
+  if (k === "llm_mean_call_latency_s" && isLLMCell(c) && (+m.llm_api_calls || 0) > 0 && liveCalls(c) <= 0){
+    return "cached only";
+  }
+  return "—";
+}
+function fmtCellMetric(c, k){
+  const v = metricValue(c, k);
+  return v == null ? metricMissingText(c, k) : fmtMetric(k, v);
+}
+function cognitionLatency(c){
+  if (isLLMCell(c)){
+    const v = metricValue(c, "llm_mean_call_latency_s");
+    return v != null && +v > 0 ? {x:+v, kind:"live LLM call"} : null;
+  }
+  const v = metricValue(c, "mean_latency_s");
+  return v != null && +v > 0 ? {x:+v, kind:"decision"} : null;
+}
 const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
 // ---- 1: unified onboard×ground matrix with a metric-selector heatmap
 (function(){
   const sel = document.getElementById("metricSel");
   sel.innerHTML = P.metric_options.map(([k,l])=>`<option value="${k}">${l}</option>`).join("");
   const lowerBetter = new Set(P.lower_better);
-  const ROWS = ["—"].concat(P.onboard_order);    // onboard: —, symb, rl, hrl
-  const COLS = ["—"].concat(P.ground_order);     // ground:  —, +7 cells
+  const ROWS = ["—"].concat(P.onboard_order);
+  const COLS = ["—"].concat(P.ground_order);
+  const WORLD_ROWS = new Set((P.world_models || []).map(c => c.onboard));
   const byPos = {}; let conv = null;
   P.cells.forEach(c=>{
     if (c.paradigm==="conventional"){ conv = c; return; }   // shares (—, symb) with AG-symb
@@ -381,7 +499,7 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
     return `rgb(${f(234,0)},${f(242,101)},${f(250,189)})`; };   // #eaf2fa → TUM #0065BD
 
   function render(metric){
-    const vals = P.cells.filter(c=>c.status==="measured" && c.mean[metric]!=null).map(c=>c.mean[metric]);
+    const vals = P.cells.filter(c=>c.status==="measured" && metricValue(c, metric)!=null).map(c=>metricValue(c, metric));
     const mn = Math.min(...vals), mx = Math.max(...vals);
     const norm = v => { if(!isFinite(mn)||mx<=mn) return 1; const t=(v-mn)/(mx-mn); return lowerBetter.has(metric)?1-t:t; };
     let h = `<table class="mgrid"><tr><th class="corner">onboard ↓ / ground →</th>`+
@@ -391,26 +509,31 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
       for (const g of COLS){
         const par = paradigmAt(o,g);
         const isConv = (o==="—" && g==="symb");
+        if (WORLD_ROWS.has(o) && g !== "—"){ h += `<td class="mcell empty" title="world-model baselines are onboard-only AO cells">—</td>`; continue; }
         if (!par){ h += `<td class="mcell empty" title="no cores">—</td>`; continue; }
         const c = byPos[o+"|"+g];
         let cls="notrun", txt="·", style="", tip=par, dark=false;
-        if (c && c.status==="measured" && c.mean[metric]!=null){
-          const t = norm(c.mean[metric]);
+        if (c && c.status==="measured" && metricValue(c, metric)!=null){
+          const v = metricValue(c, metric);
+          const t = norm(v);
           dark = t>0.55;
-          cls="measured"; txt=fmtMetric(metric, c.mean[metric]);
+          cls="measured"; txt=fmtCellMetric(c, metric);
           style=`background:${colour(t)};color:${dark?'#fff':'#111'}`;
           tip=`${par} · ${c.id}${c.source?' [data: '+c.source+']':''}`;
         } else if (c && c.status==="placeholder"){
           cls="placeholder"; txt="▢"; tip=`${par} · ${c.id} (placeholder cell)`;
+        } else if (c && c.status==="measured"){
+          txt=metricMissingText(c, metric); tip=`${par} · ${c.id} (${txt})`;
         } else if (c){ tip=`${par} · ${c.id} (not yet run)`; }
         if (isConv && conv){
           const pairLine = (label, cell) => {
-            if (cell && cell.status==="measured" && cell.mean[metric]!=null){
-              const t = norm(cell.mean[metric]);
+            if (cell && cell.status==="measured" && metricValue(cell, metric)!=null){
+              const v = metricValue(cell, metric);
+              const t = norm(v);
               const darkLine = t>0.55;
-              return `<span class="pairline" style="background:${colour(t)};color:${darkLine?'#fff':'#111'}"><b>${label}</b>${fmtMetric(metric, cell.mean[metric])}</span>`;
+              return `<span class="pairline" style="background:${colour(t)};color:${darkLine?'#fff':'#111'}"><b>${label}</b>${fmtCellMetric(cell, metric)}</span>`;
             }
-            const fallback = cell && cell.status==="placeholder" ? "▢" : "·";
+            const fallback = cell && cell.status==="measured" ? metricMissingText(cell, metric) : (cell && cell.status==="placeholder" ? "▢" : "·");
             return `<span class="pairline"><b>${label}</b>${fallback}</span>`;
           };
           tip += ` | Conventional: ${conv.id}`;
@@ -424,19 +547,21 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
     const label = (P.metric_options.find(o=>o[0]===metric)||[,metric])[1];
     h += `</table><div class="mlegend">colour = ${label} `+
          `(darker blue = better${lowerBetter.has(metric)?", inverted for ↓":""}) · `+
-         `▢ = placeholder cell · · = not yet run · paradigm read from position `+
+         `▢ = placeholder cell · · = not yet run · world-model rows are AO baselines · paradigm read from position `+
          `(AG = ground only, AO = onboard only, AH = both); (—, symbolic) shows AG and CG (sub).</div>`;
     document.getElementById("matrix").innerHTML = h;
   }
   sel.addEventListener("change", e=>render(e.target.value));
   render(P.metric_options[0][0]);
 
-  const meas = P.cells.filter(c=>c.status==="measured").length;
+  const meas = MEASURED.length;
   const ph = P.cells.filter(c=>c.status==="placeholder").length;
+  const eps = MEASURED.reduce((s,c)=>s+(c.n||0),0);
   document.getElementById("kpis").innerHTML =
     `<div class="kpi"><b>${meas}</b>measured</div>`+
     `<div class="kpi"><b>${ph}</b>placeholder cells</div>`+
-    `<div class="kpi"><b>${P.cells.length}</b>experiments</div>`;
+    `<div class="kpi"><b>${eps.toLocaleString()}</b>episodes</div>`+
+    `<div class="kpi"><b>${P.cells.length}</b>grid cells</div>`;
 })();
 
 // ---- 2: results plots (publication style)
@@ -453,36 +578,40 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
   const ci95 = a => { if(a.length<2) return 0; const m=mean(a);
     const sd=Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1)); return 1.96*sd/Math.sqrt(a.length); };
   const peps = c => (c.per_ep_utility||[]).filter(v=>v!=null);
-  // Symbolic paradigm ladder (the cells with verified data).
-  const ladder = [["eventsat_sas_conventional_symb","Conventional"],["eventsat_sas_ag_symb","AG"],
-                  ["eventsat_sas_ao_symb","AO"],["eventsat_sas_ah_symb_symb","AH"]];
-  const rows = ladder.map(([id,nm])=>{ const c=CELLS[id];
-    return (c&&c.status==="measured")?{nm,c}:null; }).filter(Boolean);
-  const xs = rows.map(d=>`${d.nm}<br><span style="font-size:10px;color:#888">n=${d.c.n}</span>`);
+  const rows = MEASURED.filter(c=>c.mean.utility!=null);
+  const xs = rows.map(axisCell);
+  const barLayout = yt => LAY("architecture", yt, {
+    xaxis:Object.assign(axx("architecture"),{tickangle:18}),
+    margin:{t:12,b:128,l:70,r:16}
+  });
 
   if (rows.length){
-    const S = rows[0].c.steps, dd = S ? S*60/86400 : null;
-    const days = dd!=null ? (dd%1 ? dd.toFixed(1) : dd.toFixed(0)) : null;
+    const steps = [...new Set(rows.map(c=>c.steps).filter(Boolean))].sort((a,b)=>a-b);
+    const eps = rows.reduce((s,c)=>s+(c.n||0),0);
+    const stepText = steps.length===1 ? `${steps[0].toLocaleString()}-step episodes` :
+      steps.length ? `${steps.map(s=>s.toLocaleString()).join(", ")}-step episodes` : "episodes";
     document.getElementById("res-prov").innerHTML =
-      `Symbolic paradigm ladder at a matched <b>${S?S.toLocaleString():"—"}-step</b> episode`+
-      (days?` (${days} ${days==="1"?"day":"days"} at 60 s/step)`:"")+`, shared launch-lottery seeds. `+
-      `Bars show mean &plusmn; 95% CI; utility is target-normalised.`;
-    Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.utility),
-      error_y:{type:"data", array:rows.map(d=>ci95(peps(d.c))), visible:true, color:"#333", thickness:1.3, width:5},
-      marker:{color:BAR}, width:0.62}], LAY("architecture","mission utility"), {displayModeBar:false});
-    Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.observation_hours),
-      marker:{color:BAR}, width:0.62}], LAY("architecture","observation time (h / episode)"), {displayModeBar:false});
-    Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(d=>d.c.mean.downlinked_mb),
-      marker:{color:BAR}, width:0.62}], LAY("architecture","delivered data (MB / episode)"), {displayModeBar:false});
+      `All verified EventSat cells currently on disk: <b>${rows.length}</b> measured runs, `+
+      `<b>${eps.toLocaleString()}</b> episodes across ${stepText}. `+
+      `Bars show mean &plusmn; 95% CI where per-episode utility is available; utility is target-normalised. `+
+      `LLM latency views use weighted live-call latency and mark cached-only runs as unavailable.`;
+    Plotly.newPlot("gradient", [{type:"bar", x:xs, y:rows.map(c=>c.mean.utility),
+      error_y:{type:"data", array:rows.map(c=>ci95(peps(c))), visible:true, color:"#333", thickness:1.3, width:5},
+      marker:{color:BAR}, width:0.62}], barLayout("mission utility"), {displayModeBar:false});
+    Plotly.newPlot("obshours", [{type:"bar", x:xs, y:rows.map(c=>c.mean.observation_hours),
+      marker:{color:BAR}, width:0.62}], barLayout("observation time (h / episode)"), {displayModeBar:false});
+    Plotly.newPlot("delivmb", [{type:"bar", x:xs, y:rows.map(c=>c.mean.downlinked_mb),
+      marker:{color:BAR}, width:0.62}], barLayout("delivered data (MB / episode)"), {displayModeBar:false});
   }
-  const parName = p => ({conventional:"Conventional", ag:"AG", ao:"AO", ah:"AH"}[p] || p);
-  const cog = P.cells.filter(c=>c.status==="measured" && c.mean.utility!=null && c.mean.mean_latency_s>0)
-    .map(c=>({nm:`${parName(c.paradigm)} · ${c.rep} (n=${c.n})`, x:c.mean.mean_latency_s, y:c.mean.utility}));
+  const cog = MEASURED.map(c=>{
+    const lat = cognitionLatency(c);
+    return (c.mean.utility!=null && lat) ? {nm:`${cellName(c)} (${runMeta(c)}; ${lat.kind})`, x:lat.x, y:c.mean.utility, llm:isLLMCell(c)} : null;
+  }).filter(Boolean);
   if (cog.length){
     Plotly.newPlot("cognition", cog.map((d,i)=>({type:"scatter", mode:"markers", name:d.nm,
-      x:[d.x], y:[d.y], marker:{size:12, color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
-      LAY("decision latency  (s, log scale)","mission utility",
-          {xaxis:Object.assign(axx("decision latency  (s, log scale)"),{type:"log"}),
+      x:[d.x], y:[d.y], marker:{size:d.llm?13:11, symbol:d.llm?"diamond":"circle", color:OK[i%OK.length], line:{color:"#fff", width:1}}})),
+      LAY("latency (s, log scale; LLM = live call)","mission utility",
+          {xaxis:Object.assign(axx("latency (s, log scale; LLM = live call)"),{type:"log"}),
            showlegend:true, legend:{orientation:"h", font:{size:11}, x:0, y:-0.28, xanchor:"left", yanchor:"top", bgcolor:"rgba(255,255,255,0)"}, margin:{t:12,b:110,l:70,r:16}}),
       {displayModeBar:false});
   }
@@ -490,16 +619,22 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
 
 // ---- 3: EventSat LLM closeout
 (function(){
-  const runs = [
-    ["eventsat_sas_ag_symb", "symbolic AG baseline"],
-    ["eventsat_sas_ag_llm-s", "LLM single-shot AG"],
-    ["eventsat_sas_ag_hllm-s", "hybrid LLM + symbolic shield AG"]
-  ];
-  const row = ([id, label]) => {
-    const c = CELLS[id] || {};
+  const isLLM = c => /llm/i.test(c.id) || /LLM/i.test(c.rep);
+  const closeIds = new Set();
+  MEASURED.filter(isLLM).forEach(c=>{
+    if (c.paradigm==="ag") closeIds.add("eventsat_sas_ag_symb");
+    if (c.paradigm==="ah" && c.onboard){
+      closeIds.add(`eventsat_sas_ao_${c.onboard}`);
+      closeIds.add(`eventsat_sas_ah_${c.onboard}_symb`);
+    }
+    closeIds.add(c.id);
+  });
+  const runs = [...closeIds].map(id=>CELLS[id]).filter(c=>c&&c.status==="measured").sort(cellSort);
+  const row = c => {
     const m = c.mean || {};
-    return `<tr><td><code>${id}</code><br><span style="color:#666;font-size:12px">${label}</span></td>`+
+    return `<tr><td><code>${c.id}</code><br><span style="color:#666;font-size:12px">${cellName(c)}</span></td>`+
       `<td class="num">${c.n || "&mdash;"}</td>`+
+      `<td class="num">${c.steps ? c.steps.toLocaleString() : "&mdash;"}</td>`+
       `<td class="num">${fmtMetric("utility", m.utility)}</td>`+
       `<td class="num">${fmtMetric("downlinked_mb", m.downlinked_mb)}</td>`+
       `<td class="num">${fmtMetric("data_downlink_efficiency", m.data_downlink_efficiency)}</td>`+
@@ -508,42 +643,69 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
       `<td class="num">${fmtMetric("explainability_score", m.explainability_score)}</td>`+
       `<td class="num">${fmtMetric("mean_latency_s", m.mean_latency_s)}</td>`+
       `<td class="num">${fmtMetric("llm_cache_hit_rate", m.llm_cache_hit_rate)}</td>`+
-      `<td class="num">${fmtMetric("llm_mean_call_latency_s", m.llm_mean_call_latency_s)}</td></tr>`;
+      `<td class="num">${fmtMetric("llm_live_calls", m.llm_live_calls)}</td>`+
+      `<td class="num">${fmtCellMetric(c, "llm_mean_call_latency_s")}</td></tr>`;
   };
   document.getElementById("llmCloseout").innerHTML =
-    "<tr><th>run</th><th class=\"num\">episodes</th><th class=\"num\">utility</th>"+
+    "<tr><th>run</th><th class=\"num\">episodes</th><th class=\"num\">steps</th><th class=\"num\">utility</th>"+
     "<th class=\"num\">downlinked</th><th class=\"num\">downlink eff.</th>"+
     "<th class=\"num\">mean AoI</th><th class=\"num\">constraint viol.</th>"+
     "<th class=\"num\">explainability</th><th class=\"num\">decision latency</th>"+
-    "<th class=\"num\">cache hit</th><th class=\"num\">LLM call latency</th></tr>" +
-    runs.map(row).join("");
+    "<th class=\"num\">cache hit</th><th class=\"num\">live calls</th>"+
+    "<th class=\"num\">live LLM call latency</th></tr>" +
+    (runs.length ? runs.map(row).join("") : "<tr><td colspan=\"13\">No measured LLM-bearing EventSat cells yet.</td></tr>");
   document.getElementById("llmCloseoutNote").innerHTML =
-    `<b>Frozen interpretation:</b> LLM single-shot and hybrid-LLM AG are effectively tied on
-    mission metrics and sit slightly above symbolic AG. <b>Latency caveat:</b> the raw latency
-    delta is cache-dominated in this completed campaign, so paper-facing claims should report
-    mission performance separately from live-call cost and label cache state explicitly.`;
+    `<b>Scope:</b> generated from every measured LLM-bearing EventSat cell, with measured symbolic
+    comparators included for the same ground/onboard slot when available. <b>Latency caveat:</b>
+    cached replay time is not live LLM cost. The live-call latency column is weighted by
+    actual live calls; cached-only rows are marked as unavailable instead of zero.`;
 })();
 
-// ---- 4: distributions
-const dists = P.cells.filter(c=>c.status==="measured" && c.per_ep_utility.some(v=>v!=null)).map(c=>({
-  y:c.per_ep_utility, x:Array(c.n).fill(`${c.paradigm} · ${c.rep}`), type:"box", boxpoints:"all",
+// ---- 4: World-model baselines
+(function(){
+  const rows = P.world_models || [];
+  const diag = P.world_model_diagnostics || [];
+  const header = "<tr><th>baseline</th><th>status</th><th class=\"num\">episodes</th><th class=\"num\">steps</th>" +
+    "<th class=\"num\">utility</th><th class=\"num\">downlinked</th><th class=\"num\">M-13</th>" +
+    diag.map(([k,l])=>`<th class=\"num\">${l}</th>`).join("") + "</tr>";
+  const body = rows.map(r=>{
+    const m = r.mean || {};
+    return `<tr><td><code>${r.id}</code><br><span style=\"color:#666;font-size:12px\">${r.label}</span></td>`+
+      `<td>${stc(r.status, r.status === "measured" ? "measured" : "not run")}</td>`+
+      `<td class=\"num\">${r.n || "&mdash;"}</td>`+
+      `<td class=\"num\">${r.steps ? r.steps.toLocaleString() : "&mdash;"}</td>`+
+      `<td class=\"num\">${fmtMetric("utility", m.utility)}</td>`+
+      `<td class=\"num\">${fmtMetric("downlinked_mb", m.downlinked_mb)}</td>`+
+      `<td class=\"num\">${fmtMetric("constraint_violation_rate", m.constraint_violation_rate)}</td>`+
+      diag.map(([k])=>`<td class=\"num\">${fmtMetric(k, m[k])}</td>`).join("") +
+      `</tr>`;
+  }).join("");
+  document.getElementById("worldModelBaselines").innerHTML = header + (body || `<tr><td colspan=\"${7+diag.length}\">No world-model baseline results yet.</td></tr>`);
+  document.getElementById("worldModelNote").innerHTML =
+    `<b>Scope:</b> separate baseline family for the paper. Mission-weight presets are configurable and not treated as final paper weights. `+
+    `Thermal and pointing probes are omitted unless AUTOPS later simulates those states explicitly.`;
+})();
+
+// ---- 5: distributions
+const dists = MEASURED.filter(c=>c.per_ep_utility.some(v=>v!=null)).map(c=>({
+  y:c.per_ep_utility, x:Array(c.n).fill(cellName(c)), type:"box", boxpoints:"all",
   jitter:0.5, pointpos:0, marker:{color:"#333",size:4,opacity:0.7}, line:{color:"#111"}, fillcolor:"#eee",
   hovertext:c.per_ep_utility.map((v,i)=>`ep ${i}: ${fmt(v)}`), hoverinfo:"text"}));
 Plotly.newPlot("dist", dists, {paper_bgcolor:"#fff", plot_bgcolor:"#fff", showlegend:false,
   font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif",size:13,color:"#111"},
   yaxis:{title:"utility",gridcolor:"#eee"}, margin:{t:8,b:130,l:60,r:20}, xaxis:{tickangle:18}});
 
-// ---- 5: metric registry
-const vcols = P.cells.filter(c=>c.status==="measured");
+// ---- 6: metric registry
+const vcols = MEASURED;
 document.getElementById("mx").innerHTML =
- "<tr><th>metric</th><th>status</th>" + vcols.map(c=>`<th class="num">${c.rep}<br><span style="font-weight:400;color:#777">${c.paradigm}</span></th>`).join("") + "<th>note</th></tr>" +
+ "<tr><th>metric</th><th>status</th>" + vcols.map(c=>`<th class="num">${cellName(c)}<br><span style="font-weight:400;color:#777">${runMeta(c)}</span></th>`).join("") + "<th>note</th></tr>" +
  P.metrics.map(([id,nm,key,s,note])=>{
   const cls = s.startsWith("measured")?"measured":"deferred";
   return `<tr><td><b>${id}</b> ${nm}</td><td>${stc(cls,s)}</td>` +
-    vcols.map(c=>`<td class="num">${key?fmtMetric(key, c.mean[key]):"—"}</td>`).join("") +
+    vcols.map(c=>`<td class="num">${key?fmtCellMetric(c, key):"—"}</td>`).join("") +
     `<td style="color:#666;font-size:12px">${note}</td></tr>`;}).join("");
 
-// ---- 6a: radar
+// ---- 7a: radar
 const RMETRICS = [
   ["utility","mission utility"],
   ["mean_aoi_s","mean AoI (inverted)"],
@@ -565,33 +727,47 @@ if (vcols.length){
     });
   }
   Plotly.newPlot("radar", vcols.map((c,i)=>({
-    type:"scatterpolar", fill:"toself", opacity:0.55, name:`${c.paradigm} · ${c.rep}`,
+    type:"scatterpolar", fill:"toself", opacity:0.55, name:`${cellName(c)} (${runMeta(c)})`,
     theta:RMETRICS.map(m=>m[1]).concat(RMETRICS[0][1]),
     r:RMETRICS.map(([k])=>vals[k][i]).concat(vals[RMETRICS[0][0]][i])
   })), {paper_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
        polar:{radialaxis:{range:[0,1], gridcolor:"#eee"}}, legend:{orientation:"h", y:-0.12}, margin:{t:30}});
 }
-// ---- 6b: paired differences (AH - AO, symbolic)
-const aoR = CELLS["eventsat_sas_ao_symb"], ahR = CELLS["eventsat_sas_ah_symb_symb"];
-if (aoR && ahR && aoR.status==="measured" && ahR.status==="measured"){
-  const k = Math.min(aoR.per_ep_utility.length, ahR.per_ep_utility.length);
-  const diffs = [...Array(k)].map((_,i)=>ahR.per_ep_utility[i]-aoR.per_ep_utility[i]).filter(v=>v!=null);
-  const mu = diffs.reduce((a,b)=>a+b,0)/diffs.length;
-  const wins = diffs.filter(v=>v>0).length;
-  Plotly.newPlot("paired", [{x:diffs, type:"histogram", nbinsx:25, marker:{color:"#0065BD", opacity:0.8}}],
+// ---- 7b: paired differences (AH - matching AO, all measured AH cells)
+const paired = MEASURED.filter(c=>c.paradigm==="ah" && c.onboard && c.per_ep_utility.some(v=>v!=null))
+  .map(c=>{
+    const ao = CELLS[`eventsat_sas_ao_${c.onboard}`];
+    if (!ao || ao.status!=="measured") return null;
+    const k = Math.min(ao.per_ep_utility.length, c.per_ep_utility.length);
+    const diffs = [...Array(k)].map((_,i)=>{
+      const a = c.per_ep_utility[i], b = ao.per_ep_utility[i];
+      return a==null || b==null ? null : a-b;
+    }).filter(v=>v!=null);
+    if (!diffs.length) return null;
+    const mu = diffs.reduce((a,b)=>a+b,0)/diffs.length;
+    const wins = diffs.filter(v=>v>0).length;
+    return {c, ao, diffs, mu, wins};
+  }).filter(Boolean);
+if (paired.length){
+  Plotly.newPlot("paired", paired.map((p,i)=>({
+    y:p.diffs, x:Array(p.diffs.length).fill(`${P.rep_labels[p.c.onboard]} + ${P.rep_labels[p.c.ground]}<br><span style="font-size:10px;color:#888">paired n=${p.diffs.length}</span>`),
+    type:"box", boxpoints:"all", jitter:0.45, pointpos:0, name:cellName(p.c),
+    marker:{color:["#0072B2","#D55E00","#009E73","#E69F00","#56B4E9","#CC79A7","#000000"][i%7], size:4, opacity:0.7},
+    line:{color:["#0072B2","#D55E00","#009E73","#E69F00","#56B4E9","#CC79A7","#000000"][i%7]},
+    hovertext:p.diffs.map((v,j)=>`ep ${j}: ${fmt(v)}<br>${cellName(p.c)} − ${cellName(p.ao)}`),
+    hoverinfo:"text"
+  })),
    {paper_bgcolor:"#fff", plot_bgcolor:"#fff", font:{family:"Helvetica Neue, Helvetica, Arial, sans-serif", size:12},
-    xaxis:{title:"per-orbit utility gain from adding the ground plan (AH − AO, same orbits)", gridcolor:"#eee"},
-    yaxis:{title:"orbits", gridcolor:"#eee"}, showlegend:false, margin:{t:34,b:50,l:55,r:10},
-    shapes:[{type:"line", x0:0, x1:0, yref:"paper", y0:0, y1:1, line:{color:"#a13026", dash:"dash"}},
-            {type:"line", x0:mu, x1:mu, yref:"paper", y0:0, y1:0.92, line:{color:"#9a6200", width:2}}],
-    annotations:[
-     {x:0, yref:"paper", y:1.04, text:"no benefit", showarrow:false, font:{color:"#a13026", size:12}},
-     {x:mu, yref:"paper", y:0.98, text:`mean gain ${mu.toFixed(2)}`, showarrow:false, font:{color:"#9a6200", size:12}},
-     {xref:"paper", x:0.98, yref:"paper", y:0.85, text:`ground plan better in ${wins}/${diffs.length} orbits →`,
-      showarrow:false, font:{size:12.5, color:"#0065BD"}, xanchor:"right"}]});
+    xaxis:{title:"AH ground planner paired against matching AO onboard baseline", gridcolor:"#eee", tickangle:12},
+    yaxis:{title:"utility difference (AH − AO)", gridcolor:"#eee", zeroline:false},
+    showlegend:false, margin:{t:34,b:105,l:65,r:10},
+    shapes:[{type:"line", y0:0, y1:0, xref:"paper", x0:0, x1:1, line:{color:"#a13026", dash:"dash"}}],
+    annotations:[{xref:"paper", x:0.99, yref:"paper", y:0.98,
+      text:paired.map(p=>`${P.rep_labels[p.c.ground]}: μ=${p.mu.toFixed(2)}, ${p.wins}/${p.diffs.length} > 0`).join("<br>"),
+      showarrow:false, font:{size:12, color:"#0065BD"}, xanchor:"right", align:"right"}]});
 }
 
-// ---- 7: episode inspector
+// ---- 8: episode inspector
 const T = P.telemetry, tids = Object.keys(T);
 const tsel = document.getElementById("teleSel");
 tsel.innerHTML = tids.map(id=>`<option value="${id}">${T[id].label}</option>`).join("");
@@ -628,7 +804,7 @@ function renderTele(){
 }
 if (tids.length){ tsel.addEventListener("change", renderTele); renderTele(); }
 
-// ---- 8: statistics
+// ---- 9: statistics
 document.getElementById("rhoval").textContent = P.rho;
 document.getElementById("sigval").textContent = P.sigma;
 document.getElementById("guide").innerHTML =

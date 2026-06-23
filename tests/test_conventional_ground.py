@@ -11,12 +11,12 @@ with a one-pass planning delay (Sellmaier et al. 2022, ECSS-E-ST-70C):
 
 import pytest
 
-from src.environment.satellite_env import (
+from src.core.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
     SatelliteState,
 )
-from src.operations.conventional_ground import ConventionalGround
+from src.core.operations.conventional_ground import ConventionalGround
 
 
 # -----------------------------------------------------------------
@@ -329,8 +329,8 @@ class TestConventionalGroundObservation:
 class TestConventionalGroundIntegration:
     def test_conventional_ground_with_conventional_schedule(self, tmp_path):
         """Human-realistic paradigm + human schedule representation: end-to-end."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         cfg = ExperimentConfig(
             experiment_id="cg_test_conventional_schedule",

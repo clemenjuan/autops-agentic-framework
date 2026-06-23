@@ -2,13 +2,13 @@
 
 import pytest
 
-from src.decision_procedure.context import DecisionContext
-from src.environment.satellite_env import (
+from src.core.decision_procedure.context import DecisionContext
+from src.core.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
     SatelliteState,
 )
-from src.representation.schedule_based_eventsat import ScheduleBasedEventSat, _merge_schedule
+from src.eventsat.schedule_symbolic import ScheduleBasedEventSat, _merge_schedule
 
 
 def _ctx(state, **kwargs):

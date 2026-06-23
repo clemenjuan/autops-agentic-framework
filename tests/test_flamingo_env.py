@@ -4,7 +4,7 @@ Tests for the Flamingo-lite multi-satellite scenario.
 
 from __future__ import annotations
 
-from src.environment.scenarios.flamingo import FlamingoEnvironment
+from src.flamingo.env import FlamingoEnvironment
 
 
 def test_flamingo_reset_creates_constellation() -> None:

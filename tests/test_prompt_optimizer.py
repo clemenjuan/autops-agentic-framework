@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from src.behaviour.prompt_optimizer import PromptOptimizer, _load_step_records
+from src.core.behaviour.prompt_optimizer import PromptOptimizer, _load_step_records
 
 
 # ======================================================================
@@ -128,7 +128,7 @@ class TestPromptOptimizer:
         assert len(prompt) > 0
 
     def test_optimize_agentic_uses_agentic_system_prompt(self, tmp_path: Path) -> None:
-        from src.representation.agentic_prompts import AGENTIC_SYSTEM_PROMPT
+        from src.eventsat.agentic_prompts import AGENTIC_SYSTEM_PROMPT
 
         optimizer = PromptOptimizer(config={
             "experiment_id": "agnt_exp",
@@ -141,7 +141,7 @@ class TestPromptOptimizer:
         assert AGENTIC_SYSTEM_PROMPT in prompt
 
     def test_optimize_llm_uses_llm_system_prompt(self, tmp_path: Path) -> None:
-        from src.representation.llm_prompts import SYSTEM_PROMPT
+        from src.eventsat.llm_prompts import SYSTEM_PROMPT
 
         optimizer = PromptOptimizer(config={
             "experiment_id": "llm_exp",
@@ -178,7 +178,7 @@ class TestPromptOptimizer:
 
 class TestLLMEventSatPromptOptimized:
     def test_llm_prompt_optimized_loads_from_file(self, tmp_path: Path) -> None:
-        from src.representation.llm_eventsat import LLMEventSat
+        from src.eventsat.llm import LLMEventSat
 
         prompt_path = tmp_path / "prompt.txt"
         prompt_path.write_text("Custom LLM prompt for test", encoding="utf-8")
@@ -193,16 +193,16 @@ class TestLLMEventSatPromptOptimized:
         assert rep._system_prompt == "Custom LLM prompt for test"
 
     def test_llm_hand_designed_uses_default_prompt(self) -> None:
-        from src.representation.llm_eventsat import LLMEventSat
-        from src.representation.llm_prompts import SYSTEM_PROMPT
+        from src.eventsat.llm import LLMEventSat
+        from src.eventsat.llm_prompts import SYSTEM_PROMPT
 
         rep = LLMEventSat(config={"llm_mock": True})
         assert rep._system_prompt == SYSTEM_PROMPT
 
     def test_llm_prompt_optimized_fallback_on_missing(self) -> None:
         import warnings
-        from src.representation.llm_eventsat import LLMEventSat
-        from src.representation.llm_prompts import SYSTEM_PROMPT
+        from src.eventsat.llm import LLMEventSat
+        from src.eventsat.llm_prompts import SYSTEM_PROMPT
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")

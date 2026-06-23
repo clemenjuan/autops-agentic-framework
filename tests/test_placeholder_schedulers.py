@@ -6,12 +6,10 @@ import warnings
 
 import pytest
 
-from src.decision_procedure.context import DecisionContext
-from src.behaviour.controller import BehaviourController
-from src.orchestration.config_loader import ExperimentConfig
-from src.representation.placeholder_schedulers import (
-    SubsymbolicSchedulerEventSat,
-)
+from src.core.decision_procedure.context import DecisionContext
+from src.core.behaviour.controller import BehaviourController
+from src.core.config_loader import ExperimentConfig
+from src.eventsat.placeholders import SubsymbolicSchedulerEventSat
 
 
 def _fresh_pass_state():
@@ -64,7 +62,7 @@ class TestPlaceholderSchedulers:
 
     @pytest.mark.parametrize("cls,reg_name,family", PLACEHOLDERS)
     def test_registered_in_controller(self, cls, reg_name, family):
-        import src.representation.placeholder_schedulers  # noqa: F401  (trigger @register)
+        import src.eventsat.placeholders  # noqa: F401  (trigger @register)
 
         controller = BehaviourController(config={})
         rep = controller.get_representation(repr_type=reg_name, repr_config={})

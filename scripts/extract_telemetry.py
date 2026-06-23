@@ -81,7 +81,9 @@ def main() -> None:
         if series is None:
             continue
         out[rid] = {"label": label, **series}
-    Path("data/figures/telemetry.json").write_text(json.dumps(out))
+    out_path = Path("data/figures/telemetry.json")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(out))
     print("telemetry extracted:", list(out))
 
 

@@ -22,7 +22,7 @@ def main() -> int:
     host = os.environ.get("OLLAMA_HOST", "(unset)")
     print(f"OLLAMA_HOST = {host}")
 
-    from src.representation.llm_client import LLMClient
+    from src.core.llm_client import LLMClient
 
     client = LLMClient({
         "llm_provider": "ollama",

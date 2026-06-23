@@ -5,11 +5,11 @@ import warnings
 
 import pytest
 
-from src.behaviour.controller import BehaviourController
-from src.decision_procedure.context import DecisionContext
-from src.orchestration.config_loader import ExperimentConfig, load_config
-from src.representation.llm_scheduler_eventsat import LLMSchedulerEventSat
-from src.representation.llm_prompts import format_schedule_prompt
+from src.core.behaviour.controller import BehaviourController
+from src.core.decision_procedure.context import DecisionContext
+from src.core.config_loader import ExperimentConfig, load_config
+from src.eventsat.llm_scheduler import LLMSchedulerEventSat
+from src.eventsat.llm_prompts import format_schedule_prompt
 
 
 def _fresh_pass_state():
@@ -78,7 +78,7 @@ def test_hllm_safety_shield_vetoes_critical_states_not_observation_volume() -> N
 
 
 def test_llm_single_scheduler_does_not_symbolically_cap_observe_duration() -> None:
-    from src.representation.llm_scheduler_eventsat import LLMSingleSchedulerEventSat
+    from src.eventsat.llm_scheduler import LLMSingleSchedulerEventSat
     rep = LLMSingleSchedulerEventSat({"settling_time_steps": 2})
     state = _fresh_pass_state()
     state.update({
@@ -105,8 +105,8 @@ def test_ag_hllm_s_resolves_to_real_scheduler() -> None:
 
 
 def test_registered_real_not_placeholder() -> None:
-    import src.representation.llm_scheduler_eventsat  # noqa: F401
-    from src.behaviour.controller import _REPRESENTATION_REGISTRY
+    import src.eventsat.llm_scheduler  # noqa: F401
+    from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
     cls = _REPRESENTATION_REGISTRY["llm_scheduler_eventsat"]
     assert cls is LLMSchedulerEventSat
     assert cls.is_placeholder is False
@@ -142,7 +142,7 @@ def test_stale_telemetry_communicates_first() -> None:
 
 def test_client_mean_latency_and_reset() -> None:
     """M-07 plumbing: mean per-live-call latency + per-episode counter reset."""
-    from src.representation.llm_client import LLMClient
+    from src.core.llm_client import LLMClient
     c = LLMClient({"llm_mock": True})
     c._total_calls = 5
     c._cache_hits = 2
@@ -157,7 +157,7 @@ def test_client_mean_latency_and_reset() -> None:
 def test_llm_single_scheduler_real_and_ungrounded() -> None:
     """llm-s ground core is real (not placeholder) and applies NO symbolic grounding:
     the LLM schedule passes through without clamp/pad (unlike hllm-s)."""
-    from src.representation.llm_scheduler_eventsat import LLMSingleSchedulerEventSat
+    from src.eventsat.llm_scheduler import LLMSingleSchedulerEventSat
     rep = LLMSingleSchedulerEventSat({"llm_mock": True})
     assert rep.is_placeholder is False
     assert rep._symbolic_grounding is False
@@ -171,8 +171,8 @@ def test_llm_single_scheduler_real_and_ungrounded() -> None:
 def test_m07_per_decision_cycle_and_ground_latency() -> None:
     """M-07 averages over decision cycles (steps where inference ran), not all steps;
     AH ground-planner latency is captured separately."""
-    from src.orchestration.metrics_collector import StepMetrics
-    from src.orchestration.eventsat_metrics import EventSatMetricsCollector
+    from src.core.metrics_collector import StepMetrics
+    from src.eventsat.metrics import EventSatMetricsCollector
     col = EventSatMetricsCollector(config={})
     steps = []
     # 3 steps: two ran inference (1.0 s, 3.0 s; one with a 2.0 s ground call), one skipped.

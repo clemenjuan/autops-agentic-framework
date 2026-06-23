@@ -171,7 +171,7 @@ readouts:
 
 ## Implementation Gates
 
-1. Add `src/environment/scenarios/flamingo.py` and
+1. Add `src/flamingo/env.py` and
    `configs/scenarios/flamingo.yaml`.
 2. Teach `ExperimentRunner._create_environment()` and the metrics factory to
    instantiate Flamingo.

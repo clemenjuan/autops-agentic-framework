@@ -37,10 +37,7 @@ Regenerate with:
 uv run python scripts/generate_experiment_configs.py
 ```
 
-Cells with real cores (`symb`/`rl`/`hllm-s`/`hllm-a`) run their actual policy;
-the `hrl`/`llm-s`/`llm-a` cells resolve to documented placeholders
-(`is_placeholder`, symbolic stand-ins) until their real cores land. `template.yaml`
-documents every field.
+Cells with real cores (`symb`/`rl`/`llm-s`/`llm-a`/`hllm-s`/`hllm-a`) run their actual policy in supported slots. HRL remains the documented placeholder family (`is_placeholder`, symbolic stand-ins). Pure LLM onboard cells are not onboard-feasible and remain placeholder-marked; pure LLM ground schedulers are real. `template.yaml` documents every field.
 
 ## Usage
 
@@ -52,7 +49,7 @@ uv run autops batch configs/experiments/   # run all
 
 ## Validation
 
-All configs are validated on load by Pydantic (`src/orchestration/config_loader.py`);
+All configs are validated on load by Pydantic (`src/core/config_loader.py`);
 invalid configurations raise clear errors. The `representation` field accepts the
 7-cell tokens above (normalised to the internal substrate + action space) as well
 as the legacy substrate values.

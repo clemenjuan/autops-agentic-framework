@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.orchestration.config_loader import ExperimentConfig
+from src.core.config_loader import ExperimentConfig
 
 _ROOT = Path(__file__).resolve().parents[1]
 _SCRIPT = _ROOT / "scripts" / "generate_experiment_configs.py"
@@ -52,9 +52,9 @@ def test_ah_pairs_are_dual_core() -> None:
 
 
 def test_placeholder_cells_present_and_flagged() -> None:
-    import src.representation.placeholder_cells  # noqa: F401
-    import src.representation.agentic_scheduler_eventsat  # noqa: F401  (real llm-a/hllm-a)
-    from src.behaviour.controller import _REPRESENTATION_REGISTRY
+    import src.eventsat.placeholders  # noqa: F401
+    import src.eventsat.agentic_scheduler  # noqa: F401  (real llm-a/hllm-a)
+    from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         # hrl ground is still a documented placeholder...

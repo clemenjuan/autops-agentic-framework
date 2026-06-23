@@ -21,8 +21,8 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from src.orchestration.config_loader import apply_overrides, load_config
-from src.orchestration.experiment_runner import ExperimentRunner
+from src.core.config_loader import apply_overrides, load_config
+from src.core.experiment_runner import ExperimentRunner
 
 
 def _smoke_one(config_path: str, episodes: int, steps: int) -> bool:

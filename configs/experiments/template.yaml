@@ -20,7 +20,7 @@ seed: 42
 # (Kim et al. 2025 "Towards a Science of Scaling Agent Systems")
 agent_organization: "sas"
 
-# decision_procedure: sda | ooda | react | <custom>
+# decision_procedure: sda (fixed for current benchmarks)
 decision_procedure: "sda"
 
 # representation: a 7-cell framework token (morphological_matrix.md §2) —

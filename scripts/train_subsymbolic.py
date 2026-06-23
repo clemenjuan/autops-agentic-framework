@@ -99,7 +99,7 @@ def main() -> None:
     args = parse_args()
 
     # --- Load config ---
-    from src.orchestration.config_loader import load_config
+    from src.core.config_loader import load_config
     config = load_config(args.config)
 
     if args.episodes is not None:
@@ -131,7 +131,7 @@ def main() -> None:
     from torch.optim import Adam
 
     # --- Build Gymnasium wrapper ---
-    from src.environment.gymnasium_wrapper import EventSatGymnasium, GYMNASIUM_AVAILABLE
+    from src.eventsat.gymnasium_wrapper import EventSatGymnasium, GYMNASIUM_AVAILABLE
     if not GYMNASIUM_AVAILABLE:
         logger.error("gymnasium not installed. Run: uv sync --extra rl")
         sys.exit(1)
@@ -140,9 +140,9 @@ def main() -> None:
     env = EventSatGymnasium(env_config=env_config)
 
     # --- Build policy + trainer ---
-    from src.representation.neural_policy import ActorCritic
-    from src.behaviour.rollout_buffer import RolloutBuffer
-    from src.behaviour.training_pipeline import PPOTrainer
+    from src.eventsat.neural_policy import ActorCritic
+    from src.core.behaviour.rollout_buffer import RolloutBuffer
+    from src.core.behaviour.training_pipeline import PPOTrainer
 
     policy = ActorCritic()
     rollout_fragment = config.behaviour_config.get("rollout_fragment", 128)

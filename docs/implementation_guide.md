@@ -6,55 +6,18 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ## General Principles
 
-1. **Abstract Before Concrete** — Define interfaces first; implement after.
-2. **Configuration Over Code** — Every experimental choice goes in YAML.
-3. **Test-Driven Development** — Write tests alongside code.
-4. **Scientific Rigor** — Follow published papers; document deviations.
-5. **Incremental Complexity** — Start simple, add complexity systematically.
+1. **No Trash Files** — Add only necessary source, configs, tests, and canonical docs. Prefer one existing file over several new ones; keep generated artifacts ignored and cleaned up.
+2. **Abstract Before Concrete** — Define interfaces first; implement after.
+3. **Configuration Over Code** — Every experimental choice goes in YAML.
+4. **Test-Driven Development** — Write tests alongside code.
+5. **Scientific Rigor** — Follow published papers; document deviations.
+6. **Incremental Complexity** — Start simple, add complexity systematically.
 
 ---
 
-## Adding a New Decision Procedure
+## Decision Procedure Policy
 
-*(The `src/decision_procedure/` module implements the per-step decision driver. It is held fixed in the EventSat benchmark — not a framework component; see [`morphological_matrix.md`](morphological_matrix.md).)*
-
-### Prerequisites
-- Read and understand the source paper thoroughly.
-- Identify the algorithm steps (reference specific sections/figures).
-
-### Steps
-
-1. **Create the module** at `src/decision_procedure/<loop_name>.py`.
-
-2. **Cite the paper** in the module docstring:
-   ```python
-   """
-   <Name> Decision Procedure.
-
-   Implementation following:
-       <Authors> (<Year>). "<Title>". <Venue>.
-       Section X.Y, Algorithm Z.
-   """
-   ```
-
-3. **Subclass `DecisionProcedure`** from `src/decision_procedure/base.py`.
-
-4. **Implement `process()`**: Map the paper's algorithm steps into the
-   `process(observation, memory) → (action, memory)` signature.
-
-5. **Implement `get_metrics()`**: Return relevant metrics (latency, iterations, etc.).
-
-6. **Add tests** in `tests/test_decision_loops.py`:
-   - Test with a dummy representation.
-   - Test that the algorithm steps execute in the correct order.
-   - Test edge cases (empty observation, etc.).
-
-7. **Register in configuration**: Ensure the experiment runner's factory
-   can instantiate the new loop from YAML config.
-
-8. **Document**: Update `src/decision_procedure/README.md`.
-
----
+The current EventSat and Flamingo benchmarks hold the decision driver fixed to SDA. Do not add new files under `src/core/decision_procedure/` unless the benchmark design itself changes. Agentic behaviour belongs in the representation layer (`agentic_eventsat` / scheduler variants), not in a separate ReAct-style loop.
 
 ## Adding a New Representation
 
@@ -65,9 +28,9 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 ### Steps
 
-1. **Create the module** at `src/representation/<repr_name>.py`.
+1. **Create the module** in the owning scenario package, e.g. `src/eventsat/<repr_name>.py` or `src/flamingo/<repr_name>.py`.
 
-2. **Subclass `Representation`** from `src/representation/base.py`.
+2. **Subclass `Representation`** from `src/core/representation.py`.
 
 3. **Implement `encode_observation()`**: Transform raw observations into
    the representation's internal format.
@@ -78,7 +41,7 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 6. **Register** with the `BehaviourController` using the `@register()` decorator:
    ```python
-   from src.behaviour.controller import register
+   from src.core.behaviour.controller import register
 
    @register("my_symbolic_rules")
    class MySymbolicRepresentation(Representation):
@@ -87,7 +50,7 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 7. **Add tests** in `tests/test_representations.py`.
 
-8. **Document**: Update `src/representation/README.md`.
+8. **Document**: Update `docs/implementations.md` when the representation changes.
 
 ---
 
@@ -95,9 +58,9 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 ### Steps
 
-1. **Create the module** at `src/agent_organization/<org_name>.py`.
+1. **Create the module** at `src/core/organization/<org_name>.py`.
 
-2. **Subclass `AgentOrganization`** from `src/agent_organization/base.py`.
+2. **Subclass `AgentOrganization`** from `src/core/organization/base.py`.
 
 3. **Implement**:
    - `initialize()`: Set up agents for given constellation size.
@@ -115,9 +78,9 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 ### Steps
 
-1. **Create the module** at `src/operations/<paradigm_name>.py`.
+1. **Create the module** at `src/core/operations/<paradigm_name>.py`.
 
-2. **Subclass `OperationsParadigm`** from `src/operations/base.py`.
+2. **Subclass `OperationsParadigm`** from `src/core/operations/base.py`.
 
 3. **Implement**:
    - `filter_observation(full_observation, step)`: What the agent sees (full state, stale data, partial view, etc.).
@@ -125,18 +88,18 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
    - `process_action(action, step, ground_pass_active)`: Buffer, delay, transform, or pass through actions.
    - `get_name()`: Return a unique string identifier.
 
-4. **Register** in `src/orchestration/config_loader.py`:
+4. **Register** in `src/core/config_loader.py`:
    - Add the paradigm name to `VALID_OPERATIONS_PARADIGMS`.
 
-5. **Register** in `src/orchestration/experiment_runner.py`:
+5. **Register** in `src/core/experiment_runner.py`:
    - Add an import and case in `_create_operations_paradigm()`.
 
 6. **Add tests** in `tests/test_operations_paradigm.py`.
 
 ### Reference implementations
 
-- `AutonomousHybrid` (`src/operations/autonomous_hybrid.py`): Pass-through paradigm. Full real-time state, immediate actions every step.
-- `ConventionalGround` (`src/operations/conventional_ground.py`): Stale telemetry, uplink-gated actions during ground passes only.
+- `AutonomousHybrid` (`src/core/operations/autonomous_hybrid.py`): Pass-through paradigm. Full real-time state, immediate actions every step.
+- `ConventionalGround` (`src/core/operations/conventional_ground.py`): Stale telemetry, uplink-gated actions during ground passes only.
 
 ---
 
@@ -144,9 +107,9 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 ### Steps
 
-1. **Create the scenario** at `src/environment/scenarios/<scenario_name>.py`.
+1. **Create the scenario package** at `src/<scenario_name>/` with an `env.py`.
 
-2. **Subclass `SatelliteEnvironment`** from `src/environment/satellite_env.py`.
+2. **Subclass `SatelliteEnvironment`** from `src/core/satellite_env.py`.
 
 3. **Implement**:
    - `reset()`: Initialise the constellation for this scenario.
@@ -185,9 +148,10 @@ uv run autops batch configs/experiments/generated/
 
 ### Analysing Results
 ```bash
-uv run autops analyze data/results/my_experiment/
-jupyter notebook notebooks/analysis.ipynb
+uv run python scripts/refresh_board.py
 ```
+
+Open `data/figures/index.html` for the local board launcher.
 
 ---
 

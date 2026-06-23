@@ -2,15 +2,15 @@
 
 import pytest
 
-from src.environment.satellite_env import (
+from src.core.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
     SatelliteState,
 )
-from src.operations.autonomous_ground import AutonomousGround
-from src.operations.base import GroundKnowledge, OperationsParadigm
-from src.operations.autonomous_hybrid import AutonomousHybrid
-from src.operations.conventional_ground import ConventionalGround
+from src.core.operations.autonomous_ground import AutonomousGround
+from src.core.operations.base import GroundKnowledge, OperationsParadigm
+from src.core.operations.autonomous_hybrid import AutonomousHybrid
+from src.core.operations.conventional_ground import ConventionalGround
 
 
 # -----------------------------------------------------------------
@@ -292,31 +292,31 @@ class TestAutonomousGround:
 
 class TestConfigValidation:
     def test_valid_operations_paradigm_autonomous(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         cfg = ExperimentConfig(operations_paradigm="autonomous_hybrid")
         assert cfg.operations_paradigm == "autonomous_hybrid"
 
     def test_valid_operations_paradigm_autonomous_ground(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         cfg = ExperimentConfig(operations_paradigm="autonomous_ground")
         assert cfg.operations_paradigm == "autonomous_ground"
 
     def test_valid_operations_paradigm_conventional(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         cfg = ExperimentConfig(operations_paradigm="conventional_ground")
         assert cfg.operations_paradigm == "conventional_ground"
 
     def test_invalid_operations_paradigm_raises(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         with pytest.raises(Exception):
             ExperimentConfig(operations_paradigm="telepathic")
 
     def test_default_is_autonomous_hybrid(self):
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         cfg = ExperimentConfig()
         assert cfg.operations_paradigm == "autonomous_hybrid"
@@ -330,8 +330,8 @@ class TestConfigValidation:
 class TestExperimentRunnerIntegration:
     def test_baseline_with_autonomous_hybrid(self, tmp_path):
         """The existing baseline should work identically with autonomous_hybrid."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_onboard",
@@ -362,7 +362,7 @@ class TestExperimentRunnerIntegration:
         would degrade to 'charge between passes'. The validator blocks it — use a
         schedule producer (see test_conventional_ground_with_schedule_based).
         """
-        from src.orchestration.config_loader import ExperimentConfig
+        from src.core.config_loader import ExperimentConfig
 
         with pytest.raises(ValueError, match="schedule-producing"):
             ExperimentConfig(
@@ -385,8 +385,8 @@ class TestExperimentRunnerIntegration:
 
     def test_conventional_ground_with_schedule_based(self, tmp_path):
         """Conventional ground + schedule_based_eventsat: the intended pairing."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_ground_schedule",
@@ -413,8 +413,8 @@ class TestExperimentRunnerIntegration:
 
     def test_autonomous_ground_with_schedule_based(self, tmp_path):
         """Autonomous ground + schedule_based_eventsat: algorithmic no-delay pairing."""
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         cfg = ExperimentConfig(
             experiment_id="ops_test_ag_schedule",
@@ -468,7 +468,7 @@ class TestInferenceGating:
 
     def test_cg_allows_inference_only_during_pass(self):
         """ConventionalGround allows inference only when ground pass active."""
-        from src.operations.conventional_ground import ConventionalGround
+        from src.core.operations.conventional_ground import ConventionalGround
         cg = ConventionalGround(config={"orbital_period_steps": 93})
         assert cg.should_allow_inference(10, ground_pass_active=False) is False
         assert cg.should_allow_inference(50, ground_pass_active=True) is True

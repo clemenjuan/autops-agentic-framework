@@ -6,7 +6,7 @@
 
 ## Overview
 
-EventSat is the implemented benchmark scenario; a multi-satellite scenario is planned later. Each scenario builds on the environment abstraction in `src/environment/`.
+EventSat is the implemented benchmark scenario; a multi-satellite scenario is planned later. Each scenario builds on the environment abstraction in `src/core/satellite_env.py`.
 
 The scenario choice does **not** affect the cognitive architecture comparison methodology — the same morphological matrix dimensions are evaluated across all scenarios.
 
@@ -51,12 +51,12 @@ Internal TUM/AUTOPS mission data — high confidence in accurate subsystem model
 
 ### Implementation
 
-**Environment:** `src/environment/scenarios/eventsat_env.py`
+**Environment:** `src/eventsat/env.py`
 **Scenario config:** `configs/scenarios/eventsat.yaml`
 **Experiment configs:** `configs/experiments/eventsat_sas_ah_symb_symb.yaml` (autonomous hybrid, symbolic both cores), `configs/experiments/eventsat_sas_conventional_symb.yaml` (conventional, symbolic)
-**Metrics collector:** `src/orchestration/eventsat_metrics.py`
-**Representation:** `src/representation/rule_based_eventsat.py`
-**Decision loop:** `src/decision_procedure/sda_loop.py`
+**Metrics collector:** `src/eventsat/metrics.py`
+**Representation:** `src/eventsat/symbolic.py`
+**Decision loop:** `src/core/decision_procedure/sda_loop.py`
 
 ### Satellite Modes
 
@@ -90,7 +90,7 @@ Pipeline backpressure: agent stops observing when `obc_mb + jetson_compressed_mb
 
 ### Orbital Mechanics
 
-Eclipse intervals and ground station passes are pre-computed at episode reset via `src/environment/orbital/context.py`. Two backends are available:
+Eclipse intervals and ground station passes are pre-computed at episode reset via `src/orbital/context.py`. Two backends are available:
 - **Orekit** (default when installed, `uv sync --extra orbital`): J2-perturbed propagation via EcksteinHechler, geometric shadow computation, elevation-based pass detection at Ottobrunn (48.05°N, 11.66°E, min elevation 10°). Ground passes are fully deterministic from orbital mechanics — no stochastic component.
 - **Simplified** (fallback when Orekit is not installed): Phase-fraction eclipse model, stochastic pass generation. A warning is logged when this fallback is used in production.
 
@@ -172,7 +172,7 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 
 ### Implementation
 
-**File:** `src/environment/scenarios/flamingo.py`
+**File:** `src/flamingo/env.py`
 **Config:** `configs/scenarios/flamingo.yaml`
 **MVP plan:** [`docs/flamingo_mvp.md`](flamingo_mvp.md)
 
@@ -180,7 +180,7 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 
 ## Implementation Steps (per scenario)
 
-1. Define the environment subclass in `src/environment/scenarios/`.
+1. Define the environment subclass in the scenario-owned package (`src/eventsat/`, `src/flamingo/`, or a new scenario package).
 2. Define scenario-specific task types and constraints.
 3. Define the reward function (maps to utility metric).
 4. Define the resource model.

@@ -5,8 +5,8 @@ Tests P1 (multi-step compression), P2 (mode transition overhead),
 P3 (3-pool data pipeline), and thermal model removal.
 """
 import pytest
-from src.decision_procedure.context import DecisionContext
-from src.environment.scenarios.eventsat_env import EventSatEnvironment
+from src.core.decision_procedure.context import DecisionContext
+from src.eventsat.env import EventSatEnvironment
 
 
 # -----------------------------------------------------------------
@@ -547,7 +547,7 @@ class TestPipelineBackpressure:
 
     def test_agent_rule_pipeline_saturation(self):
         """R5b: Agent charges when pipeline exceeds daily downlink budget."""
-        from src.representation.rule_based_eventsat import RuleBasedEventSat
+        from src.eventsat.symbolic import RuleBasedEventSat
         agent = RuleBasedEventSat()
         # Pipeline data exceeds budget
         state = {
@@ -568,7 +568,7 @@ class TestPipelineBackpressure:
 
     def test_agent_rule_detect_when_undetected(self):
         """R5c: Agent detects when there are undetected observations."""
-        from src.representation.rule_based_eventsat import RuleBasedEventSat
+        from src.eventsat.symbolic import RuleBasedEventSat
         agent = RuleBasedEventSat()
         state = {
             "battery_soc": 0.9,
@@ -610,8 +610,8 @@ class TestPipelineEfficiency:
 
     def test_data_downlink_efficiency_computation(self):
         """Data downlink efficiency = downlinked / max_achievable."""
-        from src.orchestration.eventsat_metrics import EventSatMetricsCollector
-        from src.orchestration.metrics_collector import StepMetrics
+        from src.eventsat.metrics import EventSatMetricsCollector
+        from src.core.metrics_collector import StepMetrics
 
         collector = EventSatMetricsCollector(config={
             "utility_targets": {
@@ -714,7 +714,7 @@ class TestPayloadSend:
 
     def test_agent_rule_send_when_compressed(self):
         """R5d: Agent sends when Jetson has compressed data."""
-        from src.representation.rule_based_eventsat import RuleBasedEventSat
+        from src.eventsat.symbolic import RuleBasedEventSat
         agent = RuleBasedEventSat()
         state = {
             "battery_soc": 0.9,
@@ -864,8 +864,8 @@ class TestCanonicalEventSatMetrics:
     """Regression tests for the 14-metric EventSat collector."""
 
     def test_canonical_metric_keys_are_present_and_bounded(self):
-        from src.orchestration.eventsat_metrics import EventSatMetricsCollector
-        from src.orchestration.metrics_collector import StepMetrics
+        from src.eventsat.metrics import EventSatMetricsCollector
+        from src.core.metrics_collector import StepMetrics
 
         collector = EventSatMetricsCollector(config={"step_duration_s": 60.0})
         requested = ["charging", "charging", "payload_observe", "payload_observe", "communication"]
@@ -914,8 +914,8 @@ class TestCanonicalEventSatMetrics:
         assert agg["commanding_effort"] >= 0.0
 
     def test_explainability_coverage_uses_decision_cycle_denominator(self):
-        from src.orchestration.eventsat_metrics import EventSatMetricsCollector
-        from src.orchestration.metrics_collector import StepMetrics
+        from src.eventsat.metrics import EventSatMetricsCollector
+        from src.core.metrics_collector import StepMetrics
 
         collector = EventSatMetricsCollector(config={"step_duration_s": 60.0})
         steps = []

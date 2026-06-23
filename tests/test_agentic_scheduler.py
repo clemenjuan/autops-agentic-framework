@@ -10,10 +10,10 @@ import warnings
 
 import pytest
 
-from src.decision_procedure.context import DecisionContext
-from src.behaviour.controller import BehaviourController, _REPRESENTATION_REGISTRY
-from src.orchestration.config_loader import load_config
-from src.representation.agentic_scheduler_eventsat import (
+from src.core.decision_procedure.context import DecisionContext
+from src.core.behaviour.controller import BehaviourController, _REPRESENTATION_REGISTRY
+from src.core.config_loader import load_config
+from src.eventsat.agentic_scheduler import (
     AgenticSchedulerEventSat,
     LLMAgenticSchedulerEventSat,
 )
@@ -42,7 +42,7 @@ def test_both_cells_are_real_not_placeholder() -> None:
 
 
 def test_registered_to_real_classes() -> None:
-    import src.representation.agentic_scheduler_eventsat  # noqa: F401  (trigger @register)
+    import src.eventsat.agentic_scheduler  # noqa: F401  (trigger @register)
     assert _REPRESENTATION_REGISTRY["agentic_scheduler_eventsat"] is AgenticSchedulerEventSat
     assert _REPRESENTATION_REGISTRY["llm_agentic_scheduler_eventsat"] is LLMAgenticSchedulerEventSat
     assert _REPRESENTATION_REGISTRY["agentic_scheduler_eventsat"].is_placeholder is False
@@ -50,7 +50,7 @@ def test_registered_to_real_classes() -> None:
 
 
 def test_controller_builds_real_agentic_schedulers() -> None:
-    import src.representation.agentic_scheduler_eventsat  # noqa: F401
+    import src.eventsat.agentic_scheduler  # noqa: F401
     controller = BehaviourController(config={})
     for name, cls in (
         ("agentic_scheduler_eventsat", AgenticSchedulerEventSat),

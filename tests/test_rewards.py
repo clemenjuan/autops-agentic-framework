@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from src.environment.rewards import EventSatRewardFunction
+from src.eventsat.rewards import EventSatRewardFunction
 
 
 @pytest.fixture
@@ -156,7 +156,7 @@ class TestIntegrationWithEnv:
     """Test that the reward function integrates with EventSatEnvironment."""
 
     def test_env_uses_reward_fn(self):
-        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+        from src.eventsat.env import EventSatEnvironment
         env = EventSatEnvironment({
             "scenario_config": "configs/scenarios/eventsat.yaml",
             "max_steps": 100,
@@ -168,7 +168,7 @@ class TestIntegrationWithEnv:
 
     def test_no_free_charging_reward(self):
         """Charging should not give positive reward (bug fix)."""
-        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+        from src.eventsat.env import EventSatEnvironment
         env = EventSatEnvironment({
             "scenario_config": "configs/scenarios/eventsat.yaml",
             "max_steps": 100,
@@ -179,7 +179,7 @@ class TestIntegrationWithEnv:
 
     def test_reward_components_present(self):
         """Reward should be a finite number from structured computation."""
-        from src.environment.scenarios.eventsat_env import EventSatEnvironment
+        from src.eventsat.env import EventSatEnvironment
         env = EventSatEnvironment({
             "scenario_config": "configs/scenarios/eventsat.yaml",
             "max_steps": 100,

@@ -10,8 +10,8 @@ import unittest
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
 
-from src.decision_procedure.context import DecisionContext
-from src.representation.agentic_tools import (
+from src.core.decision_procedure.context import DecisionContext
+from src.eventsat.agentic_tools import (
     TOOL_REGISTRY,
     VALID_MODES,
     check_battery,
@@ -22,13 +22,13 @@ from src.representation.agentic_tools import (
     execute_tool,
     recall_history,
 )
-from src.representation.agentic_prompts import (
+from src.eventsat.agentic_prompts import (
     AGENTIC_SYSTEM_PROMPT,
     format_agentic_reasoning_prompt,
     format_planning_prompt,
     format_tool_result_prompt,
 )
-from src.representation.agentic_eventsat import AgenticEventSat
+from src.eventsat.agentic import AgenticEventSat
 
 
 # ======================================================================
@@ -376,7 +376,7 @@ class TestAgenticEventSat(unittest.TestCase):
         self.repr = AgenticEventSat(_mock_config())
 
     def test_registration(self):
-        from src.behaviour.controller import BehaviourController
+        from src.core.behaviour.controller import BehaviourController
         self.assertIn("agentic_eventsat", BehaviourController.list_registered())
 
     def test_encode_observation_empty(self):
@@ -541,29 +541,7 @@ class TestAgenticWithLoops(unittest.TestCase):
         self.assertIn("eventsat_0", action)
         self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
 
-    def test_with_ooda_context(self):
-        ctx = _make_context(
-            loop_type="ooda",
-            enrichments={"situation_class": "low_power", "urgency": 0.7},
-        )
-        action = self.repr.select_action(ctx)
-        self.assertIn("eventsat_0", action)
-        self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
-
-    def test_with_react_context(self):
-        ctx = _make_context(
-            loop_type="react",
-            enrichments={
-                "reasoning_trace": [{"check": "battery", "value": 0.7, "implication": "ok"}],
-                "iteration": 1,
-                "grounding_violations": [],
-            },
-        )
-        action = self.repr.select_action(ctx)
-        self.assertIn("eventsat_0", action)
-        self.assertIn(action["eventsat_0"]["mode"], VALID_MODES)
-
-    def test_with_react_reason_called(self):
+    def test_reason_helper(self):
         state = _make_state()
         result = self.repr.reason(state, None)
         self.assertIsInstance(result, list)
@@ -585,20 +563,20 @@ class TestAgenticWithLoops(unittest.TestCase):
 
 
 # ======================================================================
-# Emergence Controller Tests
+# Behaviour Factory Tests
 # ======================================================================
 
-class TestAgenticEmergence(unittest.TestCase):
-    """Test emergence controller integration."""
+class TestAgenticBehaviourFactory(unittest.TestCase):
+    """Test behaviour factory integration."""
 
-    def test_emergence_controller_creates_agentic(self):
-        from src.behaviour.controller import BehaviourController
+    def test_behaviour_factory_creates_agentic(self):
+        from src.core.behaviour.controller import BehaviourController
         controller = BehaviourController(config=_mock_config())
         repr_obj = controller.get_representation("agentic_eventsat")
         self.assertIsInstance(repr_obj, AgenticEventSat)
 
-    def test_emergence_controller_lists_agentic(self):
-        from src.behaviour.controller import BehaviourController
+    def test_behaviour_factory_lists_agentic(self):
+        from src.core.behaviour.controller import BehaviourController
         registered = BehaviourController.list_registered()
         self.assertIn("agentic_eventsat", registered)
 

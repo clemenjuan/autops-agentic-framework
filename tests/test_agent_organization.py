@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import pytest
 
-from src.agent_organization.base import AgentAction, AgentObservation, AgentOrganization
-from src.agent_organization.single_agent_system import SingleAgentSystem
-from src.agent_organization.centralized_mas import CentralizedMAS
-from src.agent_organization.decentralized_mas import DecentralizedMAS
-from src.agent_organization.independent_mas import IndependentMAS
-from src.agent_organization.hybrid_mas import HybridMAS
+from src.core.organization.base import AgentAction, AgentObservation, AgentOrganization
+from src.core.organization.single_agent_system import SingleAgentSystem
+from src.core.organization.centralized_mas import CentralizedMAS
+from src.core.organization.decentralized_mas import DecentralizedMAS
+from src.core.organization.independent_mas import IndependentMAS
+from src.core.organization.hybrid_mas import HybridMAS
 
 
 # ======================================================================
@@ -160,7 +160,7 @@ class TestCentralizedMAS:
 
 
 # ======================================================================
-# DecentralizedMAS — placeholder, deferred to constellation scenarios
+# DecentralizedMAS — Flamingo organisation implementation
 # ======================================================================
 
 
@@ -210,7 +210,7 @@ class TestDecentralizedMAS:
 
 
 # ======================================================================
-# IndependentMAS — placeholder, deferred to constellation scenarios
+# IndependentMAS — Flamingo organisation implementation
 # ======================================================================
 
 
@@ -221,7 +221,7 @@ class TestIndependentMAS:
         assert len(org.get_agents()) == 3
 
     def test_distribute_gives_each_agent_only_its_own_satellite(self) -> None:
-        from src.environment.satellite_env import (
+        from src.core.satellite_env import (
             ConstellationState,
             EnvironmentObservation,
             SatelliteState,
@@ -289,7 +289,7 @@ class TestHybridMAS:
         assert len(org.get_agents()) == 2
 
     def test_distribute_gives_each_head_only_its_cluster(self) -> None:
-        from src.environment.satellite_env import (
+        from src.core.satellite_env import (
             ConstellationState,
             EnvironmentObservation,
             SatelliteState,

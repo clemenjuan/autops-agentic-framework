@@ -17,13 +17,13 @@ from pathlib import Path
 
 
 def _run_short_experiment(tmp_path, *, episodes: int = 2, steps: int = 30):
-    from src.orchestration.config_loader import ExperimentConfig
-    from src.orchestration.experiment_runner import ExperimentRunner
+    from src.core.config_loader import ExperimentConfig
+    from src.core.experiment_runner import ExperimentRunner
 
     cfg = ExperimentConfig(
         experiment_id="results_serialisation_test",
         agent_organization="sas",
-        decision_procedure="ooda",
+        decision_procedure="sda",
         representation="symbolic",
         behaviour="hand_designed",
         operations_paradigm="autonomous_hybrid",
@@ -129,7 +129,7 @@ class TestCompactTelemetryBlock:
 
     def test_telemetry_only_for_leading_sample(self, tmp_path, monkeypatch) -> None:
         """Episodes beyond the sample window carry no telemetry (keeps file small)."""
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.experiment_runner import ExperimentRunner
 
         monkeypatch.setattr(ExperimentRunner, "TELEMETRY_SAMPLE_EPISODES", 1)
         results_path = _run_short_experiment(tmp_path, episodes=2, steps=30)
@@ -147,8 +147,8 @@ class TestResidentMemoryBounded:
     """
 
     def test_in_memory_steps_stripped_past_sample(self, tmp_path, monkeypatch) -> None:
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         monkeypatch.setattr(ExperimentRunner, "TELEMETRY_SAMPLE_EPISODES", 2)
         cfg = ExperimentConfig(

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.memory.writable_memory import WritableMemory
+from src.core.memory.writable_memory import WritableMemory
 
 
 # ======================================================================
@@ -231,8 +231,8 @@ class TestPersistence:
 class TestAgenticWritableCoalaIntegration:
     def test_memory_write_rule_tool_writes_to_writable_memory(self) -> None:
         """memory_write_rule tool appends a rule to WritableMemory."""
-        from src.representation.agentic_tools import execute_tool
-        from src.memory.writable_memory import WritableMemory
+        from src.eventsat.agentic_tools import execute_tool
+        from src.core.memory.writable_memory import WritableMemory
 
         mem = WritableMemory()
         state = {"battery_soc": 0.15, "in_sunlight": False}
@@ -248,8 +248,8 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_memory_write_episode_tool_writes_to_writable_memory(self) -> None:
         """memory_write_episode tool appends an entry to WritableMemory."""
-        from src.representation.agentic_tools import execute_tool
-        from src.memory.writable_memory import WritableMemory
+        from src.eventsat.agentic_tools import execute_tool
+        from src.core.memory.writable_memory import WritableMemory
 
         mem = WritableMemory()
         state = {}
@@ -266,8 +266,8 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_memory_write_rule_without_writable_memory_returns_error(self) -> None:
         """Calling memory_write_rule with FixedMemory returns an error dict."""
-        from src.representation.agentic_tools import execute_tool
-        from src.memory.fixed_memory import FixedMemory
+        from src.eventsat.agentic_tools import execute_tool
+        from src.core.memory.fixed_memory import FixedMemory
 
         mem = FixedMemory()
         result = execute_tool("memory_write_rule", {"rule_text": "test"}, {}, memory=mem)
@@ -275,8 +275,8 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_agentic_writable_coala_mock_uses_writable_memory(self) -> None:
         """AgenticEventSat with writable_coala mechanism creates WritableMemory."""
-        from src.representation.agentic_eventsat import AgenticEventSat
-        from src.memory.writable_memory import WritableMemory
+        from src.eventsat.agentic import AgenticEventSat
+        from src.core.memory.writable_memory import WritableMemory
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
@@ -287,7 +287,7 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_agentic_hand_designed_has_no_writable_memory(self) -> None:
         """Default hand_designed config has no internal WritableMemory."""
-        from src.representation.agentic_eventsat import AgenticEventSat
+        from src.eventsat.agentic import AgenticEventSat
 
         rep = AgenticEventSat(config={"llm_mock": True})
         assert rep._mechanism == "hand_designed"
@@ -296,8 +296,8 @@ class TestAgenticWritableCoalaIntegration:
     def test_agentic_prompt_optimized_falls_back_without_file(self) -> None:
         """prompt_optimized falls back to default prompt when file missing."""
         import warnings
-        from src.representation.agentic_eventsat import AgenticEventSat
-        from src.representation.agentic_prompts import AGENTIC_SYSTEM_PROMPT
+        from src.eventsat.agentic import AgenticEventSat
+        from src.eventsat.agentic_prompts import AGENTIC_SYSTEM_PROMPT
 
         with warnings.catch_warnings(record=True) as w:
             warnings.simplefilter("always")
@@ -311,7 +311,7 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_agentic_prompt_optimized_loads_prompt_from_file(self, tmp_path: Path) -> None:
         """prompt_optimized loads the optimised prompt from file."""
-        from src.representation.agentic_eventsat import AgenticEventSat
+        from src.eventsat.agentic import AgenticEventSat
 
         prompt_path = tmp_path / "prompt.txt"
         prompt_path.write_text("Custom optimised system prompt", encoding="utf-8")
@@ -327,7 +327,7 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_writable_coala_system_prompt_includes_suffix(self) -> None:
         """writable_coala extends the system prompt with memory instructions."""
-        from src.representation.agentic_eventsat import AgenticEventSat
+        from src.eventsat.agentic import AgenticEventSat
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
@@ -338,7 +338,7 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_writable_coala_tool_schemas_include_memory_tools(self) -> None:
         """writable_coala includes memory-write tools in the tool schema list."""
-        from src.representation.agentic_eventsat import AgenticEventSat
+        from src.eventsat.agentic import AgenticEventSat
 
         rep = AgenticEventSat(config={
             "llm_mock": True,
@@ -350,7 +350,7 @@ class TestAgenticWritableCoalaIntegration:
 
     def test_hand_designed_tool_schemas_exclude_memory_tools(self) -> None:
         """Default hand_designed config does not expose memory-write tools."""
-        from src.representation.agentic_eventsat import AgenticEventSat
+        from src.eventsat.agentic import AgenticEventSat
 
         rep = AgenticEventSat(config={"llm_mock": True})
         tool_names = {s["name"] for s in rep._tool_schemas}

@@ -12,7 +12,7 @@ Covers:
 - SubsymbolicEventSat: registration, encode_observation, select_action,
   reason(), update(), grounding, get_metrics()
 - Integration: with all 3 loop types via DecisionContext
-- Emergence controller: subsymbolic_eventsat registered after import
+- Behaviour factory: subsymbolic_eventsat registered after import
 """
 from __future__ import annotations
 
@@ -23,14 +23,14 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
-from src.representation.neural_policy import TORCH_AVAILABLE, RandomPolicy
+from src.eventsat.neural_policy import TORCH_AVAILABLE, RandomPolicy
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 def _make_eventsat_env(max_steps: int = 50) -> "EventSatEnvironment":
-    from src.environment.scenarios.eventsat_env import EventSatEnvironment
+    from src.eventsat.env import EventSatEnvironment
     return EventSatEnvironment(config={
         "max_steps": max_steps,
         "step_duration_s": 60.0,
@@ -50,13 +50,13 @@ def _make_eventsat_env(max_steps: int = 50) -> "EventSatEnvironment":
 
 
 def _make_subsymbolic_repr(mock: bool = True) -> "SubsymbolicEventSat":
-    import src.representation.subsymbolic_eventsat  # trigger registration
-    from src.representation.subsymbolic_eventsat import SubsymbolicEventSat
+    import src.eventsat.rl  # trigger registration
+    from src.eventsat.rl import SubsymbolicEventSat
     return SubsymbolicEventSat(config={"rl_mock": mock, "deterministic": False})
 
 
 def _make_decision_context(loop_type: str = "sda", state: dict | None = None):
-    from src.decision_procedure.context import DecisionContext
+    from src.core.decision_procedure.context import DecisionContext
     return DecisionContext(
         state=state or {
             "battery_soc": 0.8,
@@ -229,7 +229,7 @@ class TestEventSatGymnasium(unittest.TestCase):
             self.gymnasium_available = False
 
     def _make_wrapper(self):
-        from src.environment.gymnasium_wrapper import EventSatGymnasium
+        from src.eventsat.gymnasium_wrapper import EventSatGymnasium
         return EventSatGymnasium(env_config={
             "max_steps": 50,
             "step_duration_s": 60.0,
@@ -249,7 +249,7 @@ class TestEventSatGymnasium(unittest.TestCase):
 
     def test_import_no_gymnasium(self):
         """Module imports cleanly even without gymnasium."""
-        from src.environment import gymnasium_wrapper  # noqa: F401
+        from src.eventsat import gymnasium_wrapper  # noqa: F401
         self.assertTrue(True)
 
     @unittest.skipUnless(True, "")
@@ -381,7 +381,7 @@ class TestRandomPolicy(unittest.TestCase):
 class TestActorCritic(unittest.TestCase):
 
     def setUp(self):
-        from src.representation.neural_policy import ActorCritic
+        from src.eventsat.neural_policy import ActorCritic
         self.policy = ActorCritic()
 
     def test_forward_shape(self):
@@ -444,7 +444,7 @@ class TestActorCritic(unittest.TestCase):
             # Save state dict directly
             torch.save({"policy_state_dict": self.policy.state_dict()}, path)
             # Load into new policy
-            from src.representation.neural_policy import ActorCritic
+            from src.eventsat.neural_policy import ActorCritic
             new_policy = ActorCritic()
             state = torch.load(path, map_location="cpu", weights_only=True)
             new_policy.load_state_dict(state["policy_state_dict"])
@@ -469,7 +469,7 @@ class TestActorCritic(unittest.TestCase):
 class TestRolloutBuffer(unittest.TestCase):
 
     def _make_buffer(self, size: int = 20) -> "RolloutBuffer":
-        from src.behaviour.rollout_buffer import RolloutBuffer
+        from src.core.behaviour.rollout_buffer import RolloutBuffer
         return RolloutBuffer(buffer_size=size)
 
     def test_store_and_size(self):
@@ -554,9 +554,9 @@ class TestRolloutBuffer(unittest.TestCase):
 class TestPPOTrainer(unittest.TestCase):
 
     def setUp(self):
-        from src.representation.neural_policy import ActorCritic
-        from src.behaviour.training_pipeline import PPOTrainer
-        from src.behaviour.rollout_buffer import RolloutBuffer
+        from src.eventsat.neural_policy import ActorCritic
+        from src.core.behaviour.training_pipeline import PPOTrainer
+        from src.core.behaviour.rollout_buffer import RolloutBuffer
         self.policy = ActorCritic()
         self.trainer = PPOTrainer(
             policy=self.policy,
@@ -608,16 +608,16 @@ class TestPPOTrainer(unittest.TestCase):
             step_before = self.trainer.training_step
             self.trainer.save(path)
 
-            from src.representation.neural_policy import ActorCritic
-            from src.behaviour.training_pipeline import PPOTrainer
+            from src.eventsat.neural_policy import ActorCritic
+            from src.core.behaviour.training_pipeline import PPOTrainer
             new_policy = ActorCritic()
             new_trainer = PPOTrainer(new_policy, config={"ppo_epochs": 1, "minibatch_size": 4})
             new_trainer.load(path)
             self.assertEqual(new_trainer.training_step, step_before)
 
     def test_lr_schedule_applied(self):
-        from src.behaviour.training_pipeline import PPOTrainer
-        from src.representation.neural_policy import ActorCritic
+        from src.core.behaviour.training_pipeline import PPOTrainer
+        from src.eventsat.neural_policy import ActorCritic
         trainer = PPOTrainer(
             ActorCritic(),
             config={
@@ -642,8 +642,8 @@ class TestPPOTrainer(unittest.TestCase):
 class TestSubsymbolicEventSatRegistration(unittest.TestCase):
 
     def test_registration(self):
-        import src.representation.subsymbolic_eventsat  # noqa
-        from src.behaviour.controller import _REPRESENTATION_REGISTRY
+        import src.eventsat.rl  # noqa
+        from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
         self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
 
 
@@ -671,7 +671,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(state["_obs_vector"])))
 
     def test_select_action_valid_mode(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -684,7 +684,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIn(mode, valid)
 
     def test_select_action_has_sub_actions(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -697,7 +697,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIn(sat_action["pipeline_routing"], [0, 1])
 
     def test_anomaly_forces_safe(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         state["health_status"] = "thermal_warning"
         context = DecisionContext(
@@ -707,7 +707,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(action["eventsat_0"]["mode"], "safe")
 
     def test_empty_state_returns_charging(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         context = DecisionContext(
             state={}, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
         )
@@ -715,7 +715,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(action["eventsat_0"]["mode"], "charging")
 
     def test_grounding_no_pass_communication(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = {
             "health_status": "nominal",
             "battery_soc": 0.9,
@@ -753,7 +753,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.repr.update({"buffer": MagicMock(), "episode": 0})
 
     def test_get_metrics_returns_dict(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -767,7 +767,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertEqual(self.repr.get_name(), "SubsymbolicEventSat")
 
     def test_get_rationale_after_action(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -777,7 +777,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         self.assertIsNotNone(rationale)
 
     def test_get_last_step_data(self):
-        from src.decision_procedure.context import DecisionContext
+        from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
@@ -799,27 +799,22 @@ class TestSubsymbolicIntegrationLoops(unittest.TestCase):
 
     def setUp(self):
         self.env = _make_eventsat_env(max_steps=5)
-        import src.representation.subsymbolic_eventsat  # noqa
+        import src.eventsat.rl  # noqa
 
     def _run_loop(self, loop_type: str) -> None:
-        from src.behaviour.controller import BehaviourController
-        emergence = BehaviourController(config={"mode": "hand_designed"})
-        representation = emergence.get_representation(
+        from src.core.behaviour.controller import BehaviourController
+        factory = BehaviourController(config={"mode": "hand_designed"})
+        representation = factory.get_representation(
             "subsymbolic_eventsat",
             repr_config={"rl_mock": True, "deterministic": False},
         )
 
-        if loop_type == "sda":
-            from src.decision_procedure.sda_loop import SDALoop
-            loop = SDALoop(config={}, representation=representation)
-        elif loop_type == "ooda":
-            from src.decision_procedure.ooda_loop import OODALoop
-            loop = OODALoop(config={}, representation=representation)
-        elif loop_type == "react":
-            from src.decision_procedure.react_loop import ReActLoop
-            loop = ReActLoop(config={}, representation=representation)
+        if loop_type != "sda":
+            raise AssertionError("Only SDA loop is supported")
+        from src.core.decision_procedure.sda_loop import SDALoop
+        loop = SDALoop(config={}, representation=representation)
 
-        from src.memory.fixed_memory import FixedMemory
+        from src.core.memory.fixed_memory import FixedMemory
         memory = FixedMemory(config={})
         obs = self.env.reset(seed=0)
 
@@ -836,12 +831,6 @@ class TestSubsymbolicIntegrationLoops(unittest.TestCase):
     def test_sda_loop(self):
         self._run_loop("sda")
 
-    def test_ooda_loop(self):
-        self._run_loop("ooda")
-
-    def test_react_loop(self):
-        self._run_loop("react")
-
 
 # ===========================================================================
 # Section 9: Experiment runner integration (smoke test)
@@ -853,8 +842,8 @@ class TestExperimentRunnerSubsymbolic(unittest.TestCase):
         """The runner imports subsymbolic_eventsat, triggering @register."""
         import tempfile
 
-        from src.orchestration.config_loader import ExperimentConfig
-        from src.orchestration.experiment_runner import ExperimentRunner
+        from src.core.config_loader import ExperimentConfig
+        from src.core.experiment_runner import ExperimentRunner
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             config = ExperimentConfig(
@@ -894,7 +883,7 @@ class TestExperimentRunnerSubsymbolic(unittest.TestCase):
             runner = ExperimentRunner(config=config)
             runner._create_decision_loops()
 
-            from src.behaviour.controller import _REPRESENTATION_REGISTRY
+            from src.core.behaviour.controller import _REPRESENTATION_REGISTRY
             self.assertIn("subsymbolic_eventsat", _REPRESENTATION_REGISTRY)
 
 

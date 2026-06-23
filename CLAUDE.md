@@ -1,5 +1,8 @@
 # CLAUDE.md
 
+## Prime Directive
+**NO TRASH FILES, JUST CONCISE AND NECESSARY SCRIPTS.** Do not create new files unless they are required source, configs, tests, or canonical docs. Prefer editing an existing file. Keep generated results, caches, notebooks, coverage reports, scratch configs, and one-off artifacts out of Git and clean them up after use.
+
 ## What this is
 PhD experimental framework (TUM Chair of Spacecraft Systems). Benchmarks **cognitive architectures for autonomous satellite operations** on the **EventSat** mission (an event-camera CubeSat). Scenario-specific and metric-based — **no mission tradespace, no test catalogue, no multi-fidelity surrogate.**
 
@@ -27,8 +30,8 @@ EventSat·SAS = **32 experiments** (1 + 7 + 3 + 21), scored on 14 metrics (`morp
 uv sync --extra dev --extra orbital        # Install all deps (including Orekit)
 uv sync --extra dev --extra llm            # Add LLM providers (openai, requests)
 uv sync --extra dev --extra rl             # Add RL deps (torch, gymnasium)
-uv run pytest tests/ -v -o "addopts="     # Full test suite (685 tests: 662 pass, 23 RL skipped without --extra rl)
-uv run pytest tests/test_llm_representation.py -v -o "addopts="  # Single module
+uv run pytest tests/ -v                  # Full test suite (685 tests: 662 pass, 23 RL skipped without --extra rl)
+uv run pytest tests/test_llm_representation.py -v  # Single module
 
 # Run experiments — name = eventsat_sas_<paradigm>_<rep>  (morphological_matrix.md §5)
 #   paradigm: conventional | ag | ao | ah
@@ -49,6 +52,7 @@ uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml                 
 ```
 
 ## Rules
+- **No trash files:** prefer one existing doc/script over several new files; clean generated artifacts (`.pytest_cache/`, `htmlcov/`, scratch configs, local notebooks) before finishing.
 - **Run tests after every code change**
 - Trunk-based: commit small focused changes directly to `main`; tests must stay green per commit
 - Conventional commits: `feat:`, `fix:`, `refactor:`, `test:`, `docs:`
@@ -74,7 +78,7 @@ src/
   decision_procedure/      # per-step decision driver (+DecisionContext interface)
   representation/     # Symbolic / Subsymbolic / Hybrid cores + llm_client.py
   memory/             # FixedMemory (default, all cells); WritableMemory (agentic online-learning variant — see below)
-  behaviour/          # controller.py @register() factory; training_pipeline.py (PPO); prompt_optimizer.py
+  behaviour/          # controller.py @register() factory; PPO/prompt training helpers
   operations/         # autonomous_onboard / autonomous_hybrid / autonomous_ground / conventional_ground
   orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
   tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
@@ -97,18 +101,18 @@ See `src/memory/writable_memory.py`.
 
 ## Coding conventions
 - Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)
-- Configs declare the framework cell in `representation` (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`); a `model_validator(mode="before")` (`_normalize_representation_cell`) expands the cell to the internal substrate + `action_space` and records `representation_cell`, so resolution (`resolved_representation_type` / `resolved_onboard_type` / `resolved_ground_planner_type`) is unchanged (e.g. symb+AH→`rule_based_eventsat`, hllm-a+AH→`agentic_eventsat`). Legacy substrate values (`symbolic/subsymbolic/hybrid` + `action_space`) are still accepted. `hrl`/`llm-a` route to documented placeholders (`src/representation/placeholder_cells.py`, `is_placeholder=True`) — real cores pending. Dual-core AH with *independent* onboard/ground reps (the 21 `ah_<onboard>_<ground>` pairs) is still pending. `representation_config.type` is an optional explicit override.
+- Configs declare the framework cell in `representation` (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`); a `model_validator(mode="before")` (`_normalize_representation_cell`) expands the cell to the internal substrate + `action_space` and records `representation_cell`, so resolution (`resolved_representation_type` / `resolved_onboard_type` / `resolved_ground_planner_type`) is unchanged (e.g. symb+AH onboard→`rule_based_eventsat`; hllm-s ground→`llm_scheduler_eventsat`). Legacy substrate values (`symbolic/subsymbolic/hybrid` + `action_space`) are still accepted. **Dual-core AH** with *independent* onboard/ground reps (the 21 `ah_<onboard>_<ground>` pairs) is **implemented and runnable** — configs carry top-level `onboard:`/`ground:` blocks and the runner wires a per-step onboard loop plus a ground-planner loop at passes. The **agentic ground schedulers are now real** (`is_placeholder=False`): `hllm-a` → `agentic_scheduler_eventsat` and `llm-a` → `llm_agentic_scheduler_eventsat`, both in `agentic_scheduler_eventsat.py` — a CoALA Plan-Tool-Reflect-Decide loop (Sumers et al. 2024) whose terminal DECIDE emits a whole-pass `[mode,steps]` schedule, reusing the per-step core's tools/parser (`agentic_eventsat.py`). `hllm-a` vs `llm-a` differ **only** in the symbolic safety shield (on for hllm-a, off for llm-a — mirrors hllm-s↔llm-s); all four single-shot + agentic ground schedulers (`llm_scheduler_eventsat` hllm-s, `llm_single_scheduler_eventsat` llm-s, plus the two agentic) are real. The real `agentic_eventsat` CoALA core remains a *per-step* controller (used by the AG/AH per-step loop), distinct from these whole-pass ground schedulers. The only cell still routing to a symbolic stand-in (`is_placeholder=True`) is `hrl` (`placeholder_cells.py`). `representation_config.type` is an optional explicit override.
 - Loop-specific data goes in `context.enrichments`, never in representation state
-- All representations must implement `encode_observation()` + `select_action()`; optionally `reason()` for ReAct, `update()` for learned variants
+- All representations must implement `encode_observation()` + `select_action()`; optionally `update()` for learned variants
 - Rationale strings always set `self._last_rationale` for explainability metrics
 - `TYPE_CHECKING` guard for `DecisionContext` imports to avoid circular imports
 
 ## Testing
 ```bash
-uv run pytest tests/ -v -o "addopts="                     # All tests (clears coverage flags)
-uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single test
+uv run pytest tests/ -v                                  # All tests
+uv run pytest tests/test_X.py::TestClass::test_method -v  # Single test
 ```
-- `pyproject.toml` default `addopts` adds coverage — override with `-o "addopts="` to suppress
+- Coverage is opt-in: run `uv run pytest tests/ --cov=src --cov-report=term` only when needed. Do not generate `htmlcov/` during normal work.
 - LLM tests use `llm_mock: true` in config — **never require a live LLM in tests**
 - `test_orbital.py` requires Orekit JVM; may fail if Orekit not installed (expected)
 
@@ -117,6 +121,7 @@ uv run pytest tests/test_X.py::TestClass::test_method -v -o "addopts="  # Single
 - `representation_config.type` must match an `@register("name")` string exactly; typos give `KeyError` from `BehaviourController`
 - LLM experiments require `OLLAMA_HOST` env var (TUM: `https://ollama.sps.ed.tum.de`) or `OPENAI_API_KEY`; use `llm_mock: true` for local dev without LLM access
 - LLM response cache at `data/llm_cache/` — delete to force fresh calls  
+- The **agentic** ground prompt (`AGENTIC_SCHEDULE_SYSTEM_PROMPT`) is deliberately **decisive** ("1-2 tool calls, keep internal reasoning concise, think briefly then act"). qwen3.6 is a *thinking* model and an open-ended agentic prompt makes it deliberate the whole loop in its `<thinking>` trace → unbounded spiral that blows the 300 s wall-clock timeout (the direct single-shot prompt terminates ~29.5 s). Don't loosen it back to "call tools multiple times / verify assumptions" without re-checking it still terminates. (`think:false` "fixes" the spiral but makes the model emit malformed JSON — rejected.)
 - `autonomous_ground` and `conventional_ground` ops paradigms require `operations_paradigm_config.orbital_period_steps: 93`
 - Config validator warns (not errors) on degenerate loop × representation combinations (deterministic rep + non-SDA loop)
 - `data/results/` and `data/trained_models/` are git-ignored — never commit experiment output
