@@ -172,6 +172,9 @@ def make_space_adapter(
     env: Any | None = None,
 ) -> RLSpaceAdapter:
     """Create an RL adapter for a scenario."""
-    if scenario == "eventsat":
+    if scenario in ("eventsat", "basemultisat"):
+        # basemultisat reuses the EventSat observation/action contract
+        # (25D obs, MultiDiscrete([7, 2, 2])); per-agent adapters bind to a
+        # specific satellite via config["satellite_id"].
         return EventSatSpaceAdapter(config=config, env=env)
     raise ValueError(f"No RL space adapter registered for scenario '{scenario}'")

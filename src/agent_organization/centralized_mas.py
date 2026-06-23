@@ -70,9 +70,11 @@ class CentralizedMAS(AgentOrganization):
         """Distribute env observation to manager and local agents.
 
         Mission manager receives the full observation (strategic view).
-        Each local satellite agent receives the full observation plus the
+        Each local satellite agent receives the same full observation plus the
         manager's directive from the previous step as a message (Kim et al.
-        C = star, Ω = hierarchical).
+        C = star, Ω = hierarchical). Centralization here is about coordination
+        (directive flow), not about restricting observability: locals see the
+        whole constellation, not just their own satellite.
         """
         manager_obs = AgentObservation(
             agent_id=self._manager_id,

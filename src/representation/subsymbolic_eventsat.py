@@ -110,6 +110,11 @@ class SubsymbolicEventSat(Representation):
         self._max_steps = int(self.config.get("max_steps", 10080))
         self._compression_time_factor = float(self.config.get("compression_time_factor", 2.0))
         self._detection_steps = int(self.config.get("detection_steps", 5))
+        # Satellite this representation observes/controls. Defaults to the
+        # single-satellite EventSat id, so eventsat behaviour is unchanged;
+        # multi-satellite runs inject the per-agent satellite_id (see
+        # ExperimentRunner._create_decision_loops).
+        self._satellite_id = str(self.config.get("satellite_id", "eventsat_0"))
 
         self._last_rationale: Optional[str] = None
         self._last_action_vec: Optional[np.ndarray] = None
@@ -127,7 +132,7 @@ class SubsymbolicEventSat(Representation):
         if not hasattr(observation, "constellation_state"):
             return {}
 
-        sat = observation.constellation_state.satellites.get("eventsat_0")
+        sat = observation.constellation_state.satellites.get(self._satellite_id)
         if sat is None:
             return {}
 
@@ -163,13 +168,13 @@ class SubsymbolicEventSat(Representation):
         """Select mode via RL policy plus symbolic grounding."""
         state = context.state
         if not state:
-            return {"eventsat_0": {"mode": "charging"}}
+            return {self._satellite_id: {"mode": "charging"}}
 
         health = state.get("health_status", "nominal")
         if health != "nominal":
             self._last_rationale = f"Symbolic: anomaly ({health}) -> safe"
             self._grounding_overrides += 1
-            return {"eventsat_0": {"mode": "safe"}}
+            return {self._satellite_id: {"mode": "safe"}}
 
         obs_vec = state.get("_obs_vector")
         if obs_vec is None:
@@ -210,7 +215,7 @@ class SubsymbolicEventSat(Representation):
         )
 
         return {
-            "eventsat_0": {
+            self._satellite_id: {
                 "mode": mode,
                 "data_priority": data_priority,
                 "pipeline_routing": pipeline_routing,

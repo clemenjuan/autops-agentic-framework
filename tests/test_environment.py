@@ -12,7 +12,44 @@ from src.environment.satellite_env import (
     SatelliteEnvironment,
     SatelliteState,
     StepResult,
+    scope_observation,
 )
+
+
+class TestScopeObservation:
+    def _obs(self) -> EnvironmentObservation:
+        return EnvironmentObservation(
+            constellation_state=ConstellationState(
+                timestep=5,
+                epoch_seconds=300.0,
+                satellites={f"sat_{i}": SatelliteState(satellite_id=f"sat_{i}") for i in range(3)},
+                global_info={"max_steps": 10},
+            ),
+            tasks=[{"t": 1}],
+            events=[{"e": 1}],
+        )
+
+    def test_keeps_only_requested_satellites(self) -> None:
+        scoped = scope_observation(self._obs(), ["sat_1"])
+        assert set(scoped.constellation_state.satellites) == {"sat_1"}
+
+    def test_preserves_metadata_tasks_events(self) -> None:
+        scoped = scope_observation(self._obs(), ["sat_0", "sat_2"])
+        cs = scoped.constellation_state
+        assert cs.timestep == 5
+        assert cs.epoch_seconds == 300.0
+        assert cs.global_info == {"max_steps": 10}
+        assert scoped.tasks == [{"t": 1}]
+        assert scoped.events == [{"e": 1}]
+
+    def test_skips_missing_ids(self) -> None:
+        scoped = scope_observation(self._obs(), ["sat_9"])
+        assert scoped.constellation_state.satellites == {}
+
+    def test_does_not_mutate_source(self) -> None:
+        obs = self._obs()
+        scope_observation(obs, ["sat_1"])
+        assert set(obs.constellation_state.satellites) == {"sat_0", "sat_1", "sat_2"}
 
 
 # ======================================================================

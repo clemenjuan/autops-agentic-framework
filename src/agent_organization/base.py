@@ -133,6 +133,28 @@ class AgentOrganization(ABC):
         ...
 
     # ------------------------------------------------------------------
+    # Agent ↔ satellite mapping
+    # ------------------------------------------------------------------
+
+    def satellite_for_agent(self, agent_id: str) -> str:
+        """Return the ``satellite_id`` that ``agent_id`` observes and controls.
+
+        Agents (decision-making entities, e.g. ``central_agent``,
+        ``mission_manager``, ``sat_agent_0``) and satellites (physical objects,
+        e.g. ``eventsat_0``, ``sat_0``) live in two separate namespaces. The
+        RLlib bridge needs this mapping to encode the right satellite into each
+        agent's observation, decode its action onto the right satellite, and
+        assign it the right per-satellite reward.
+
+        Default: single-satellite organizations map every agent to one
+        canonical satellite (overridable via ``agent_organization_config``
+        key ``satellite_id``; defaults to ``"eventsat_0"`` to match legacy
+        single-satellite behaviour). Multi-satellite organizations override
+        this -- see :class:`IndependentMAS`.
+        """
+        return str(self.config.get("satellite_id", "eventsat_0"))
+
+    # ------------------------------------------------------------------
     # Optional hooks (override as needed)
     # ------------------------------------------------------------------
 
@@ -140,16 +162,34 @@ class AgentOrganization(ABC):
         """Hook called before each environment step. Override if needed."""
 
     def post_step(self, step_result: Any) -> None:
-        """Hook called after each environment step. Override if needed.
-
-        Args:
-            step_result: The :class:`StepResult` returned by the environment.
-        """
+        """Hook called after each environment step. Override if needed."""
 
     def get_metrics(self) -> Dict[str, float]:
-        """Return organization-level metrics (e.g. communication overhead).
-
-        Returns:
-            Dictionary of metric name → value. Empty by default.
-        """
+        """Return organization-level metrics (e.g. communication overhead)."""
         return {}
+
+
+def validate_agent_satellite_mapping(
+    organization: "AgentOrganization",
+    environment: Any,
+    constellation_size: int,
+    scenario: str,
+) -> None:
+    """Ensure each agent maps onto a satellite that exists in the environment.
+
+    On a multi-satellite scenario, an organization that leaves
+    ``satellite_for_agent`` at the single-satellite default silently maps every
+    agent to a non-existent satellite (zero observations, ignored actions). This
+    turns that silent failure into an explicit error. No-op for N=1.
+    """
+    if environment is None or constellation_size <= 1:
+        return
+    mapped = {organization.satellite_for_agent(a) for a in organization.get_agents()}
+    env_sats = set(environment.get_observation().constellation_state.satellites)
+    unknown = mapped - env_sats
+    if unknown:
+        raise ValueError(
+            f"Organization maps agents to satellites {sorted(unknown)} not "
+            f"present in scenario '{scenario}' (has {sorted(env_sats)}). "
+            f"Multi-satellite organizations must override satellite_for_agent."
+        )

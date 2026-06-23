@@ -41,11 +41,12 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Risk**: Independent error amplification (17.2× per Kim et al.) if consensus fails. Suited for parallelisable tasks, predicted to underperform on sequential satellite scheduling.
 - **Status**: Stub (`NotImplementedError`). Deferred to constellation scenarios (N≥3); peer-to-peer coordination is degenerate at N=1.
 
-### IndependentMAS — Placeholder (deferred to N≥3)
+### IndependentMAS — Instantiated (basemultisat constellation, Phase 6)
 
 - **File**: `src/agent_organization/independent_mas.py`
-- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, no inter-agent coordination.
-- **Status**: Stub (`NotImplementedError`). Meaningful only with subsystem-level agents (ADCS/payload/comms) or N≥3 satellites.
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, Ω = independent (no inter-agent coordination), as formalized in `base.py`. Implementation follows that formalization; it has not been re-derived from the primary source here, so paper-fidelity remains the researcher's to confirm.
+- **Structure**: One agent (`sat_agent_i`) per satellite (`sat_i`). `distribute_observation` gives each agent a partial view of only its own satellite (built with `scope_observation`, no inter-agent messages); `collect_actions` unions the per-satellite `{satellite_id: action}` dicts without consensus. The agent↔satellite mapping is provided by `satellite_for_agent`.
+- **Status**: Instantiated for the `basemultisat` scenario (N≥2), exercised by RL training (`autops train`) and evaluation (`autops run`). At N=1 it degenerates to SAS. See "Multi-satellite RL (BaseMultiSat)" below.
 
 ### HybridMAS — Placeholder (deferred to N≥3)
 
@@ -824,3 +825,41 @@ Config IDs follow: `eventsat_<org>_<loop>_<repr>_<emrg>_<ops>` where
 - **Hand-designed vs learned** (same repr + loop + ops): `_hd_` vs `_lep_` → does offline prompt optimization improve LLM/agentic decisions?
 - **Fixed vs writable memory** (agentic AH only): `_agnt_hd_` vs `_agnt_lec_` → does CoALA-style memory accretion improve decisions across episodes?
 - **Ground ops baseline**: CG with conventional schedule + SDA loop → human lower bound
+
+## Multi-satellite RL (BaseMultiSat)
+
+Components added to support genuine multi-agent reinforcement learning over a
+constellation, while keeping the single-satellite EventSat path unchanged.
+
+| Component | File | Paper basis |
+|---|---|---|
+| `IndependentMAS` (instantiated) | `src/agent_organization/independent_mas.py` | Kim et al. 2025 [FVFQ73RF] — Independent MAS topology (C = ∅, Ω = independent) |
+| `satellite_for_agent` mapping | `src/agent_organization/base.py` (+ overrides) | — (framework: agent↔satellite namespace bridge) |
+| `BaseMultiSatEnvironment` | `src/environment/scenarios/basemultisat_env.py` | Composes N EventSat dynamics (Juan Oliver et al., EUCASS 2025) |
+| `BaseMultiSatRewardFunction` | `src/environment/rewards.py` | autops-rl reward modelling: Individual Negative (Case 2) → Collective Negative (Case 4) |
+| Per-agent adapters + reward resolution | `src/rl/rllib_env.py` | BSK-RL multi-agent bridge pattern |
+| `basemultisat` adapter registration | `src/rl/space_adapters.py` | reuses EventSat 25D / `MultiDiscrete([7,2,2])` contract |
+
+**Design decisions.**
+
+- *Agent ↔ satellite mapping in the organization.* The organization owns
+  `satellite_for_agent(agent_id)`; the RLlib bridge builds one space adapter per
+  agent bound to that satellite. The base default maps every agent to one
+  canonical satellite (`eventsat_0`), so SAS and CentralizedMAS reproduce the
+  legacy single-satellite behaviour; `IndependentMAS` overrides it to
+  `sat_agent_i → sat_i`.
+- *Reward owned by the reward class.* The environment emits a per-satellite
+  reward dict; the bridge is "dumb" and only selects each agent's own satellite
+  value (falling back to the summed scalar for the legacy `{"total": r}` shape,
+  which preserves EventSat exactly). The local/team blend lives entirely inside
+  `BaseMultiSatRewardFunction`, so a future scenario-specific reward class that
+  computes a shared/collective term internally is a drop-in replacement.
+- *Reuse over rewrite.* `BaseMultiSatEnvironment` composes N independent
+  `EventSatEnvironment` instances (one per satellite, distinct launch-lottery
+  seeds) rather than reimplementing physics — minimising new code and inheriting
+  the tested EventSat dynamics.
+
+EventSat single-satellite runs are byte-identical (guarded by the existing
+`test_rllib_backend`, `test_reproducibility`, `test_rewards` suites); new
+coverage is in `tests/test_basemultisat.py` and the updated
+`tests/test_agent_organization.py::TestIndependentMAS`.

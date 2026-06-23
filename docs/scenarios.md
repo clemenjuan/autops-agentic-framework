@@ -212,6 +212,40 @@ Literature-based modeling (lower fidelity than Scenarios 1–2); to be refined a
 
 ---
 
+## BaseMultiSat (multi-satellite reference scenario)
+
+`basemultisat` is the base/reference **multi-satellite** scenario, used as the
+first working multi-agent RL configuration. It is a *synthetic* reference scenario
+(not one of the three mission scenarios above): it composes **N independent
+EventSat-class satellites** (`sat_0 .. sat_{N-1}`), each a full EventSat with its
+own launch lottery (independent orbital context). It reuses the EventSat physics
+and the EventSat RL contract (25D observation, `MultiDiscrete([7, 2, 2])` action),
+so the `autops_actor_critic_v1` model and the space adapter are shared unchanged.
+
+- **Constellation size** is set per experiment via `environment.constellation_size`
+  (not in the scenario file).
+- **Decoupling (v1):** satellites have independent ground-pass schedules, no
+  shared downlink budget and no inter-satellite links. Ground passes are drawn
+  per satellite (they differ); the simplified analytical eclipse model is shared
+  across satellites (Orekit would also differentiate eclipse geometry). Per-
+  satellite state genuinely diverges through the distinct pass schedules.
+- **Reward** is **per satellite** (`{"sat_i": r_i}`), produced by
+  `BaseMultiSatRewardFunction`. Each satellite's individual term reuses the
+  EventSat "Individual Negative" reward; an optional team term blends them as
+  `local_weight · r_i + team_weight · team(r)` (`team_reducer ∈ {mean, sum, min}`).
+  A future scenario-specific reward class can compute a collective term
+  internally as a drop-in replacement (no env or bridge changes).
+- **Organization:** Independent MAS — one agent (`sat_agent_i`) per satellite
+  (`sat_i`), mapped by `IndependentMAS.satellite_for_agent`.
+- **Files:** scenario `configs/scenarios/basemultisat.yaml`; example experiment
+  `configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml`.
+
+EventSat (single satellite) is unchanged: `basemultisat` is an additive scenario,
+and the RLlib bridge resolves rewards by structure (per-satellite key vs the
+legacy single-`total` dict), so eventsat behaviour is byte-identical.
+
+---
+
 ## Progression Strategy
 
 | Scenario             | Phase | Satellites | Complexity Index | Primary RQ  |

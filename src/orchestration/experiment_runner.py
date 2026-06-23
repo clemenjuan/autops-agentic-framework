@@ -69,12 +69,10 @@ class ExperimentRunner:
         self._environment: Any = None
         self._organization: Any = None
         self._decision_loops: Dict[str, Any] = {}  # agent_id → loop
+        self._representations: Dict[str, Any] = {}  # agent_id → representation
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
-        # RL training components (populated if emergence_mode == "learned")
-        self._representation: Any = None
-        self._rollout_buffer: Any = None
         # Decision trace writer (active when log_level == DEBUG)
         self._decisions_file: Any = None
 
@@ -222,6 +220,16 @@ class ExperimentRunner:
             )
             return EventSatEnvironment(config=env_cfg)
 
+        if scenario == "basemultisat":
+            from src.environment.scenarios.basemultisat_env import (
+                BaseMultiSatEnvironment,
+            )
+            env_cfg["anomaly_requires_ground_pass"] = (
+                self.config.operations_paradigm != "autonomous_hybrid"
+            )
+            env_cfg["constellation_size"] = self.config.environment.constellation_size
+            return BaseMultiSatEnvironment(config=env_cfg)
+
         logger.warning("Unknown scenario '%s', returning None.", scenario)
         return None
 
@@ -289,8 +297,6 @@ class ExperimentRunner:
         # Seed stochastic representations for reproducibility
         if hasattr(representation, "seed"):
             representation.seed(self.config.seed)
-        # Store representation reference for RL training access
-        self._representation = representation
         loop_type = self.config.decision_loop
         if loop_type == 'sda':
             from src.decision_loop.sda_loop import SDALoop
@@ -304,12 +310,45 @@ class ExperimentRunner:
         else:
             raise ValueError(f"Unknown decision_loop: '{loop_type}'")
         agents = self._organization.get_agents() if self._organization else ['central_agent']
-        loops = {}
-        for agent_id in agents:
-            loops[agent_id] = loop_cls(
-                config=self.config.decision_loop_config,
-                representation=representation,
+        if self._organization is not None:
+            from src.agent_organization.base import validate_agent_satellite_mapping
+            validate_agent_satellite_mapping(
+                self._organization,
+                self._environment,
+                self.config.environment.constellation_size,
+                self.config.environment.scenario,
             )
+        satellite_ids = {
+            self._organization.satellite_for_agent(a) if self._organization else "eventsat_0"
+            for a in agents
+        }
+        loops = {}
+        if len(satellite_ids) > 1:
+            # Multi-satellite constellation (e.g. IndependentMAS on basemultisat):
+            # one representation per agent, each bound to its own satellite. The
+            # shared ``representation`` built above is the single-satellite case
+            # and is not used here.
+            for agent_id in agents:
+                agent_cfg = dict(repr_config)
+                agent_cfg["satellite_id"] = self._organization.satellite_for_agent(agent_id)
+                agent_rep = emergence.get_representation(
+                    repr_type=repr_type, repr_config=agent_cfg
+                )
+                if hasattr(agent_rep, "seed"):
+                    agent_rep.seed(self.config.seed)
+                self._representations[agent_id] = agent_rep
+                loops[agent_id] = loop_cls(
+                    config=self.config.decision_loop_config,
+                    representation=agent_rep,
+                )
+        else:
+            # Single-satellite: every agent shares one representation instance.
+            for agent_id in agents:
+                self._representations[agent_id] = representation
+                loops[agent_id] = loop_cls(
+                    config=self.config.decision_loop_config,
+                    representation=representation,
+                )
         return loops
 
     def _create_operations_paradigm(self) -> Any:
@@ -337,7 +376,10 @@ class ExperimentRunner:
     def _create_metrics_collector(self) -> Any:
         """Factory for the metrics collector."""
         scenario = self.config.environment.scenario
-        if scenario == "eventsat":
+        if scenario in ("eventsat", "basemultisat"):
+            # basemultisat exposes flat constellation-level aggregates in
+            # StepResult.info plus battery_capacity_wh, so the EventSat metrics
+            # collector consumes it unchanged.
             from src.orchestration.eventsat_metrics import EventSatMetricsCollector
             metrics_cfg = self.config.metrics.model_dump()
             # Pass environment parameters needed for energy/utility computation
@@ -404,18 +446,6 @@ class ExperimentRunner:
             self._decisions_file = None
 
         episode_duration = time.perf_counter() - episode_start
-
-        # --- RL training update (learned mode only) ---
-        if (
-            self._rollout_buffer is not None
-            and self._representation is not None
-            and self._rollout_buffer.size > 0
-        ):
-            self._representation.update({
-                "buffer": self._rollout_buffer,
-                "episode": episode_id,
-            })
-            self._rollout_buffer.reset()
 
         # --- Finalise episode metrics ---
         episode_metrics = None
@@ -543,26 +573,6 @@ class ExperimentRunner:
             new_observation = step_result.observation
             rewards = step_result.rewards
             info = step_result.info
-
-        # 7b. Collect RL trajectory step (learned mode only)
-        if self._rollout_buffer is not None and self._representation is not None:
-            step_data_rl = None
-            if hasattr(self._representation, "get_last_step_data"):
-                step_data_rl = self._representation.get_last_step_data()
-            if step_data_rl is not None and not self._rollout_buffer.is_full:
-                scalar_reward = float(sum(rewards.values())) if rewards else 0.0
-                done = (
-                    self._environment.is_done()
-                    if self._environment is not None else False
-                )
-                self._rollout_buffer.store(
-                    obs=step_data_rl["obs_vec"],
-                    action=step_data_rl["action_vec"],
-                    reward=scalar_reward,
-                    value=step_data_rl["value"],
-                    log_prob=step_data_rl["log_prob"],
-                    done=done,
-                )
 
         # 8. Update ground knowledge on downlink (communication mode during pass)
         if (

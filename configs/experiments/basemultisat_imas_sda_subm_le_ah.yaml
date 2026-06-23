@@ -1,0 +1,100 @@
+# BaseMultiSat | Independent MAS · SDA · Subsymbolic · Learned · Autonomous-Hybrid
+# ============================================================================
+# 5D Morphological Matrix: imas | sda | subm | le | ah
+#
+# First working multi-agent RL configuration: a base multi-satellite
+# constellation (N independent EventSat-class satellites) with one PPO agent
+# per satellite (Independent MAS, Kim et al. 2025), shared policy weights.
+# Each agent observes/controls its own satellite (25D obs, MultiDiscrete([7,2,2]));
+# reward is per-satellite, with an optional team term (see reward_config).
+#
+# Papers:
+#   Kim et al. 2025 (FVFQ73RF): Independent MAS topology
+#   Oliver et al. EUCASS 2025 (8KDZ5Z53): PPO hyperparameters, obs/action space
+
+experiment_id: basemultisat_imas_sda_subm_le_ah
+description: >
+  Base multi-satellite constellation with Independent MAS organization (one PPO
+  agent per satellite), SDA loop, subsymbolic representation, autonomous-hybrid
+  ops. Shared-policy RL over N decoupled EventSat-class satellites.
+
+seed: 42
+
+# -- Morphological Matrix (5 dimensions) -----------------------------------
+agent_organization: independent_mas    # imas
+decision_loop: sda                      # sda
+representation: subsymbolic             # subm
+emergence_mode: learned                 # le
+operations_paradigm: autonomous_hybrid  # ah
+
+# -- Component Configs -----------------------------------------------------
+agent_organization_config: {}
+
+decision_loop_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: subsymbolic_eventsat
+  rl_mock: false               # Set true for CI/local without RLlib checkpoint
+  deterministic: true
+  checkpoint_path: ""
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+
+emergence_config:
+  mechanism: ppo
+  mode: learned
+  rollout_fragment: 128
+  lr: 1.0e-4
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+  policy_sharing:
+    mode: shared_all           # one shared policy across all satellite agents
+
+# -- Environment -----------------------------------------------------------
+environment:
+  constellation_size: 3           # N satellites → N agents (sat_agent_0..2)
+  timestep_seconds: 60
+  scenario: basemultisat
+  scenario_config:
+    scenario_file: configs/scenarios/basemultisat.yaml
+    # Per-satellite reward = local_weight·r_i + team_weight·team(r).
+    # team_weight: 0.0 → pure individual; the team term lives in
+    # BaseMultiSatRewardFunction (src/environment/rewards.py).
+    reward_config:
+      local_weight: 0.7
+      team_weight: 0.3
+      team_reducer: mean         # mean | sum | min
+
+# -- Memory ----------------------------------------------------------------
+memory_config:
+  history_depth: 100
+
+# -- Execution -------------------------------------------------------------
+num_episodes: 10
+max_steps: 10080
+
+# -- Metrics ---------------------------------------------------------------
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+  collection_frequency: per_step
+
+# -- Output ----------------------------------------------------------------
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

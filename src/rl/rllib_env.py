@@ -19,9 +19,11 @@ from src.rl.space_adapters import RLSpaceAdapter, make_space_adapter
 class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
     """Expose an AUTOPS experiment as an RLlib multi-agent environment.
 
-    Even SAS is represented as a one-agent RLlib environment.  That keeps the
-    training interface stable when future constellation scenarios instantiate
-    several decision-making agents through ``agent_organization``.
+    Each agent observes/controls a specific satellite, given by
+    ``organization.satellite_for_agent(agent_id)``. The bridge holds one space
+    adapter per agent (parametrised by that satellite_id) so encode/decode/reward
+    all target the right satellite. Single-satellite scenarios (eventsat) map
+    every agent to the one canonical satellite, reproducing legacy behaviour.
     """
 
     metadata = {"render_modes": []}
@@ -37,13 +39,28 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         )
         self._environment = self._create_environment()
         self._organization = self._create_organization()
-        self._adapter = self._create_adapter()
 
         self.possible_agents: List[str] = list(self._organization.get_agents())
+        from src.agent_organization.base import validate_agent_satellite_mapping
+        validate_agent_satellite_mapping(
+            self._organization,
+            self._environment,
+            self.config.environment.constellation_size,
+            self.config.environment.scenario,
+        )
+        self._adapters: Dict[str, RLSpaceAdapter] = self._create_adapters(
+            self.possible_agents
+        )
+        self._space_adapter: RLSpaceAdapter = (
+            self._adapters[self.possible_agents[0]]
+            if self.possible_agents
+            else self._build_adapter(satellite_id=None)
+        )
+
         self.agents: List[str] = []
         self._agent_ids = set(self.possible_agents)
-        self.observation_space = self._adapter.observation_space
-        self.action_space = self._adapter.action_space
+        self.observation_space = self._space_adapter.observation_space
+        self.action_space = self._space_adapter.action_space
         self.observation_spaces = {
             agent_id: self.observation_space for agent_id in self.possible_agents
         }
@@ -65,7 +82,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         self._last_observation = self._environment.reset(seed=seed)
         agent_obs = self._organization.distribute_observation(self._last_observation)
         observations = {
-            agent_id: self._adapter.encode_observation(agent_obs.get(agent_id))
+            agent_id: self._adapter_for(agent_id).encode_observation(
+                agent_obs.get(agent_id)
+            )
             for agent_id in self.agents
         }
         infos = {agent_id: {"agent_id": agent_id} for agent_id in self.agents}
@@ -88,14 +107,15 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
                 continue
             agent_actions[agent_id] = AgentAction(
                 agent_id=agent_id,
-                action=self._adapter.decode_action(action_dict[agent_id], agent_id=agent_id),
+                action=self._adapter_for(agent_id).decode_action(
+                    action_dict[agent_id], agent_id=agent_id
+                ),
             )
 
         env_actions = self._organization.collect_actions(agent_actions)
         step_result = self._environment.step(env_actions)
         self._last_observation = step_result.observation
         done = bool(self._environment.is_done())
-        reward = self._adapter.scalar_reward(step_result.rewards)
 
         if done:
             self.agents = []
@@ -106,10 +126,15 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             else self._organization.distribute_observation(self._last_observation)
         )
         observations = {
-            agent_id: self._adapter.encode_observation(agent_obs.get(agent_id))
+            agent_id: self._adapter_for(agent_id).encode_observation(
+                agent_obs.get(agent_id)
+            )
             for agent_id in self.agents
         }
-        rewards = {agent_id: reward for agent_id in active_agents}
+        rewards = {
+            agent_id: self._resolve_agent_reward(agent_id, step_result.rewards)
+            for agent_id in active_agents
+        }
         terminateds = {agent_id: done for agent_id in active_agents}
         truncateds = {agent_id: False for agent_id in active_agents}
         terminateds["__all__"] = done
@@ -128,7 +153,33 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
 
     @property
     def space_adapter(self) -> RLSpaceAdapter:
-        return self._adapter
+        return self._space_adapter
+
+    # ------------------------------------------------------------------
+    # Reward resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_agent_reward(
+        self, agent_id: str, raw_rewards: Dict[str, float]
+    ) -> float:
+        """Map an environment reward dict to a single per-agent reward.
+
+        Resolution is driven by the *structure* of ``raw_rewards``: if the
+        agent's own satellite is a key, return that per-satellite value (already
+        blended by the scenario reward function); otherwise fall back to
+        ``scalar_reward`` (sum), reproducing legacy single-scalar behaviour.
+        """
+        sat_id = self._organization.satellite_for_agent(agent_id)
+        if sat_id in raw_rewards:
+            return float(raw_rewards[sat_id])
+        return self._adapter_for(agent_id).scalar_reward(raw_rewards)
+
+    # ------------------------------------------------------------------
+    # Factories
+    # ------------------------------------------------------------------
+
+    def _adapter_for(self, agent_id: str) -> RLSpaceAdapter:
+        return self._adapters.get(agent_id, self._space_adapter)
 
     def _create_environment(self) -> Any:
         scenario = self.config.environment.scenario
@@ -144,6 +195,16 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
                 self.config.operations_paradigm != "autonomous_hybrid"
             )
             return EventSatEnvironment(config=env_cfg)
+        if scenario == "basemultisat":
+            from src.environment.scenarios.basemultisat_env import (
+                BaseMultiSatEnvironment,
+            )
+
+            env_cfg["anomaly_requires_ground_pass"] = (
+                self.config.operations_paradigm != "autonomous_hybrid"
+            )
+            env_cfg["constellation_size"] = self.config.environment.constellation_size
+            return BaseMultiSatEnvironment(config=env_cfg)
         raise ValueError(f"No RLlib environment registered for scenario '{scenario}'")
 
     def _create_organization(self) -> Any:
@@ -167,12 +228,21 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         org.initialize(constellation_size=self.config.environment.constellation_size)
         return org
 
-    def _create_adapter(self) -> RLSpaceAdapter:
+    def _create_adapters(self, agent_ids: List[str]) -> Dict[str, RLSpaceAdapter]:
+        return {
+            agent_id: self._build_adapter(
+                satellite_id=self._organization.satellite_for_agent(agent_id)
+            )
+            for agent_id in agent_ids
+        }
+
+    def _build_adapter(self, satellite_id: str | None) -> RLSpaceAdapter:
         adapter_cfg = dict(self.config.representation_config)
         adapter_cfg.setdefault("max_steps", self.config.max_steps)
+        if satellite_id is not None:
+            adapter_cfg["satellite_id"] = satellite_id
         return make_space_adapter(
             scenario=self.config.environment.scenario,
             config=adapter_cfg,
             env=self._environment,
         )
-
