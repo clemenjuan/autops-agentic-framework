@@ -258,7 +258,16 @@ class LLMClient:
         import queue
         import threading
 
-        hard_timeout_s = self.config.get("llm_hard_timeout_s", 120)
+        # Worker-thread wall-clock cap (the real wedge escape — see docstring).
+        # Default 300s, not 120s: streaming keeps the nginx gateway alive while
+        # *tokens flow*, but reasoning models (qwen3.6 emits a long `thinking`
+        # trace) over the agentic prompts can run well past 2 min on the
+        # occasionally-loaded TUM GPU. A healthy call is ~12s, so the headroom is
+        # free in the happy path; it only matters during a slow spell, where it
+        # lets a slow-but-progressing call finish instead of being killed and
+        # retried (which wastes the elapsed time and can starve a decision).
+        # Override per-config with ``llm_hard_timeout_s``.
+        hard_timeout_s = self.config.get("llm_hard_timeout_s", 300)
 
         result_q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
 

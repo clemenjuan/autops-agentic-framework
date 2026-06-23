@@ -105,7 +105,7 @@ def format_planning_prompt(
 
     Args:
         state: Encoded observation dict from encode_observation().
-        enrichments: Optional loop-specific enrichments (OODA/ReAct).
+        enrichments: Optional loop-specific enrichments (representation).
 
     Returns:
         Formatted prompt for the planning step.
@@ -227,8 +227,7 @@ def format_forced_decision_prompt(
 ) -> str:
     """Terminal Decide-phase prompt — tool budget exhausted, decision required.
 
-    A bounded agentic loop must close with an answer-extraction step (ReAct,
-    Yao et al. 2023): the reflect prompt always offers a tool option, so a
+    A bounded agentic loop must close with an answer-extraction step: the reflect prompt always offers a tool option, so a
     tool-hungry model can ride the budget to exhaustion without ever deciding.
     This prompt offers no tool option.
     """
@@ -258,6 +257,23 @@ def format_forced_decision_prompt(
     return "\n".join(lines)
 
 
+def _summarize_prior_context(accumulated_context: List[Dict[str, Any]]) -> List[str]:
+    """Render the running plan/tool/reflect trace into prompt lines (shared by the
+    reflect/forced prompts of both the per-step and schedule-producing loops)."""
+    prior_lines: List[str] = []
+    for entry in accumulated_context:
+        step_type = entry.get("step", "unknown")
+        if step_type == "plan":
+            prior_lines.append(f"  PLAN: {entry.get('content', '')[:200]}")
+        elif step_type == "tool":
+            prior_lines.append(
+                f"  TOOL ({entry.get('name', '?')}): {_summarize_result(entry.get('result', {}))}"
+            )
+        elif step_type == "reflect":
+            prior_lines.append(f"  REFLECT: {entry.get('content', '')[:200]}")
+    return prior_lines
+
+
 def _summarize_result(result: Dict[str, Any]) -> str:
     """One-line summary of a tool result for context."""
     if "error" in result:
@@ -280,7 +296,7 @@ def _summarize_result(result: Dict[str, Any]) -> str:
 
 
 # ======================================================================
-# Reasoning prompt (for ReAct thought step)
+# Reasoning prompt (for explanation step)
 # ======================================================================
 
 def format_agentic_reasoning_prompt(
@@ -288,7 +304,7 @@ def format_agentic_reasoning_prompt(
     memory: Optional[Any] = None,
     tool_results: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    """Format reasoning prompt for ReAct thought step.
+    """Format reasoning prompt for explanation step.
 
     Produces structured reasoning trace from accumulated tool results,
     in the same [{"check", "value", "implication"}] format as llm_eventsat.
@@ -336,4 +352,193 @@ def format_agentic_reasoning_prompt(
         f"Example: {example}"
     )
 
+    return "\n".join(lines)
+
+
+# ======================================================================
+# Schedule-producing agentic prompts (AG/AH ground planner: hllm-a / llm-a)
+# ======================================================================
+#
+# The agentic SCHEDULE producer reuses the Plan-Tool-Reflect-Decide loop and the
+# same domain tools, but its terminal DECIDE step emits a whole-pass schedule
+# (a list of [mode, steps] segments executed autonomously between passes) instead
+# of a single per-step mode. This is the agentic analogue of the single-shot
+# SCHEDULE_SYSTEM_PROMPT in llm_prompts.py (hllm-s/llm-s), and the agentic-action
+# sibling of AGENTIC_SYSTEM_PROMPT above (hllm-a/llm-a).
+#
+# Papers: Sumers et al. (2024) [CoALA] — tool-use + action decomposition;
+# Bounded agent loop with answer extraction;
+# Rodriguez-Fernandez et al. (2024) §3.2 — schedule prompt design for sat ops.
+
+AGENTIC_SCHEDULE_SYSTEM_PROMPT = """\
+You are an autonomous satellite operations PLANNER for a single Earth observation \
+satellite in low Earth orbit (400 km SSO). At each ground contact you receive fresh \
+telemetry and must produce ONE schedule of operating modes the satellite executes \
+autonomously until the next ground contact.
+
+MISSION: Maximise observation data downlinked to ground while maintaining satellite \
+health and safety.
+
+SCHEDULABLE MODES:
+- charging: Recharge battery from solar panels (only effective in sunlight).
+- payload_observe: Capture Earth observation imagery (produces raw data on Jetson).
+- payload_compress: Compress raw observations on Jetson (~5:1, ~2x observation time).
+- payload_detect: Run CV detection on compressed observations (~5 min each).
+- payload_send: Transfer compressed data from Jetson to OBC via RS-485 (50 kbps).
+- safe: Minimal-power anomaly mode.
+Do NOT schedule communication — the schedule runs BETWEEN passes with no ground link.
+
+DATA PIPELINE (3-pool): Jetson raw -> (compress) -> Jetson compressed -> (send) -> OBC -> (communicate) -> Ground
+
+CONSTRAINTS:
+- Battery SoC must stay above 0.20 (hard) and preferably above 0.35.
+- ADCS settling costs ~135 s when switching between modes with different attitudes.
+- Reserve battery near the end so the satellite is charged for the next pass.
+- Daily downlink budget is finite — don't over-observe.
+
+REASONING PROTOCOL (Plan-Tool-Reflect-Decide):
+1. PLAN: Analyse the telemetry and decide which tool(s) to query.
+2. TOOL: Request a tool call to gather information.
+3. REFLECT: Incorporate tool results and refine the plan.
+4. DECIDE: When you have enough information, emit the whole-pass schedule.
+
+Use tools to verify key assumptions (battery, pipeline, constraints) — 1-2 calls is \
+usually enough. Keep your INTERNAL reasoning CONCISE: a few sentences. Do NOT simulate \
+many scenarios or deliberate at length internally — think briefly, then act. Emit the \
+JSON object as soon as you have what you need.
+
+AVAILABLE TOOLS:
+""" + _build_tool_descriptions() + """
+
+OUTPUT FORMAT:
+At each step, respond with a JSON object.
+
+To call a tool:
+  {"plan": "<reasoning>", "tool_call": {"name": "<tool_name>", "args": {<args>}}}
+
+To emit the final schedule (after sufficient tool use):
+  {"decision": {"schedule": [["<mode>", <integer_steps>], ...], "rationale": "<why>"}}
+
+To reflect on a tool result AND emit the schedule simultaneously:
+  {"reflection": "<updated reasoning>", "decision": {"schedule": [["<mode>", <steps>], ...], "rationale": "<why>"}}
+
+The schedule is a list of [mode, duration_in_steps] segments (1 step = 60 s) whose \
+durations together cover about the planning horizon. Use only the schedulable modes \
+above (no communication). Do not include any text outside the JSON object."""
+
+
+def format_schedule_planning_prompt(
+    state: Dict[str, Any],
+    gap_steps: int,
+    enrichments: Dict[str, Any] | None = None,
+) -> str:
+    """Initial PLAN prompt for the schedule-producing agentic loop.
+
+    Mirrors ``format_schedule_prompt`` (single-shot) for state presentation, but
+    closes by inviting tool use before emitting the gap-covering schedule.
+    """
+    if not state:
+        return (
+            "No satellite state available. Return a safe charging schedule.\n"
+            f'Respond with: {{"decision": {{"schedule": [["charging", {max(1, gap_steps)}]], '
+            '"rationale": "no state"}}'
+        )
+
+    soc = state.get("battery_soc", 0.5)
+    in_sunlight = state.get("in_sunlight", False)
+    obc_mb = state.get("obc_data_mb", 0.0)
+    jetson_raw = state.get("jetson_raw_mb", 0.0)
+    jetson_comp = state.get("jetson_compressed_mb", 0.0)
+    cap_mb = state.get("storage_capacity_mb", DEFAULT_STORAGE_CAPACITY_MB)
+    uncomp = state.get("uncompressed_observations", 0)
+    undetected = state.get("undetected_observations", 0)
+    budget_mb = state.get("daily_downlink_budget_mb", 27.0)
+    achievable = state.get("achievable_downlink_mb")
+    health = state.get("health_status", "nominal")
+
+    cap_line = (
+        f"  Downlink achievable at next pass: {achievable:.2f} MB (50 kbps × contact) "
+        f"— observing more than this just fills storage you cannot deliver"
+        if achievable is not None else f"  Daily downlink budget: {budget_mb:.0f} MB"
+    )
+
+    lines = [
+        f"PLAN THE NEXT {gap_steps} STEPS (1 step = 60 s) until the next ground contact.",
+        "",
+        "CURRENT STATE (fresh telemetry):",
+        f"  Battery SoC: {soc:.2f} (sunlight: {'yes' if in_sunlight else 'no'})",
+        f"  Health: {health}",
+        f"  Jetson raw: {jetson_raw:.2f} MB ({uncomp} uncompressed obs)",
+        f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
+        f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
+        cap_line,
+    ]
+
+    if enrichments:
+        lines.append("")
+        lines.append("SITUATION ASSESSMENT:")
+        if "situation_class" in enrichments:
+            lines.append(f"  Situation: {enrichments['situation_class']}")
+        if "urgency" in enrichments:
+            lines.append(f"  Urgency: {enrichments['urgency']:.2f}")
+
+    lines.append("")
+    lines.append(
+        f"Use tools to check battery, pipeline, or constraints before committing. "
+        f"Then emit a schedule whose segment durations sum to about {gap_steps} steps "
+        f"(no communication). Respond with JSON."
+    )
+    return "\n".join(lines)
+
+
+def format_schedule_tool_result_prompt(
+    tool_name: str,
+    tool_result: Dict[str, Any],
+    accumulated_context: List[Dict[str, Any]],
+    gap_steps: int,
+) -> str:
+    """REFLECT prompt for the schedule loop — offers another tool or the schedule."""
+    prior_lines = _summarize_prior_context(accumulated_context)
+    lines: List[str] = []
+    if prior_lines:
+        lines.append("REASONING SO FAR:")
+        lines.extend(prior_lines)
+        lines.append("")
+    lines.append(f"LATEST TOOL RESULT ({tool_name}):")
+    lines.append(f"  {json.dumps(tool_result, indent=2)}")
+    lines.append("")
+    lines.append(
+        "Based on this information, either:\n"
+        "1. Call another tool for more information: "
+        '{"reflection": "<reasoning>", "tool_call": {"name": "<tool>", "args": {}}}\n'
+        f"2. Emit the schedule covering ~{gap_steps} steps (no communication): "
+        '{"reflection": "<reasoning>", "decision": {"schedule": [["<mode>", <steps>], ...], '
+        '"rationale": "<why>"}}'
+    )
+    return "\n".join(lines)
+
+
+def format_forced_schedule_prompt(
+    accumulated_context: List[Dict[str, Any]],
+    gap_steps: int,
+) -> str:
+    """Terminal DECIDE prompt — tool budget exhausted, a schedule is required.
+
+    The agentic schedule loop must close with an
+    answer-extraction step: the reflect prompt always offers a tool option, so a
+    tool-hungry model can ride the budget to exhaustion without emitting a plan.
+    This prompt offers no tool option.
+    """
+    prior_lines = _summarize_prior_context(accumulated_context)
+    lines: List[str] = []
+    if prior_lines:
+        lines.append("REASONING SO FAR:")
+        lines.extend(prior_lines)
+        lines.append("")
+    lines.append(
+        f"Your tool budget is exhausted. Emit the schedule covering ~{gap_steps} steps NOW "
+        "using only the information above (no communication).\n"
+        "Respond with ONLY the schedule JSON — tool calls are not available:\n"
+        '{"decision": {"schedule": [["<mode>", <steps>], ...], "rationale": "<why>"}}'
+    )
     return "\n".join(lines)

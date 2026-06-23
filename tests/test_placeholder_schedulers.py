@@ -10,7 +10,6 @@ from src.decision_procedure.context import DecisionContext
 from src.behaviour.controller import BehaviourController
 from src.orchestration.config_loader import ExperimentConfig
 from src.representation.placeholder_schedulers import (
-    AgenticSchedulerEventSat,
     SubsymbolicSchedulerEventSat,
 )
 
@@ -33,9 +32,11 @@ def _fresh_pass_state():
     }
 
 
+# agentic_scheduler_eventsat is now a REAL core (agentic_scheduler_eventsat.py) — no
+# longer a placeholder; see tests/test_agentic_scheduler.py. subsymbolic (RL schedule
+# producer) remains the only placeholder scheduler.
 PLACEHOLDERS = [
     (SubsymbolicSchedulerEventSat, "subsymbolic_scheduler_eventsat", "subsymbolic"),
-    (AgenticSchedulerEventSat, "agentic_scheduler_eventsat", "agentic"),
 ]
 
 

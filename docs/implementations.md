@@ -12,10 +12,13 @@ its paper basis, and key design decisions. Grows as new components are added.
 > work in progress:** configs now declare the 7-cell token in `representation` (the loader
 > normalises it to the internal substrate + `action_space`, so the `@register` class names below —
 > `rule_based_eventsat`, `subsymbolic_eventsat`, `llm_eventsat`, `agentic_eventsat`,
-> `*_scheduler_eventsat` — are unchanged). Still pending: real `hrl`/`llm-a` cores (currently
-> documented placeholders, `placeholder_cells.py`), the learned ground LLM schedulers, and
-> dual-core AH with *independent* onboard/ground representations (the 21 `ah_<onboard>_<ground>`
-> pairs). The component descriptions below document the **current code** — map them to the
+> `*_scheduler_eventsat` — are unchanged). Dual-core AH with *independent* onboard/ground representations (the 21
+> `ah_<onboard>_<ground>` pairs) is **implemented and runnable**, and the LLM **ground** cells
+> are all real now: single-shot (`llm_scheduler_eventsat` hllm-s / `llm_single_scheduler_eventsat`
+> llm-s) and **agentic** (`agentic_scheduler_eventsat` hllm-a / `llm_agentic_scheduler_eventsat`
+> llm-a). Still pending: the real `hrl` core (RL + symbolic, documented placeholder in
+> `placeholder_cells.py`) and the PPO-trained `subsymbolic_scheduler` learned-scheduling line.
+> The component descriptions below document the **current code** — map them to the
 > framework via `morphological_matrix.md` §2.
 
 ---
@@ -98,113 +101,6 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Significance**: Simplest possible decision loop — lower bound for decision overhead
   and the baseline for all loop comparisons.
 
-### OODA (Observe-Orient-Decide-Act) — Phase 3
-
-- **File**: `src/decision_procedure/ooda_loop.py`
-- **Paper basis**:
-  - Miller, Hasbrouck & Udrea (2021), "Development of Human-Machine Collaborative Systems
-    Using OODA Loops", ASCEND 2021. DOI: 10.2514/6.2021-4092
-  - Hartmann et al. (2024), "METIS: An AI Assistant Enabling Autonomous Spacecraft
-    Operations", IEEE Aerospace Conference.
-  - Richards (2020), "Boyd's OODA Loop", Necesse 5(1):142-165.
-- **Structure**: Four-phase loop with feedback (Boyd, 1987):
-  1. **Observe**: Encode observation + classify operational situation into regimes
-     (cf. METIS Monitoring Agent's 7 telemetry categories).
-  2. **Orient**: Core differentiator — simplified Case-Based Reasoning
-     (Retrieve→Reuse→Revise→Retain, cf. METIS Reasoning Agent) + trend analysis +
-     urgency scoring. Synthesizes Boyd's "cultural traditions" (mission rules),
-     "genetic heritage" (physics constraints), "new information" (current telemetry),
-     and "previous experience" (memory history) through analysis & synthesis.
-  3. **Decide**: Pass orient-enriched state to representation's `select_action()`.
-  4. **Act**: Execute action + store situation+action+outcome in memory for future
-     CBR retrieval. Set attention guidance for next Observe (Boyd's implicit
-     guidance & control feedback loop).
-- **Memory**: Actively reads `memory.query("history")` in Orient; writes constellation
-  state and orient assessment back. Enables within-episode learning via CBR Retain.
-- **Feedback loops** (Boyd):
-  - Orient → Observe: attention guidance stored in memory for next cycle
-  - Orient → Act: urgency bypass when situation is critical
-- **Metrics**: `decision_latency_s` (total, gamma-distributed TPM per Miller et al.),
-  `observe_latency_s`, `orient_latency_s`, `decide_latency_s`,
-  `orient_iterations`, `orient_urgency`, `orient_cases_retrieved`,
-  `total_decisions`, `has_rationale`
-- **DecisionContext**: Orient enrichments are passed to representations via
-  `DecisionContext.enrichments` (not merged into state dict). This decouples
-  the loop's situation assessment from the raw observation.
-
-### ReAct (Reason-Act-Observe) — Phase 3
-
-- **File**: `src/decision_procedure/react_loop.py`
-- **Paper basis**:
-  - Yao et al. (2023), "ReAct: Synergizing Reasoning and Acting in Language Models",
-    ICLR 2023. [R8AVHEAP / 6ATE8J8S]
-  - Li (2025), "AI Agents for Satellite Operations", arXiv. [UAA3GIVK]
-- **Structure**: Iterative Thought-Action-Observation cycle (Yao et al. §3):
-  1. **Thought**: `representation.reason(state, memory)` produces a structured
-     reasoning trace explaining the decision factors at play. For symbolic
-     representations this is a rule evaluation trace; for future LLM representations
-     it is chain-of-thought text.
-  2. **Action**: `representation.select_action(context)` proposes an action.
-     The reasoning trace and any prior violations are passed in `enrichments`
-     so the representation can revise its decision.
-  3. **Observation**: Grounding checks validate the proposed action against
-     operational constraints (battery feasibility, pass-window timing). If
-     violations are found they are fed back into the next iteration. This is
-     Yao et al.'s key insight: environmental feedback in the reasoning loop.
-- **Termination**: Stops when the action passes all checks (converged=True) or
-  `max_iterations` is reached. On non-convergence, falls back to `charging`.
-- **Key differences from other loops**:
-  - vs SDA: Adds explicit reasoning trace and iterative refinement.
-  - vs OODA: OODA has a fixed 4-phase structure with Orient enriching a single
-    decision; ReAct iterates until constraints are satisfied (convergence-based).
-- **Grounding checks** (configurable, default: both enabled):
-  - `battery_feasibility`: Energy-intensive modes (observe, compress, detect,
-    send, communicate) require SoC ≥ 0.30. Fallback to charging prevents
-    battery-depleting actions when the satellite cannot sustain them.
-  - `pass_window_timing`: `communication` mode requires `ground_pass_active=True`.
-    Prevents uplink/downlink commands from being issued between passes.
-- **reason() method**: Optional method on `Representation` base (default no-op,
-  backward compatible). Symbolic representations override to return structured
-  reasoning traces. Future LLM representations will return chain-of-thought.
-- **Memory**: Passed through unchanged (like SDA). Future LLM representations
-  may update memory with reasoning traces.
-- **Metrics**: `decision_latency_s`, `reasoning_depth` (total thought steps),
-  `iterations` (cycles to convergence), `grounding_violations` (total violations),
-  `converged` (1.0 = passed grounding, 0.0 = fallback), `has_rationale`,
-  `total_decisions`
-- **DecisionContext enrichments** for ReAct:
-  - `reasoning_trace`: List of thought step dicts from all iterations
-  - `iteration`: Current iteration number (0-indexed)
-  - `grounding_violations`: List of violation dicts from previous iterations
-- **Note on naming**: Deployed frontier systems (Claude, GPT-4o, Gemini tools API)
-  standardize on ReAct-style reason-act-observe cycles in their orchestration layers.
-  CoALA (Sumers et al. 2024) is a higher-level architecture blueprint that subsumes
-  ReAct; it is implemented as the hybrid-**agentic** action-space flavor
-  (`agentic_eventsat`) — an action-space property, not a separate decision procedure
-  or representation substrate.
-
----
-
-## DecisionContext Interface — Phase 3
-
-- **File**: `src/decision_procedure/context.py`
-- **Purpose**: Structured wrapper between decision loops and representations.
-  Every loop produces a `DecisionContext`; every representation consumes one.
-- **Fields**:
-  - `state: Dict[str, Any]` — raw encoded observation (loop-agnostic)
-  - `loop_type: str` — producing loop identifier ("sda", "ooda", "react", ...)
-  - `memory: Any` — agent memory reference
-  - `enrichments: Dict[str, Any]` — loop-specific data (orient assessment, reasoning trace, LLM prompts, tensors)
-  - `loop_metadata: Dict[str, Any]` — operational metadata (latency, iterations)
-- **Design rationale**: Decouples loop enrichments from raw state so representations
-  can opt into loop-specific data without breaking the base interface. Enables the
-  morphological matrix to produce different decisions when the decision loop varies.
-- **SDA**: `DecisionContext(state=encoded, loop_type="sda", enrichments={})`
-- **OODA**: `enrichments={situation_class, urgency, battery_trend, battery_trending_down,
-  data_pressure, competing_priorities, similar_case, attention_guidance, anomaly_is_new,
-  sunlight_transition, entered_eclipse}`
-- **ReAct**: `enrichments={reasoning_trace, iteration, grounding_violations}`
-- **Future LLM/RL**: `enrichments={prompt, reasoning_steps, tensor_obs, policy_logits, ...}`
 
 ---
 
@@ -214,40 +110,19 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 > `representation × action_space × operations_paradigm` (`ExperimentConfig.resolved_representation_type`);
 > configs no longer set `representation_config.type` except as an explicit override (e.g. `_algobase`).
 
-### Rule-Based EventSat — Phase 2 baseline + Phase 3 OODA-aware + ReAct-capable
+### Rule-Based EventSat — Phase 2 baseline
 
 - **File**: `src/representation/rule_based_eventsat.py`
 - **Registered as**: `rule_based_eventsat`
 - **Paper basis**: Hand-designed priority rule chain (domain engineering)
-- **Structure**: Priority rules across categories (R1–R7 + default).
+- **Structure**: Priority rules across categories (R1-R7 + default).
   `encode_observation()` extracts flat state dict from environment.
   `select_action(context)` evaluates rules in priority order, returns first match.
-- **OODA-aware modifications** (active when `context.loop_type == "ooda"`):
-  - **R2e-OODA**: Eclipse preparation — charge at SoC < 0.60 when Orient detects
-    sun→eclipse transition. Boyd's "genetic heritage" (physics constraint awareness).
-  - **R2-OODA**: Proactive charging — charge at SoC < 0.45 when Orient detects
-    `battery_trending_down` + `urgency > 0`. Orient's trend analysis catches
-    decline before SDA's fixed 0.35 threshold.
-  - **R3-OODA**: Urgency-based pass prioritization — communicate during pass when
-    `urgency > 0.5` even without OBC data (pre-emptive HK downlink/command uplink).
-  - **R5-OODA**: Observation batching — when Orient confirms battery stable/rising,
-    no imminent pass, and low urgency, defer compression to allow 2 observations
-    before compressing. Reduces ADCS mode-switching overhead vs SDA's strict 1:1
-    observe→compress interleave. Boyd's "analysis & synthesis" enables more
-    efficient pipeline utilization.
-  - **R6-OODA**: Orient-confident observation — observe at SoC > 0.50 (vs SDA's
-    0.60) when Orient's trend analysis confirms battery is stable/rising.
-  - **SDA fallback**: If `loop_type != "ooda"` or enrichments empty, behaves
-    identically to Phase 2 baseline.
-- **reason() override** (for ReAct): Evaluates all decision factors (battery,
-  health, pass, pipeline backlog, pipeline pressure) and returns a structured
-  trace with which rules would match and why. The ReAct loop uses this trace
-  as the Thought step and includes it in the next Action's enrichments.
-- **Rationale**: Always provides human-readable rationale indicating which rule
-  fired and whether OODA enrichments influenced the decision (explainability metric).
-- **Operations paradigm**: Paired with `autonomous_hybrid`.
+- **Rationale**: Provides a human-readable rationale indicating which rule fired
+  for the explainability metric.
+- **Operations paradigm**: Paired with autonomous onboard / hybrid symbolic cells.
 
-### Schedule-Based EventSat — Phase 2 baseline + Phase 3 OODA-aware + ReAct-capable
+### Schedule-Based EventSat — Phase 2 baseline
 
 - **File**: `src/representation/schedule_based_eventsat.py`
 - **Registered as**: `schedule_based_eventsat`
@@ -255,14 +130,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   battery-aware planner with power model from PDR Table 6.2.
 - **Structure**: During ground passes, generates time-tagged command sequences
   via greedy planning. Between passes, commands play back from schedule.
-  Telemetry-first sequencing: downlink HK → fresh data → generate schedule.
-- **OODA-aware modifications** (active when `context.loop_type == "ooda"`):
-  - **Urgency-aware reserve**: When `urgency > 0.6`, charge reserve fraction is
-    halved (min 6%) to front-load productive operations.
-- **reason() override** (for ReAct): Returns a schedule planning intent summary
-  (pass state, battery SoC, gap length, pipeline backlog, downlink opportunity).
-  Used as the Thought step in the ReAct cycle.
-- **Operations paradigm**: Paired with `autonomous_ground`.
+  Telemetry-first sequencing: downlink HK -> fresh data -> generate schedule.
+- **Operations paradigm**: Paired with autonomous ground / hybrid ground-planner slots.
 
 ### Conventional Schedule EventSat — Phase 3 (human-realistic)
 
@@ -303,8 +172,11 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 ### Placeholder Schedulers — ground-paradigm stand-ins (non-symbolic AG/CG cells)
 
 - **File**: `src/representation/placeholder_schedulers.py`
-- **Registered as**: `subsymbolic_scheduler_eventsat`, `llm_scheduler_eventsat`,
-  `agentic_scheduler_eventsat`
+- **Registered as**: `subsymbolic_scheduler_eventsat` (the **only remaining
+  placeholder** scheduler). The LLM ground schedulers it once stood beside are now
+  real: `llm_scheduler_eventsat` / `llm_single_scheduler_eventsat` (single-shot, see
+  below) and `agentic_scheduler_eventsat` / `llm_agentic_scheduler_eventsat`
+  (agentic, see *Agentic EventSat Scheduler*).
 - **Why they exist**: The ground paradigms (`autonomous_ground`,
   `conventional_ground`) drive between-pass behavior from a `schedule` the
   representation emits during a pass. Only the symbolic planners
@@ -315,21 +187,19 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   behavior (confirmed: the entire inter-pass gap fell back to `default_mode`). For
   CG it was worse: `process_action` forces `communication` during passes, so all
   non-symbolic CG cells collapsed to an identical trivial trajectory.
-- **What they do (PLACEHOLDER)**: Each subclasses `ScheduleBasedEventSat` and emits
-  a real schedule via the **symbolic greedy planner** — NOT the family's actual
-  policy. `is_placeholder = True` is surfaced in
+- **What it does (PLACEHOLDER)**: `subsymbolic_scheduler_eventsat` subclasses
+  `ScheduleBasedEventSat` and emits a real schedule via the **symbolic greedy
+  planner** — NOT the RL policy. `is_placeholder = True` is surfaced in
   `results["experiment_statistics"]["metadata"]["representation_is_placeholder"]`
-  so analysis can exclude these cells from headline comparisons.
-- **Extension point (future research, "P3 — learned scheduling")**: replace each
-  placeholder with a real schedule producer — a PPO-trained scheduler
-  (`subsymbolic_scheduler_eventsat`, the deferred Phase 4.e), an LLM-generated
-  schedule (`llm_scheduler_eventsat`), and a tool-using agentic planner
-  (`agentic_scheduler_eventsat`) — to make the RL-vs-LLM scheduling comparison.
-- **Guard**: `config_loader` now **errors** if a ground paradigm is paired with a
+  so analysis can exclude it from headline comparisons.
+- **Extension point (future research, "P3 — learned scheduling")**: replace the
+  remaining RL placeholder with a **PPO-trained schedule producer** — the deferred
+  RL-vs-LLM scheduling comparison. (The LLM and agentic schedule producers are
+  already built.)
+- **Guard**: `config_loader` **errors** if a ground paradigm is paired with a
   non-schedule-producing representation type, so the degenerate cell cannot be
-  recreated silently. The non-symbolic ground cells use these placeholder types.
-  Note: the subsymbolic ground cells no longer require `torch`
-  (they delegate to the symbolic planner).
+  recreated silently. Note: the subsymbolic ground cell no longer requires `torch`
+  (it delegates to the symbolic planner).
 
 ### Subsymbolic EventSat — Phase 4b (RL learned)
 
@@ -364,9 +234,9 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - SoC < 0.20 → forced charging
   - Communication without active pass → forced charging
 - **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
-- **reason()**: Returns per-head action probabilities as structured Think steps for ReAct loop
+- **reason()**: Returns per-head action probabilities as structured explanation steps
 - **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
-- **Orthogonality**: Works with all 3 decision procedures (SDA/OODA/ReAct, held fixed) and all 4 ops paradigms (ao/ah/ag/conventional)
+- **Orthogonality**: Works with the fixed SDA decision driver and all 4 ops paradigms (ao/ah/ag/conventional)
 - **Training script**: `scripts/train_subsymbolic.py`
 - **Gymnasium wrapper**: `src/environment/gymnasium_wrapper.py` (EventSatGymnasium)
 - **Supporting modules**: `src/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/behaviour/training_pipeline.py` (PPOTrainer)
@@ -382,13 +252,13 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Rodriguez-Fernandez et al. (2024), "Language Models are Spacecraft Operators" [WC5WU34U]
     — LLM prompt design for satellite operations (§3.2 state formatting).
   - Li (2025), "AI Agents for Satellite Operations" [UAA3GIVK]
-    — ReAct LLM agent architecture for satellite ops.
+    — LLM agent architecture for satellite ops.
 - **Structure**:
   - `encode_observation()`: Same feature extraction as rule-based (for comparability).
   - `select_action(context)`: Formats state into structured prompt → LLM call → JSON
     parse → symbolic grounding validates mode → retry on invalid → **fails the episode**
     if no valid mode (substrate-integrity invariant, `ec1b83b`; no symbolic substitution).
-  - `reason()`: LLM-based structured reasoning for ReAct thought step.
+  - `reason()`: LLM-based structured reasoning for explanations/debugging.
   - `get_rationale()`: LLM's natural language rationale.
 - **Symbolic grounding checks**:
   - Mode must be one of 7 valid EventSat modes.
@@ -400,7 +270,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - File-based response cache (`data/llm_cache/`) keyed on prompt hash.
   - Mock mode (`llm_mock: true`) for CI — no live LLM calls.
   - Configurable model, temperature, provider via YAML.
-- **Orthogonality**: Works with all 3 decision procedures (SDA/OODA/ReAct, held fixed) and the ops paradigms
+- **Orthogonality**: Works with the fixed SDA decision driver and the ops paradigms
   (ah/ag/conventional). Unlike symbolic which needed 3 separate representation types per ops
   paradigm, the LLM representation handles all ops contexts through its prompt.
 - **Diagnostics**: `llm_api_calls`, `llm_cache_hit_rate`, `llm_total_latency_s`,
@@ -438,7 +308,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   4. DECIDE: LLM selects final mode after sufficient information gathering. If the
      tool budget exhausts (or the loop stalls) without a decision, one **forced
      decision-only call** closes the cycle (`format_forced_decision_prompt`, no tool
-     option — bounded-loop answer extraction per ReAct, Yao et al. 2023). First live
+     option — bounded-loop answer extraction). First live
      122B run showed 66 % of steps riding the budget to exhaustion without it.
      If even that yields no valid mode, the episode **fails** (substrate-integrity
      invariant — agentic sibling of `ec1b83b`; no symbolic substitution).
@@ -463,12 +333,10 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Symbolic grounding**: Same as llm_eventsat (anomaly→safe, SoC<0.20→charging,
   no-pass→no-comms).
 - **Mock mode**: `llm_mock: true` short-circuits to symbolic fallback (0 LLM calls).
-- **Loop interaction**: Plan-Tool-Reflect-Decide is the representation's internal
-  reasoning protocol (CoALA §3.2 "internal actions"), orthogonal to the outer decision
-  loop. OODA/ReAct enrichments ARE visible in the planning prompt (`format_planning_prompt`
-  includes a SITUATION ASSESSMENT block when enrichments are present), but the code does
-  not branch on `context.loop_type`. The LLM implicitly adapts to richer context. See
-  "Cross-Cutting Design Decisions" for the rationale.
+- **Decision interaction**: Plan-Tool-Reflect-Decide is the representation's internal
+  reasoning protocol (CoALA §3.2 "internal actions") behind the fixed SDA driver.
+  Optional `DecisionContext.enrichments` are serialized into the prompt when present,
+  but current benchmark configs do not vary the outer decision loop.
 - **Inference gating**: For AG/CG ops paradigms, `should_allow_inference()` returns
   `False` between passes. The experiment runner skips the agentic loop entirely; schedule
   playback handles actions. This avoids wasted LLM API calls on stale inter-pass data
@@ -476,9 +344,8 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Simulation assumption**: The 122B-parameter Qwen model represents upper-bound
   reasoning quality, not a deployable onboard configuration. AH configs model ideal
   onboard reasoning; AG/CG configs model ground-based inference.
-- **ReAct amplification**: ReAct outer loop (max 3 iterations) × agentic inner loop
-  (max 5 steps + 1 forced-decide call) = up to 18 LLM calls per decision step.
-  Cost-controlled via `max_agentic_steps` (lower it for ReAct experiments).
+- **Agentic-loop cost**: the internal loop is cost-controlled via
+  `max_agentic_steps` and forced final answer extraction.
 - **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
   `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
 - **Learned-emergence variants** (Phase 5):
@@ -489,7 +356,77 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - `writable_coala` (`_hyag_lec_*`): swaps `FixedMemory` for `WritableMemory`;
     injects two writable memory tools; expands system prompt with CoALA memory
     instructions. **Fairness trade-off**: compared against `_hyag_hd_` baseline only.
-- **Cell**: `hllm-a` (hybrid LLM + symbolic, agentic). **Config**: `eventsat_sas_ag_hllm-a`. The writable_coala online-learning variant (mechanism, not a separate class) and AH-ground hllm-a are pending.
+- **Cell**: `hllm-a` (hybrid LLM + symbolic, agentic), as a **per-step** core. **Config**: `eventsat_sas_ag_hllm-a` (and the AH ground-planner) resolve `hllm-a` to the *agentic schedule producer* `agentic_scheduler_eventsat`, not this per-step core — see *Agentic EventSat Scheduler* below. The writable_coala online-learning variant (mechanism, not a separate class) for the scheduler is pending.
+
+### Agentic EventSat Scheduler — Phase 4.e (agentic ground planner: hllm-a / llm-a)
+
+- **File**: `src/representation/agentic_scheduler_eventsat.py`
+- **Registered as**: `agentic_scheduler_eventsat` (hllm-a) and
+  `llm_agentic_scheduler_eventsat` (llm-a) — **replacing the former placeholders**.
+- **Substrate / action space**: the **agentic** schedule producer — the agentic
+  analogue of the single-shot `llm_scheduler_eventsat`, and the schedule-producing
+  sibling of the per-step `agentic_eventsat`. At each ground contact, instead of one
+  LLM call, it runs a CoALA Plan-Tool-Reflect-Decide loop (reusing the six domain
+  tools in `agentic_tools.py`) whose **terminal DECIDE step emits a whole-pass
+  schedule** (`[[mode, steps], …]`) executed autonomously until the next contact.
+- **Why it was needed**: AG/AH **ground** slots need a whole-pass schedule producer,
+  so the real per-step `agentic_eventsat` (a single-mode controller) was never a
+  scoring core in the matrix; the `hllm-a`/`llm-a` ground cells resolved to symbolic
+  greedy *placeholders* (`is_placeholder=True`). This module makes them real, closing
+  the deferred "Phase 4.e" gap. Resolution is unchanged — same `@register` names — so
+  no config/loader change was required; only the classes behind the names changed.
+- **Design (reuse)**: subclasses `LLMSchedulerEventSat` (the hllm-s single-shot core),
+  inheriting the per-pass control flow (stale-HK-first → plan-once-on-fresh-telemetry),
+  `encode_observation`, schedule validation, and the symbolic safety shield; it
+  overrides only schedule *generation* (`_generate_schedule_llm` → the agentic loop)
+  and adds agentic metrics. New prompts live in `agentic_prompts.py`
+  (`AGENTIC_SCHEDULE_SYSTEM_PROMPT`, `format_schedule_planning_prompt`,
+  `format_schedule_tool_result_prompt`, `format_forced_schedule_prompt`); the JSON
+  parser is shared via `agentic_eventsat.parse_agentic_json`.
+- **hllm-a vs llm-a — symbolic grounding toggle (the *only* difference)**: exactly as
+  `hllm-s` vs `llm-s`. `AgenticSchedulerEventSat` (hllm-a) keeps `_symbolic_grounding=True`
+  — the CoALA tools **and** the symbolic safety/format shield on the emitted schedule
+  (drop communication, clamp/pad to the gap, veto operational blocks in a critical
+  battery/storage state → charging). `LLMAgenticSchedulerEventSat` (llm-a) sets
+  `_symbolic_grounding=False` — same loop, tools and prompt, but the schedule is taken
+  as the model produced it (safety lives in the prompt; the env enforces hard limits at
+  execution). The CoALA tools are information-gathering *external actions* (CoALA §3),
+  part of the agentic action space, not the symbolic substrate — so they are kept for
+  both cells, and the comparison isolates **only** the symbolic safety layer (user
+  decision 2026-06-22).
+- **Substrate integrity**: if the loop yields no valid schedule after `MAX_RETRIES`,
+  the episode **fails** (`RuntimeError`) — no symbolic substitution (consistent with
+  `llm_scheduler_eventsat` and the per-step `agentic_eventsat`).
+- **Decision extraction**: accepts both the protocol form
+  `{"decision": {"schedule": …}}` and the flattened `{"schedule": …}` that reasoning
+  models (and the mock client) emit.
+- **Metrics**: LLM client metrics + `llm_schedule_entries` (inherited) +
+  `agentic_total_tool_calls`, `agentic_avg_steps_per_decision`, per-tool histogram.
+- **`max_agentic_steps`**: CoALA loop budget per schedule decision (default **5**,
+  configurable in YAML), matching the per-step agentic core.
+- **Decisive prompt — bounding runaway reasoning (2026-06-23)**: qwen3.6:35b is a
+  *thinking* model, and the original open-ended `AGENTIC_SCHEDULE_SYSTEM_PROMPT`
+  ("you may call tools multiple times … verify assumptions rather than guessing") drove
+  it to deliberate the entire Plan-Tool-Reflect-Decide protocol in its **internal
+  `<thinking>` trace** before emitting any JSON — an unbounded spiral that blew the
+  client's 300 s wall-clock timeout and never produced a schedule (the *single-shot*
+  prompt, being direct, terminates in ~29.5 s). Disabling thinking (`think:false`) was
+  tried and rejected: it stops the spiral but makes the model emit **malformed JSON**
+  (the thinking phase is what gets the structure right) — every cell then tripped the
+  integrity violation. The fix keeps the known-good config (think on, streaming) and
+  instead makes the prompt **decisive**: it now instructs *"1-2 tool calls is usually
+  enough; keep INTERNAL reasoning concise (a few sentences); do not simulate many
+  scenarios — think briefly, then act."* This bounds the internal deliberation while
+  **preserving genuine tool use** (the agentic action space). Verified live (think on,
+  streaming): the PLAN call terminates in **8-33 s** with valid schedule JSON and
+  `tool_call` still emitted, `done_reason=stop` — vs >300 s runaway before. The
+  `llm-s`↔`llm-a` contrast remains the action space (one call vs the tool-using loop),
+  not the inference config.
+- **Papers**: Sumers et al. (2024) [CoALA] — tool use, action decomposition;
+  Yao et al. (2023) — bounded agent loop with forced answer extraction;
+  Rodriguez-Fernandez et al. (2024) — schedule-prompt design for sat ops.
+- **Tests**: `tests/test_agentic_scheduler.py` (registration, schedule contract,
+  grounding toggle, decision extraction, substrate integrity) — mocked, no live LLM.
 
 ---
 
@@ -509,7 +446,7 @@ paradigms carry no overhead.
   no schedule — a single per-step onboard core, closed-loop. `has_onboard_autonomy()=True`.
 - **Resolves to**: the onboard core (symbolic→`rule_based_eventsat`, subsymbolic→`subsymbolic_eventsat`).
   Hybrid+AO excluded (no standalone onboard LLM).
-- **Configs**: `eventsat_sas_{sda,ooda,react}_{symb_hd,subm_le}_ao` (6 SAS).
+- **Configs**: `eventsat_sas_ao_{symb,rl,hrl}` and related matrix cells.
 - **Key property**: pure onboard autonomy with the Jetson power overhead; the AO↔AH contrast isolates
   the value of adding a ground plan.
 
@@ -530,9 +467,11 @@ paradigms carry no overhead.
   per the O framework (morphological_matrix.md)): `hybrid·reactive → llm_eventsat`, `hybrid·agentic → agentic_eventsat`,
   `subsymbolic → subsymbolic_eventsat`. (Before `a3768bf`, `resolved_onboard_type` silently
   substituted the RL policy for hybrid AH cells, so no LLM ever ran in hyre/hyag AH — fixed.)
-  The AH **ground-planner** slot is still the `*_scheduler` placeholder, so the LLM/agentic
-  *ground* planner (and `_lep_`/`_lec_` ground variants) remain pending the real planner contract
-  (Phase 4.e); the onboard LLM/agentic core itself is live.
+  The AH **ground-planner** slot uses the real LLM schedule producers — single-shot
+  `llm_scheduler_eventsat` (hllm-s) / `llm_single_scheduler_eventsat` (llm-s) and **agentic**
+  `agentic_scheduler_eventsat` (hllm-a) / `llm_agentic_scheduler_eventsat` (llm-a). Only the RL
+  schedule producer (`subsymbolic_scheduler_eventsat`) and the `_lep_`/`_lec_` *ground* learned
+  variants remain pending. The onboard LLM/agentic core itself is also live.
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 
@@ -718,10 +657,6 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
   commanding_effort counts requested-mode changes plus weighted manual
   interventions per mission-day.
 - **Cross-episode**: robustness_cv, the coefficient of variation of utility.
-- **OODA-specific** (Phase 3): mean_orient_latency_s, mean_orient_iterations,
-  mean_orient_urgency.
-- **ReAct-specific** (Phase 3): reasoning_depth, iterations, grounding_violations,
-  converged; aggregated over episodes for comparison.
 - **AH-specific** (paradigm metrics, per episode): onboard_overrides and
   onboard_override_rate, the between-pass steps where the onboard core overrode
   the uplinked plan.
@@ -746,8 +681,6 @@ for the framing.
 | DecentralizedMAS (DMAS) | `src/agent_organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
 | HybridMAS (HMAS) | `src/agent_organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on Flamingo N≥3 |
 | SDA loop | `src/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
-| OODA loop | `src/decision_procedure/` (OODA) | **L1** Reasoning | Miller / Hartmann / Richards | Orient-stage deliberation |
-| ReAct loop | `src/decision_procedure/` (ReAct) | **L1** Reasoning + self-reflection | Yao et al. 2023 | Direct analogue of Bhati L1 self-reflection mechanism |
 | Rule-Based / Schedule-Based EventSat | `src/representation/...rule_based_eventsat`, `schedule_based_eventsat` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
 | Conventional Schedule EventSat | `src/representation/...conventional_schedule_eventsat` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
 | Subsymbolic EventSat | `src/representation/...subsymbolic_eventsat` | **L0** (policy net) + **L1** | Wang et al. 2022 (DRL) | L0 is the RL policy network rather than an LLM |
@@ -779,55 +712,11 @@ effect (Brooks 1991; Colelough & Regli 2025). The asymmetry is explicit in
 
 ### Decision Procedure × Representation Interaction Model
 
-All decision loops produce a `DecisionContext` containing `state`, `enrichments`, and
-`loop_metadata`. Representations consume this via their `select_action()` method. The
-interaction model differs by representation paradigm:
-
-- **Symbolic (rule-based, schedule-based)**: Explicit `if loop_type == "ooda"` branches
-  activate loop-specific rules (e.g., 6 OODA-aware rules in `rule_based_eventsat`:
-  R2e-OODA eclipse preparation, R2-OODA proactive charging, R3-OODA urgency-based pass,
-  R5-OODA observation batching, R6-OODA orient-confident observation). The
-  representation's behavior is deterministically different depending on which loop
-  calls it.
-- **LLM/Agentic (hybrid)**: Enrichments are serialized into prompt text. The LLM
-  receives richer context from OODA (situation class, urgency, trends, CBR matches) or
-  ReAct (reasoning trace, grounding violations) but no code branches on `loop_type`.
-  The LLM implicitly adapts its reasoning to the available context.
-- **Subsymbolic (RL)**: Enrichments are not used (the policy network operates on the
-  fixed 25D observation vector). Loop variation only affects the temporal calling
-  pattern (ReAct may call `select_action()` multiple times per step).
-
-**Why agentic doesn't branch on loop_type**: The Plan-Tool-Reflect-Decide protocol is
-a *representation-internal reasoning protocol* — what CoALA (Sumers et al. 2024 §3.2)
-calls "internal actions" (reasoning + retrieval). The outer decision loop determines
-*context richness*, not the representation's internal control flow:
-
-- SDA: Minimal context (raw state only) → agentic loop plans with state alone
-- OODA: Rich context (situation, urgency, trends) → agentic sees these in planning
-  prompt via `format_planning_prompt()` SITUATION ASSESSMENT block
-- ReAct: Iterative context (reasoning trace accumulates, violations feed back) →
-  agentic loop benefits from prior reasoning across ReAct iterations
-
-The scientific comparison axis is: *does the same representation produce better
-decisions when given richer loop context?* And conversely: *does structured
-multi-step reasoning (agentic) benefit less from richer loop context because it
-already gathers similar information via tool use?*
-
-**What changes across the matrix is the prompt, not the reasoning architecture.**
-The decision loop controls context richness (enrichments); the representation
-controls how that context is consumed (single-shot vs multi-step tool-use).
-
-**LLM call counts per decision step:**
-
-| | SDA | OODA | ReAct (max 3 iterations) |
-|---|---|---|---|
-| `llm_eventsat` | 1 LLM call | 1 LLM call (richer prompt) | Up to 3 LLM calls |
-| `agentic_eventsat` | Up to 3 LLM calls | Up to 3 LLM calls (richer initial plan) | Up to 9 LLM calls (3 ReAct × 3 agentic) |
-
-Note: `llm_eventsat` uses a single-shot prompt (state → one LLM call → mode decision).
-`agentic_eventsat` uses a CoALA-style Plan-Tool-Reflect-Decide loop with domain tools
-(check battery, pipeline, constraints, etc.) — multiple LLM calls per decision. Both
-share the same symbolic grounding layer and LLM backend.
+The benchmark uses a fixed SDA driver. SDA produces a `DecisionContext` with the
+encoded state and passes it to the selected representation's `select_action()`.
+Architectural variation now lives in the representation, organization, and
+operations-paradigm layers; agentic planning/tool use is internal to the
+representation, not an alternate outer decision loop.
 
 ### Operations Paradigm × Inference Location
 
@@ -893,6 +782,14 @@ is a separate research question on optimal uplink timing.
 | llm_eventsat (hllm-s) | LLM every step (a3768bf; Jetson-class) | LLM between passes → uplinked plan | LLM between passes → schedule | LLM between passes → delayed schedule |
 | agentic_eventsat (hllm-a) | Agentic loop every step (a3768bf; Jetson-class) | Agentic between passes → uplinked plan | Agentic between passes → schedule | Agentic between passes → delayed schedule |
 | subsymbolic | DNN every step | DNN between passes → uplinked plan | DNN between passes → schedule | DNN between passes → delayed schedule |
+
+> **Ground columns** (AH-ground / AG / CG) are produced by the **`*_scheduler_eventsat`
+> schedule producers**, not the per-step cores: `schedule_based_eventsat` (symb),
+> `llm_scheduler_eventsat` / `llm_single_scheduler_eventsat` (hllm-s / llm-s),
+> `agentic_scheduler_eventsat` / `llm_agentic_scheduler_eventsat` (hllm-a / llm-a),
+> `subsymbolic_scheduler_eventsat` (RL placeholder). The per-step `llm_eventsat` /
+> `agentic_eventsat` run only in the AH **onboard** slot. The cell parens above name
+> the framework cell, not the concrete ground class.
 
 | Repr Type | Typical Inference Time | Onboard Feasible? |
 |-----------|----------------------|-------------------|

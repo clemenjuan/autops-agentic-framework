@@ -15,10 +15,11 @@ NOT produced by the family's actual policy. They mark the drop-in point for the
 future "learned scheduling" research line (RL vs LLM schedule producers):
 
   - ``subsymbolic_scheduler_eventsat`` → TODO(P3): PPO-trained schedule producer
-  - ``agentic_scheduler_eventsat``     → TODO(P3): agentic (tool-using) planner
 
-(``llm_scheduler_eventsat`` is now a REAL single-shot LLM planner — see
-``llm_scheduler_eventsat.py`` — no longer a placeholder.)
+(``llm_scheduler_eventsat`` / ``llm_single_scheduler_eventsat`` are REAL single-shot
+LLM planners — see ``llm_scheduler_eventsat.py``; ``agentic_scheduler_eventsat`` /
+``llm_agentic_scheduler_eventsat`` are now REAL agentic planners — see
+``agentic_scheduler_eventsat.py``. None of those are placeholders anymore.)
 
 ``is_placeholder = True`` is recorded in results metadata
 (see ``ExperimentRunner._compile_results``) so analysis can exclude these cells
@@ -61,10 +62,3 @@ class SubsymbolicSchedulerEventSat(_PlaceholderScheduler):
     """Placeholder RL scheduler. TODO(P3): replace with a PPO-trained schedule producer."""
 
     _family = "subsymbolic"
-
-
-@register("agentic_scheduler_eventsat")
-class AgenticSchedulerEventSat(_PlaceholderScheduler):
-    """Placeholder agentic scheduler. TODO(P3): replace with a tool-using planner."""
-
-    _family = "agentic"

@@ -11,7 +11,6 @@ import pytest
 import yaml
 
 from src.memory.fixed_memory import FixedMemory
-from src.orchestration.analysis import compute_pareto_frontier, compare_experiments
 from src.orchestration.config_loader import (
     ExperimentConfig,
     EnvironmentConfig,
@@ -45,7 +44,7 @@ class TestExperimentConfig:
         with pytest.raises(ValueError, match="representation"):
             ExperimentConfig(representation="quantum")
 
-    def test_invalid_emergence_mode_raises(self) -> None:
+    def test_invalid_behaviour_mode_raises(self) -> None:
         with pytest.raises(ValueError, match="behaviour"):
             ExperimentConfig(behaviour="magic")
 
@@ -65,15 +64,10 @@ class TestCombinationGuardrails:
             environment={"scenario": "eventsat"},
         )
 
-    def test_deterministic_rep_ground_non_sda_warns(self) -> None:
-        """react + conventional_ground + deterministic rep → warning."""
-        with pytest.warns(UserWarning, match="deterministic representation"):
-            self._make_cfg("react", "conventional_ground", "conventional_schedule_eventsat")
-
-    def test_ooda_ground_deterministic_warns(self) -> None:
-        """ooda + autonomous_ground + schedule_based → warning."""
-        with pytest.warns(UserWarning, match="deterministic representation"):
-            self._make_cfg("ooda", "autonomous_ground", "schedule_based_eventsat")
+    @pytest.mark.parametrize("loop", ["ooda", "react"])
+    def test_retired_decision_loops_rejected(self, loop: str) -> None:
+        with pytest.raises(ValueError, match="decision_procedure must be 'sda'"):
+            self._make_cfg(loop, "conventional_ground", "conventional_schedule_eventsat")
 
     def test_sda_ground_no_warning(self) -> None:
         """sda + conventional_ground + deterministic rep → no warning."""
@@ -89,39 +83,23 @@ class TestCombinationGuardrails:
             warnings.simplefilter("error")
             self._make_cfg("sda", "autonomous_hybrid", "rule_based_eventsat")
 
-    def test_non_deterministic_scheduler_ground_no_warning(self) -> None:
-        """react + conventional_ground + LLM scheduler placeholder → no warning.
-
-        The scheduler placeholders emit a schedule, so they are valid under
-        ground paradigms and (being non-deterministic family stand-ins) do not
-        trip the deterministic-rep warning.
-        """
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            self._make_cfg("react", "conventional_ground", "llm_scheduler_eventsat")
-
     def test_raw_llm_rep_under_ground_raises(self) -> None:
         """A non-schedule representation under a ground paradigm is now rejected."""
         with pytest.raises(ValueError, match="schedule-producing"):
-            self._make_cfg("react", "conventional_ground", "llm_eventsat")
+            self._make_cfg("sda", "conventional_ground", "llm_eventsat")
 
     def test_human_rep_on_autonomous_hybrid_warns(self) -> None:
         """conventional_schedule_eventsat + autonomous_hybrid → warning."""
         with pytest.warns(UserWarning, match="human cognitive constraints"):
             self._make_cfg("sda", "autonomous_hybrid", "conventional_schedule_eventsat")
 
-    def test_warnings_non_blocking(self) -> None:
-        """Degenerate config still loads successfully."""
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            cfg = self._make_cfg("react", "conventional_ground", "schedule_based_eventsat")
-        assert cfg.decision_procedure == "react"
+    def test_sda_ground_schedule_based_loads(self) -> None:
+        cfg = self._make_cfg("sda", "conventional_ground", "schedule_based_eventsat")
+        assert cfg.decision_procedure == "sda"
         assert cfg.operations_paradigm == "conventional_ground"
 
 
-class TestEmergenceMechanism:
+class TestBehaviourMechanism:
     """Validation of behaviour_config.mechanism cross-field constraints."""
 
     def _make_learned(
@@ -270,45 +248,6 @@ class TestFixedMemory:
 
 
 # ======================================================================
-# Analysis tests
-# ======================================================================
-
-
-class TestParetoFrontier:
-    def test_simple_pareto(self) -> None:
-        points = [
-            {"utility": 10, "latency": 5},
-            {"utility": 8, "latency": 3},
-            {"utility": 6, "latency": 2},
-            {"utility": 5, "latency": 8},
-        ]
-        # Maximise utility, minimise latency
-        frontier = compute_pareto_frontier(
-            points,
-            objectives=["utility", "latency"],
-            maximise=[True, False],
-        )
-        # Point 0 (10, 5) and point 2 (6, 2) are Pareto-optimal
-        assert 0 in frontier
-        assert 2 in frontier
-        # Point 3 (5, 8) is dominated
-        assert 3 not in frontier
-
-    def test_empty_input(self) -> None:
-        assert compute_pareto_frontier([], ["a"]) == []
-
-
-class TestCompareExperiments:
-    def test_ranking(self) -> None:
-        stats = [
-            {"experiment_id": "a", "mean": {"utility": 10.0}, "std": {"utility": 1.0}},
-            {"experiment_id": "b", "mean": {"utility": 15.0}, "std": {"utility": 2.0}},
-        ]
-        result = compare_experiments(stats, "utility")
-        assert result["ranking"][0]["experiment_id"] == "b"
-
-
-# ======================================================================
 # Experiment runner (smoke test)
 # ======================================================================
 
@@ -410,19 +349,19 @@ class TestOrganizationInstantiation:
         assert len(organization.get_agents()) == expected_agents
 
 
-class TestMatrixRestructureNaming:
-    """New axis names + action_space semantics; legacy aliases during migration."""
+class TestConfigSchema:
+    """Current config schema and action_space semantics."""
 
     def test_new_field_names(self) -> None:
-        cfg = ExperimentConfig(decision_procedure="ooda", behaviour="emergent",
+        cfg = ExperimentConfig(decision_procedure="sda", behaviour="emergent",
                                representation="subsymbolic",
                                representation_config={"type": "subsymbolic_eventsat"},
                                behaviour_config={"mechanism": "ppo"})
-        assert cfg.decision_procedure == "ooda"
+        assert cfg.decision_procedure == "sda"
         assert cfg.behaviour == "emergent"
 
     @pytest.mark.parametrize(
-        "legacy_kwargs",
+        "removed_kwargs",
         [
             {"decision_loop": "react"},
             {"emergence_mode": "hand_designed"},
@@ -430,10 +369,10 @@ class TestMatrixRestructureNaming:
             {"decision_loop_config": {"x": 1}},
         ],
     )
-    def test_legacy_field_names_rejected(self, legacy_kwargs: dict) -> None:
-        """Old field names no longer accepted (extra='forbid')."""
+    def test_removed_field_names_rejected(self, removed_kwargs: dict) -> None:
+        """Old field names are rejected explicitly."""
         with pytest.raises(ValueError):
-            ExperimentConfig(**legacy_kwargs)
+            ExperimentConfig(**removed_kwargs)
 
     def test_action_space_valid(self) -> None:
         cfg = ExperimentConfig(representation="hybrid",
@@ -577,8 +516,8 @@ class TestTwoCoreResolution:
             # AH: both; ground = AG-equivalent (algorithmic), onboard = per-step
             ("symbolic", None, "autonomous_hybrid", "rule_based_eventsat", "schedule_based_eventsat"),
             ("subsymbolic", None, "autonomous_hybrid", "subsymbolic_eventsat", "subsymbolic_scheduler_eventsat"),
-            # Onboard slot follows the configured substrate (decision_matrix §3.1) —
-            # never silently substituted by RL (user decision 2026-06-11).
+            # Onboard slot follows the configured substrate and is never silently
+            # substituted by RL.
             ("hybrid", "reactive", "autonomous_hybrid", "llm_eventsat", "llm_scheduler_eventsat"),
             ("hybrid", "agentic", "autonomous_hybrid", "agentic_eventsat", "agentic_scheduler_eventsat"),
         ],
@@ -596,7 +535,7 @@ class TestTwoCoreResolution:
 
 class TestRepresentationVocabulary:
     """7-cell framework tokens (morphological_matrix.md §2) normalise to the
-    internal substrate + action_space; hrl/llm-a route to flagged placeholders."""
+    internal substrate + action_space; HRL and pure-LLM onboard route to flagged placeholders."""
 
     @pytest.mark.parametrize(
         "cell, ops, expected",
@@ -624,32 +563,33 @@ class TestRepresentationVocabulary:
         import src.representation.placeholder_cells  # noqa: F401  (registers cells)
         from src.behaviour.controller import _REPRESENTATION_REGISTRY
 
-        # llm_single_scheduler_eventsat (llm-s ground) is now a REAL core, not a placeholder.
+        # Real cores (NOT placeholders): the LLM ground schedulers — single-shot
+        # llm_single_scheduler_eventsat (llm-s) / llm_scheduler_eventsat (hllm-s) and
+        # agentic llm_agentic_scheduler_eventsat (llm-a) / agentic_scheduler_eventsat (hllm-a).
         for name in (
             "hrl_onboard_eventsat", "hrl_scheduler_eventsat",
-            "llm_single_onboard_eventsat",
-            "llm_agentic_onboard_eventsat", "llm_agentic_scheduler_eventsat",
+            "llm_single_onboard_eventsat", "llm_agentic_onboard_eventsat",
         ):
             assert _REPRESENTATION_REGISTRY[name].is_placeholder is True
 
-    def test_cell_matches_legacy_equivalent(self) -> None:
-        """hllm-a must resolve identically to legacy hybrid+agentic (behaviour-preserving)."""
+    def test_cell_matches_expanded_equivalent(self) -> None:
+        """hllm-a must resolve identically to expanded hybrid+agentic."""
         import warnings
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             cell = ExperimentConfig(representation="hllm-a",
                                     operations_paradigm="autonomous_hybrid")
-            legacy = ExperimentConfig(representation="hybrid",
+            expanded = ExperimentConfig(representation="hybrid",
                                       operations_paradigm="autonomous_hybrid",
                                       representation_config={"action_space": "agentic"})
         assert cell.representation == "hybrid"
         assert cell.representation_config.get("action_space") == "agentic"
-        assert cell.resolved_onboard_type == legacy.resolved_onboard_type == "agentic_eventsat"
-        assert cell.resolved_ground_planner_type == legacy.resolved_ground_planner_type
-        assert cell.onboard_uses_jetson == legacy.onboard_uses_jetson
+        assert cell.resolved_onboard_type == expanded.resolved_onboard_type == "agentic_eventsat"
+        assert cell.resolved_ground_planner_type == expanded.resolved_ground_planner_type
+        assert cell.onboard_uses_jetson == expanded.onboard_uses_jetson
 
-    def test_legacy_substrate_still_accepted(self) -> None:
-        """Legacy substrate values keep working (representation_cell stays None)."""
+    def test_substrate_value_still_accepted(self) -> None:
+        """Substrate values keep working (representation_cell stays None)."""
         cfg = ExperimentConfig(representation="symbolic",
                                operations_paradigm="autonomous_onboard")
         assert cfg.representation == "symbolic"

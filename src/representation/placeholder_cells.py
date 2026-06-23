@@ -1,8 +1,12 @@
 """
 Placeholder representations for the framework cells without a real implementation
-yet: ``hrl`` (hybrid RL + symbolic), ``llm-s`` (pure single-shot LLM, no symbolic
-layer), and ``llm-a`` (pure LLM agentic). The symbolic-guarded LLM cells —
-``hllm-s`` (→ ``llm_eventsat``) and ``hllm-a`` (→ ``agentic_eventsat``) — are real.
+yet. The only remaining placeholder cell is ``hrl`` (hybrid RL + symbolic), plus the
+onboard stand-ins for cells that EventSat never runs onboard (no per-step LLM
+onboard — ``llm-s`` / ``llm-a`` onboard). The LLM **ground** cells are all real now:
+``hllm-s`` / ``llm-s`` → ``llm_scheduler_eventsat`` / ``llm_single_scheduler_eventsat``
+(single-shot); ``hllm-a`` / ``llm-a`` → ``agentic_scheduler_eventsat`` /
+``llm_agentic_scheduler_eventsat`` (agentic). The real per-step cores are
+``llm_eventsat`` (hllm-s) and ``agentic_eventsat`` (hllm-a).
 See the 7-cell representation table in ``docs/morphological_matrix.md`` §2.
 
 Both cells are expressible in the vocabulary and validated, but no runnable
@@ -14,10 +18,8 @@ can exclude them until the real cores land:
   - onboard slot (AO/AH) → per-step symbolic rules (``RuleBasedEventSat``)
   - ground slot (AG/CG)  → greedy symbolic schedule (``ScheduleBasedEventSat``)
 
-TODO: replace with the real cores —
+TODO: replace with the real core —
   - ``hrl``  : an RL policy gated by symbolic safety rules (hybrid RL+symbolic)
-  - ``llm-s``: a single-shot LLM without the symbolic I/O guard
-  - ``llm-a``: an LLM tool-using loop without the symbolic hybrid layer
 """
 from __future__ import annotations
 
@@ -89,13 +91,8 @@ class LlmSingleOnboardPlaceholder(_OnboardCellPlaceholder):
 
 @register("llm_agentic_onboard_eventsat")
 class LlmAgenticOnboardPlaceholder(_OnboardCellPlaceholder):
-    """Placeholder llm-a onboard core. TODO: pure-LLM agentic loop (no symbolic)."""
-
-    _cell = "llm-a"
-
-
-@register("llm_agentic_scheduler_eventsat")
-class LlmAgenticSchedulerPlaceholder(_GroundCellPlaceholder):
-    """Placeholder llm-a ground planner. TODO: pure-LLM agentic schedule producer."""
+    """Placeholder llm-a onboard core (no per-step LLM onboard on EventSat). The llm-a
+    *ground* planner is real — see LLMAgenticSchedulerEventSat in
+    agentic_scheduler_eventsat.py."""
 
     _cell = "llm-a"

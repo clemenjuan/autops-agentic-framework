@@ -13,7 +13,7 @@ Memory architecture (mapped to FixedMemory without modification):
 - Semantic memory: Domain rules hardcoded in AGENTIC_SYSTEM_PROMPT
 - Procedural memory: Tool definitions in TOOL_SCHEMAS
 
-Learned-emergence variants (behaviour_config.mechanism):
+Learned behaviour variants (behaviour_config.mechanism):
 - ``hand_designed`` (default): fixed AGENTIC_SYSTEM_PROMPT + FixedMemory.
 - ``prompt_optimized``: loads an offline-optimised system prompt from
   ``data/trained_prompts/<experiment_id>/prompt.txt``; falls back to default
@@ -30,7 +30,7 @@ Papers:
 - Li (2025) — tool-augmented AI agents for satellite operations
 - Rodriguez-Fernandez et al. (2024) — LLM prompt design for sat ops
 
-Registered as "agentic_eventsat" in the emergence controller.
+Registered as "agentic_eventsat" in the representation factory.
 """
 from __future__ import annotations
 
@@ -60,6 +60,31 @@ if TYPE_CHECKING:
     from src.decision_procedure.context import DecisionContext
 
 logger = logging.getLogger(__name__)
+
+
+def parse_agentic_json(raw: str) -> Dict[str, Any]:
+    """Parse an agentic LLM response as JSON, tolerating common formatting noise.
+
+    Strips markdown code fences and ``<think>…</think>`` reasoning blocks before
+    ``json.loads``. Shared by the per-step agentic core and the agentic schedule
+    producer (``agentic_scheduler_eventsat``) so both decode model output identically.
+    """
+    text = raw.strip()
+
+    # Strip markdown code fences if present
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [line for line in lines if not line.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    # Handle <think> blocks from reasoning models — keep content after </think>
+    if "<think>" in text:
+        parts = text.split("</think>")
+        if len(parts) > 1:
+            text = parts[-1].strip()
+
+    return json.loads(text)
+
 
 # Suffix appended to AGENTIC_SYSTEM_PROMPT for writable_coala variants
 _WRITABLE_COALA_SYSTEM_PROMPT_SUFFIX = """
@@ -117,14 +142,14 @@ class AgenticEventSat(Representation):
             "max_agentic_steps", self.DEFAULT_MAX_STEPS
         )
 
-        # Learned-emergence mechanism
-        emergence_cfg: Dict[str, Any] = cfg.get("behaviour_config", {})
-        self._mechanism: str = emergence_cfg.get("mechanism", "hand_designed")
+        # Learned behaviour mechanism
+        behaviour_cfg: Dict[str, Any] = cfg.get("behaviour_config", {})
+        self._mechanism: str = behaviour_cfg.get("mechanism", "hand_designed")
         experiment_id: str = cfg.get("experiment_id", "")
 
         # Resolve system prompt and memory type based on mechanism
         self._system_prompt: str = self._resolve_system_prompt(
-            self._mechanism, experiment_id, emergence_cfg
+            self._mechanism, experiment_id, behaviour_cfg
         )
         self._memory: Optional[Any] = self._resolve_memory(
             self._mechanism, cfg.get("memory_config", {})
@@ -155,12 +180,12 @@ class AgenticEventSat(Representation):
         self,
         mechanism: str,
         experiment_id: str,
-        emergence_cfg: Dict[str, Any],
+        behaviour_cfg: Dict[str, Any],
     ) -> str:
         """Return the system prompt to use for this mechanism."""
         if mechanism == "prompt_optimized":
             # Try to load from trained_prompts directory
-            prompt_path_str = emergence_cfg.get(
+            prompt_path_str = behaviour_cfg.get(
                 "trained_prompt_path",
                 f"{self._TRAINED_PROMPTS_DIR}/{experiment_id}/prompt.txt"
                 if experiment_id
@@ -284,7 +309,7 @@ class AgenticEventSat(Representation):
         return self._run_agentic_loop(state, enrichments, memory)
 
     def reason(self, state: Dict[str, Any], memory: Any) -> List[Dict[str, Any]]:
-        """Produce structured reasoning steps for ReAct thought phase.
+        """Produce structured reasoning steps for explanations/debugging.
 
         Runs a lightweight agentic step: checks battery + pipeline + constraints
         via tools, then formats the results as structured reasoning trace.
@@ -546,22 +571,7 @@ class AgenticEventSat(Representation):
 
     def _parse_agentic_response(self, raw: str) -> Dict[str, Any]:
         """Parse agentic LLM response as JSON, handling formatting issues."""
-        text = raw.strip()
-
-        # Strip markdown code fences if present
-        if text.startswith("```"):
-            lines = text.split("\n")
-            lines = [line for line in lines if not line.strip().startswith("```")]
-            text = "\n".join(lines).strip()
-
-        # Handle /think blocks from reasoning models
-        if "<think>" in text:
-            # Extract content after </think>
-            parts = text.split("</think>")
-            if len(parts) > 1:
-                text = parts[-1].strip()
-
-        return json.loads(text)
+        return parse_agentic_json(raw)
 
     def _symbolic_fallback(self, state: Dict[str, Any]) -> str:
         """Minimal symbolic policy for the llm_mock short-circuit ONLY.

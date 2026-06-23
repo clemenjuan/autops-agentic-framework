@@ -53,13 +53,18 @@ def test_ah_pairs_are_dual_core() -> None:
 
 def test_placeholder_cells_present_and_flagged() -> None:
     import src.representation.placeholder_cells  # noqa: F401
+    import src.representation.agentic_scheduler_eventsat  # noqa: F401  (real llm-a/hllm-a)
     from src.behaviour.controller import _REPRESENTATION_REGISTRY
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        ec = ExperimentConfig(**gen.build_matrix()["eventsat_sas_ag_llm-a"])
-    gt = ec.resolved_ground_planner_type
-    assert gt == "llm_agentic_scheduler_eventsat"
-    assert _REPRESENTATION_REGISTRY[gt].is_placeholder is True
+        # hrl ground is still a documented placeholder...
+        hrl = ExperimentConfig(**gen.build_matrix()["eventsat_sas_ag_hrl"])
+        # ...but the agentic pure-LLM ground cell (llm-a) is now a REAL core.
+        llma = ExperimentConfig(**gen.build_matrix()["eventsat_sas_ag_llm-a"])
+    assert hrl.resolved_ground_planner_type == "hrl_scheduler_eventsat"
+    assert _REPRESENTATION_REGISTRY["hrl_scheduler_eventsat"].is_placeholder is True
+    assert llma.resolved_ground_planner_type == "llm_agentic_scheduler_eventsat"
+    assert _REPRESENTATION_REGISTRY["llm_agentic_scheduler_eventsat"].is_placeholder is False
 
 
 def test_disk_configs_match_generator() -> None:

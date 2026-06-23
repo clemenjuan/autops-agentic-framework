@@ -195,15 +195,11 @@ class ExperimentRunner:
     def _initialize_components(self) -> None:
         """Instantiate all experiment components from configuration.
 
-        This is the integration point where the morphological matrix
-        dimensions are wired together. Each component factory will be
-        plugged in as implementations are added.
-
-        Raises:
-            NotImplementedError: Until concrete component factories exist.
+        This is the integration point where the configured benchmark selectors
+        are wired into concrete components.
         """
         logger.info(
-            "Initialising components — org=%s, loop=%s, repr=%s, emergence=%s, ops=%s",
+            "Initialising components — org=%s, decision=%s, repr=%s, behaviour=%s, ops=%s",
             self.config.agent_organization,
             self.config.decision_procedure,
             self.config.representation,
@@ -228,7 +224,7 @@ class ExperimentRunner:
         # Decision loops (one per agent)
         self._decision_loops = self._create_decision_loops()
 
-        # Operations paradigm (5th dimension)
+        # Operations paradigm
         self._operations_paradigm = self._create_operations_paradigm()
 
         # Anomaly recovery mode: onboard paradigms (AO/AH) clear anomalies via
@@ -350,10 +346,11 @@ class ExperimentRunner:
         import src.representation.subsymbolic_eventsat  # register RL subsymbolic representation
         import src.representation.agentic_eventsat  # register agentic hybrid representation
         import src.representation.placeholder_schedulers  # register ground-paradigm placeholder schedulers
-        import src.representation.placeholder_cells  # register hrl / llm-a placeholder cells
-        import src.representation.llm_scheduler_eventsat  # register the real single-shot LLM ground planner
+        import src.representation.placeholder_cells  # register HRL and pure-LLM onboard placeholders
+        import src.representation.llm_scheduler_eventsat  # register the real single-shot LLM ground planners (hllm-s/llm-s)
+        import src.representation.agentic_scheduler_eventsat  # register the real agentic LLM ground planners (hllm-a/llm-a)
         import src.representation.rule_based_flamingo  # register Flamingo-lite symbolic planner
-        emergence = BehaviourController(config=self.config.behaviour_config)
+        behaviour_factory = BehaviourController(config=self.config.behaviour_config)
         # Primary per-step core: the onboard core for paradigms with an onboard
         # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
         repr_type = (
@@ -361,7 +358,7 @@ class ExperimentRunner:
             or self.config.resolved_onboard_type
             or self.config.resolved_representation_type
         )
-        representation = emergence.get_representation(
+        representation = behaviour_factory.get_representation(
             repr_type=repr_type,
             repr_config=self.config.onboard_representation_config,
         )
@@ -390,17 +387,13 @@ class ExperimentRunner:
             except ImportError as e:
                 logger.warning("Could not initialise PPO trainer: %s", e)
         loop_type = self.config.decision_procedure
-        if loop_type == 'sda':
-            from src.decision_procedure.sda_loop import SDALoop
-            loop_cls = SDALoop
-        elif loop_type == 'ooda':
-            from src.decision_procedure.ooda_loop import OODALoop
-            loop_cls = OODALoop
-        elif loop_type == 'react':
-            from src.decision_procedure.react_loop import ReActLoop
-            loop_cls = ReActLoop
-        else:
-            raise ValueError(f"Unknown decision_procedure: '{loop_type}'")
+        if loop_type != "sda":
+            raise ValueError(
+                f"Unsupported decision_procedure: '{loop_type}'. "
+                "The EventSat benchmark now uses SDA only."
+            )
+        from src.decision_procedure.sda_loop import SDALoop
+        loop_cls = SDALoop
         agents = self._organization.get_agents() if self._organization else ['central_agent']
         loops = {}
         for agent_id in agents:
@@ -416,7 +409,7 @@ class ExperimentRunner:
             self.config.operations_paradigm == "autonomous_hybrid"
             and self.config.resolved_ground_planner_type is not None
         ):
-            gp_rep = emergence.get_representation(
+            gp_rep = behaviour_factory.get_representation(
                 repr_type=self.config.resolved_ground_planner_type,
                 repr_config=self.config.ground_representation_config,
             )
@@ -430,7 +423,7 @@ class ExperimentRunner:
         return loops
 
     def _create_operations_paradigm(self) -> Any:
-        """Factory for the operations paradigm (5th morphological matrix dimension)."""
+        """Factory for the configured operations paradigm."""
         paradigm_type = self.config.operations_paradigm
         paradigm_config = self.config.operations_paradigm_config
 
@@ -833,13 +826,6 @@ class ExperimentRunner:
                 "data_stored_mb": info.get("data_stored_mb"),
                 "in_transition": info.get("in_transition"),
                 # Loop-specific diagnostics (zero on loops that don't emit them)
-                "orient_latency_s": decision_metrics.get("orient_latency_s", 0.0),
-                "orient_iterations": decision_metrics.get("orient_iterations", 0.0),
-                "orient_urgency": decision_metrics.get("orient_urgency", 0.0),
-                "reasoning_depth": decision_metrics.get("reasoning_depth", 0.0),
-                "react_iterations": decision_metrics.get("iterations", 0.0),
-                "grounding_violations": decision_metrics.get("grounding_violations", 0.0),
-                "converged": decision_metrics.get("converged", 0.0),
             }
             self._decisions_file.write(json.dumps(trace_entry) + "\n")
 
