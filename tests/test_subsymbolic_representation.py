@@ -617,7 +617,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
                  "payload_detect", "payload_send", "safe"}
         self.assertIn(mode, valid)
 
-    def test_select_action_is_mode_only(self):
+    def test_select_action_includes_multidiscrete_components(self):
         from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
@@ -625,7 +625,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         )
         action = self.repr.select_action(context)
         sat_action = action["eventsat_0"]
-        self.assertEqual(set(sat_action.keys()), {"mode"})
+        self.assertEqual(set(sat_action.keys()), {"mode", "data_priority", "pipeline_routing"})
 
     def test_anomaly_forces_safe(self):
         from src.core.decision_procedure.context import DecisionContext

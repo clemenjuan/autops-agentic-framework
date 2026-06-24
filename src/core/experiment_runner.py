@@ -85,9 +85,11 @@ class ExperimentRunner:
         self._memory: Any = None
         self._metrics_collector: Any = None
         self._operations_paradigm: Any = None
-        # RL training components (populated if behaviour == "emergent")
+        # Active reasoning representations. Multi-satellite RL uses one primary
+        # representation per agent so each policy is bound to the right satellite.
         self._representation: Any = None
-        self._rollout_buffer: Any = None
+        self._representations: Dict[str, Any] = {}
+        self._rollout_buffer: Any = None  # legacy in-process PPO hook; RLlib trains offline
         # Decision trace writer (active when log_level == DEBUG)
         self._decisions_file: Any = None
         # Optional full world-model trace writer for offline LeWM/Dreamer data.
@@ -272,6 +274,10 @@ class ExperimentRunner:
             # (see initialise()); the env default holds until then.
             return EventSatEnvironment(config=env_cfg)
 
+        if scenario == "basemultisat":
+            from src.eventsat.basemultisat_env import BaseMultiSatEnvironment
+            return BaseMultiSatEnvironment(config=env_cfg)
+
         if scenario == "flamingo":
             from src.flamingo.env import FlamingoEnvironment
             return FlamingoEnvironment(config=env_cfg)
@@ -332,7 +338,18 @@ class ExperimentRunner:
                 f"Unknown agent_organization: '{self.config.agent_organization}'"
             )
 
-        org = org_cls(config=self.config.agent_organization_config)
+        org_config = dict(self.config.agent_organization_config)
+        if self.config.agent_organization == "independent_mas":
+            prefixes = {
+                "basemultisat": "sat",
+                "eventsat": "eventsat",
+                "flamingo": "flamingo",
+            }
+            prefix = prefixes.get(self.config.environment.scenario)
+            if prefix is not None:
+                org_config.setdefault("satellite_prefix", prefix)
+
+        org = org_cls(config=org_config)
         org.initialize(
             constellation_size=self.config.environment.constellation_size,
         )
@@ -353,41 +370,22 @@ class ExperimentRunner:
         import src.eventsat.world_model  # register LeWM-CEM and DreamerV3 baselines
         import src.flamingo.symbolic  # register Flamingo-lite symbolic planner
         behaviour_factory = BehaviourController(config=self.config.behaviour_config)
+
+        def with_runtime_defaults(base_config: Dict[str, Any]) -> Dict[str, Any]:
+            repr_config = dict(base_config)
+            repr_config.setdefault("experiment_id", self.config.experiment_id)
+            repr_config.setdefault("behaviour_config", self.config.behaviour_config)
+            repr_config.setdefault("max_steps", self.config.max_steps)
+            return repr_config
+
         # Primary per-step core: the onboard core for paradigms with an onboard
         # slot (AO/AH), else the ground planner (AG/CG run their planner at passes).
+        primary_repr_config = with_runtime_defaults(self.config.onboard_representation_config)
         repr_type = (
-            self.config.onboard_representation_config.get("type")
+            primary_repr_config.get("type")
             or self.config.resolved_onboard_type
             or self.config.resolved_representation_type
         )
-        representation = behaviour_factory.get_representation(
-            repr_type=repr_type,
-            repr_config=self.config.onboard_representation_config,
-        )
-        # Seed stochastic representations for reproducibility
-        if hasattr(representation, "seed"):
-            representation.seed(self.config.seed)
-        # Store representation reference for RL training access
-        self._representation = representation
-        # Set up PPO training components if learned mode
-        if (
-            self.config.behaviour == "emergent"
-            and hasattr(representation, "set_trainer")
-            and not self.config.representation_config.get("rl_mock", False)
-        ):
-            try:
-                from src.core.behaviour.rollout_buffer import RolloutBuffer
-                from src.core.behaviour.training_pipeline import PPOTrainer
-                rollout_size = self.config.behaviour_config.get("rollout_fragment", 128)
-                self._rollout_buffer = RolloutBuffer(buffer_size=rollout_size)
-                trainer = PPOTrainer(
-                    policy=representation._policy,
-                    config=self.config.behaviour_config,
-                )
-                representation.set_trainer(trainer)
-                logger.info("PPO training pipeline initialised (rollout_fragment=%d)", rollout_size)
-            except ImportError as e:
-                logger.warning("Could not initialise PPO trainer: %s", e)
         loop_type = self.config.decision_procedure
         if loop_type != "sda":
             raise ValueError(
@@ -396,13 +394,62 @@ class ExperimentRunner:
             )
         from src.core.decision_procedure.sda_loop import SDALoop
         loop_cls = SDALoop
-        agents = self._organization.get_agents() if self._organization else ['central_agent']
-        loops = {}
-        for agent_id in agents:
-            loops[agent_id] = loop_cls(
-                config=self.config.decision_procedure_config,
-                representation=representation,
+        agents = self._organization.get_agents() if self._organization else ["central_agent"]
+
+        if (
+            self._organization is not None
+            and self.config.environment.scenario == "basemultisat"
+        ):
+            from src.core.organization.base import validate_agent_satellite_mapping
+
+            validate_agent_satellite_mapping(
+                self._organization,
+                self._environment,
+                self.config.environment.constellation_size,
+                self.config.environment.scenario,
             )
+
+        satellite_ids = set()
+        if self._organization is not None:
+            for agent_id in agents:
+                satellite_ids.add(self._organization.satellite_for_agent(agent_id))
+        use_per_agent_representations = len(satellite_ids) > 1
+
+        loops = {}
+        self._representations = {}
+        self._representation = None
+
+        if use_per_agent_representations and self._organization is not None:
+            for agent_id in agents:
+                agent_repr_config = dict(primary_repr_config)
+                agent_repr_config["satellite_id"] = self._organization.satellite_for_agent(agent_id)
+                representation = behaviour_factory.get_representation(
+                    repr_type=repr_type,
+                    repr_config=agent_repr_config,
+                )
+                if hasattr(representation, "seed"):
+                    representation.seed(self.config.seed)
+                self._representations[agent_id] = representation
+                if self._representation is None:
+                    self._representation = representation
+                loops[agent_id] = loop_cls(
+                    config=self.config.decision_procedure_config,
+                    representation=representation,
+                )
+        else:
+            representation = behaviour_factory.get_representation(
+                repr_type=repr_type,
+                repr_config=primary_repr_config,
+            )
+            if hasattr(representation, "seed"):
+                representation.seed(self.config.seed)
+            self._representation = representation
+            for agent_id in agents:
+                self._representations[agent_id] = representation
+                loops[agent_id] = loop_cls(
+                    config=self.config.decision_procedure_config,
+                    representation=representation,
+                )
 
         # Dual-slot AH: build the ground-planner core (runs at passes on the stale
         # view to refresh the uplinked plan; onboard loop above runs every step).
@@ -411,13 +458,26 @@ class ExperimentRunner:
             self.config.operations_paradigm == "autonomous_hybrid"
             and self.config.resolved_ground_planner_type is not None
         ):
-            gp_rep = behaviour_factory.get_representation(
-                repr_type=self.config.resolved_ground_planner_type,
-                repr_config=self.config.ground_representation_config,
-            )
-            if hasattr(gp_rep, "seed"):
-                gp_rep.seed(self.config.seed)
+            ground_repr_config = with_runtime_defaults(self.config.ground_representation_config)
+            shared_gp_rep = None
+            if not use_per_agent_representations:
+                shared_gp_rep = behaviour_factory.get_representation(
+                    repr_type=self.config.resolved_ground_planner_type,
+                    repr_config=ground_repr_config,
+                )
+                if hasattr(shared_gp_rep, "seed"):
+                    shared_gp_rep.seed(self.config.seed)
             for agent_id in agents:
+                gp_rep = shared_gp_rep
+                if use_per_agent_representations and self._organization is not None:
+                    agent_ground_config = dict(ground_repr_config)
+                    agent_ground_config["satellite_id"] = self._organization.satellite_for_agent(agent_id)
+                    gp_rep = behaviour_factory.get_representation(
+                        repr_type=self.config.resolved_ground_planner_type,
+                        repr_config=agent_ground_config,
+                    )
+                    if hasattr(gp_rep, "seed"):
+                        gp_rep.seed(self.config.seed)
                 self._ground_planner_loops[agent_id] = loop_cls(
                     config=self.config.decision_procedure_config,
                     representation=gp_rep,
@@ -452,7 +512,8 @@ class ExperimentRunner:
     def _create_metrics_collector(self) -> Any:
         """Factory for the metrics collector."""
         scenario = self.config.environment.scenario
-        if scenario == "eventsat":
+        if scenario in ("eventsat", "basemultisat"):
+            # BaseMultiSat exposes EventSat-compatible aggregate telemetry.
             from src.eventsat.metrics import EventSatMetricsCollector
             metrics_cfg = self.config.metrics.model_dump()
             # Pass environment parameters needed for energy/utility computation
@@ -473,12 +534,21 @@ class ExperimentRunner:
         """Active reasoning cores: the onboard/primary representation plus any
         dual-slot AH ground-planner representations."""
         reps: List[Any] = []
-        if self._representation is not None:
-            reps.append(self._representation)
-        for loop in self._ground_planner_loops.values():
-            rep = getattr(loop, "representation", None)
-            if rep is not None:
+        seen: set[int] = set()
+
+        def add(rep: Any) -> None:
+            if rep is None:
+                return
+            ident = id(rep)
+            if ident not in seen:
+                seen.add(ident)
                 reps.append(rep)
+
+        add(self._representation)
+        for rep in self._representations.values():
+            add(rep)
+        for loop in self._ground_planner_loops.values():
+            add(getattr(loop, "representation", None))
         return reps
 
     def _collect_core_llm_metrics(self) -> Dict[str, float]:

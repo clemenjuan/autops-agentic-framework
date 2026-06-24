@@ -89,6 +89,44 @@ class StepResult:
     info: Dict[str, Any] = field(default_factory=dict)
 
 
+def scope_observation(
+    env_observation: EnvironmentObservation,
+    satellite_ids: List[str],
+) -> EnvironmentObservation:
+    """Return a copy of ``env_observation`` restricted to ``satellite_ids``.
+
+    A pure, organization-agnostic helper used by ``AgentOrganization`` subclasses
+    to build per-agent partial views (the *who-sees-what* decision lives in each
+    organization's ``distribute_observation``; this only performs the mechanical
+    slice). ``timestep``, ``epoch_seconds``, ``global_info`` and ``events`` are
+    preserved; satellite ids not present are skipped. Tasks that declare a
+    ``satellite_id`` are restricted to the requested satellites, while global
+    tasks without a satellite id are preserved.
+    """
+    constellation = env_observation.constellation_state
+    satellite_set = set(satellite_ids)
+    scoped = {
+        sat_id: constellation.satellites[sat_id]
+        for sat_id in satellite_ids
+        if sat_id in constellation.satellites
+    }
+    scoped_tasks = [
+        task
+        for task in (env_observation.tasks or [])
+        if task.get("satellite_id") is None or task.get("satellite_id") in satellite_set
+    ]
+    return EnvironmentObservation(
+        constellation_state=ConstellationState(
+            timestep=constellation.timestep,
+            epoch_seconds=constellation.epoch_seconds,
+            satellites=scoped,
+            global_info=constellation.global_info,
+        ),
+        tasks=scoped_tasks,
+        events=env_observation.events,
+    )
+
+
 class SatelliteEnvironment(ABC):
     """Abstract base class for satellite constellation environments.
 

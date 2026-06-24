@@ -1,0 +1,84 @@
+# BaseMultiSat | Independent MAS | SDA | RL | Emergent | Autonomous-Hybrid
+# ============================================================================
+# Base multi-satellite RL configuration: N independent EventSat-class satellites
+# with one PPO-controlled agent per satellite (Independent MAS, Kim et al. 2025)
+# and shared policy weights through the RLlib backend.
+
+experiment_id: basemultisat_imas_sda_subm_le_ah
+description: >
+  Base multi-satellite constellation with Independent MAS organization (one PPO
+  agent per satellite), SDA decision procedure, RL representation, emergent PPO
+  behaviour, and autonomous-hybrid operations.
+
+seed: 42
+
+agent_organization: independent_mas
+decision_procedure: sda
+representation: rl
+behaviour: emergent
+operations_paradigm: autonomous_hybrid
+
+agent_organization_config:
+  satellite_prefix: sat
+
+decision_procedure_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: subsymbolic_eventsat
+  rl_mock: false
+  deterministic: true
+  checkpoint_path: ""
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+
+behaviour_config:
+  mechanism: ppo
+  mode: emergent
+  rollout_fragment: 128
+  lr: 1.0e-4
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+  policy_sharing:
+    mode: shared_all
+
+environment:
+  constellation_size: 3
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: basemultisat
+  scenario_config:
+    scenario_file: configs/scenarios/basemultisat.yaml
+    reward_config:
+      local_weight: 0.7
+      team_weight: 0.3
+      team_reducer: mean
+
+memory_config:
+  history_depth: 100
+
+num_episodes: 10
+max_steps: 10080
+
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+  collection_frequency: per_step
+
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

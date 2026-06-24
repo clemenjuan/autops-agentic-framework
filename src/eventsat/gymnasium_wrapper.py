@@ -94,10 +94,12 @@ class EventSatGymnasium:
         # Observation space: 25D float32, nominally [0, 1]
         # Some features (downlink_utilization, orbital timing) can exceed 1.0;
         # clipped to [0, 2] for safety.
+        obs_low = np.zeros(OBS_DIM, dtype=np.float32)
+        obs_high = np.ones(OBS_DIM, dtype=np.float32) * 2.0
+        obs_low[4:6] = -1.0  # sin/cos orbital phase
         self.observation_space = spaces.Box(
-            low=0.0,
-            high=2.0,
-            shape=(OBS_DIM,),
+            low=obs_low,
+            high=obs_high,
             dtype=np.float32,
         )
 

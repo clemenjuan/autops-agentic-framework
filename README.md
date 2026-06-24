@@ -14,8 +14,9 @@ New contributors should start with [START_HERE.md](START_HERE.md).
 ```text
 src/
   core/       orchestration, config loading, operations paradigms, memory, behaviour
-  eventsat/   EventSat environment, representations, schedulers, metrics, rewards
+  eventsat/   EventSat and BaseMultiSat environments, representations, schedulers, metrics, rewards
   flamingo/   Flamingo-lite multi-satellite scenario
+  rl/         RLlib bridge, space adapters, policy mapping, actor-critic model
   orbital/    eclipse, ground access, link budget, optional Orekit wrapper
 configs/
   experiments/  canonical experiment YAML files
@@ -57,6 +58,7 @@ uv run python -m pytest tests/
 uv run autops batch configs/experiments --episodes 1 --steps 200
 uv run autops generate --template configs/experiments/template.yaml
 uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml
+uv run autops train configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml
 uv run python scripts/refresh_board.py
 ```
 

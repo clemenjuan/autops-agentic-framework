@@ -14,6 +14,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 import traceback
 from pathlib import Path
@@ -108,7 +109,7 @@ def cmd_train(args: argparse.Namespace) -> None:
 
     Dispatches based on ``representation`` × ``behaviour_config.mechanism``:
 
-    - subsymbolic + ppo         → PPOTrainer (writes policy.pt)
+    - subsymbolic + ppo         → RLLibPPOTrainer (writes RLlib checkpoint)
     - hybrid    + prompt_optimized → PromptOptimizer (writes prompt.txt)
     - hybrid    + writable_coala   → no pre-training; memory accretes online
     """
@@ -121,9 +122,9 @@ def cmd_train(args: argparse.Namespace) -> None:
     mechanism = cfg.behaviour_config.get("mechanism", "")
     experiment_id = cfg.experiment_id
 
-    print(f"Training: {experiment_id}")
-    print(f"  representation : {representation}")
-    print(f"  mechanism      : {mechanism or '(none)'}")
+    print(f"Training: {experiment_id}", flush=True)
+    print(f"  representation : {representation}", flush=True)
+    print(f"  mechanism      : {mechanism or '(none)'}", flush=True)
 
     if representation == "subsymbolic" and mechanism in ("ppo", ""):
         _train_ppo(cfg, args)
@@ -150,36 +151,49 @@ def cmd_train(args: argparse.Namespace) -> None:
 
 
 def _train_ppo(cfg: "Any", args: argparse.Namespace) -> None:
-    """Invoke PPOTrainer for subsymbolic representation."""
+    """Invoke RLlib PPO trainer for subsymbolic representation."""
     try:
-        from src.core.behaviour.training_pipeline import PPOTrainer
+        from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
     except ImportError as e:
         print(
-            f"ERROR: PPO training requires torch. Install with:\n"
+            f"ERROR: PPO training requires RLlib. Install with:\n"
             f"  uv sync --extra rl\n"
             f"Details: {e}"
         )
         sys.exit(1)
 
-    training_cfg = cfg.behaviour_config.get("training_config", {})
+    _configure_train_logging()
+
+    training_cfg = dict(cfg.behaviour_config)
+    nested_training_cfg = training_cfg.get("training_config")
+    if isinstance(nested_training_cfg, dict):
+        training_cfg.update(nested_training_cfg)
     timesteps = args.timesteps or training_cfg.get("timesteps", 50_000)
     checkpoint_dir = f"data/trained_models/{cfg.experiment_id}"
 
-    print(f"  timesteps      : {timesteps}")
-    print(f"  checkpoint_dir : {checkpoint_dir}")
+    print(f"  timesteps      : {timesteps}", flush=True)
+    print(f"  checkpoint_dir : {checkpoint_dir}", flush=True)
 
-    # Build a minimal training config dict
-    train_config = {
-        **training_cfg,
-        "timesteps": timesteps,
-        "checkpoint_dir": checkpoint_dir,
-        "experiment_id": cfg.experiment_id,
-        "seed": cfg.seed,
-        **cfg.representation_config,
-    }
-    trainer = PPOTrainer(train_config)
-    policy_path = trainer.train()
-    print(f"\nPPO training complete. Policy saved to: {policy_path}")
+    trainer = RLLibPPOTrainer(
+        cfg,
+        timesteps=timesteps,
+        checkpoint_dir=checkpoint_dir,
+    )
+    checkpoint_path = trainer.train()
+    print(f"\nPPO training complete. RLlib checkpoint saved to: {checkpoint_path}", flush=True)
+
+
+def _configure_train_logging() -> None:
+    """Show trainer progress logs in CLI training runs."""
+    root_logger = logging.getLogger()
+    if root_logger.handlers:
+        root_logger.setLevel(logging.INFO)
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
+        stream=sys.stdout,
+    )
 
 
 def _train_prompt_optimized(cfg: "Any", args: argparse.Namespace) -> None:

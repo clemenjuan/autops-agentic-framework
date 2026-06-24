@@ -143,12 +143,13 @@ Two computation backends are supported:
 |-----------|---------|
 | `src/core/satellite_env.py` | Shared satellite environment interfaces |
 | `src/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
-| `src/eventsat/` | EventSat environment, metrics, representations, trace export |
+| `src/eventsat/` | EventSat and BaseMultiSat environments, metrics, representations, trace export |
 | `src/flamingo/` | Flamingo environment, metrics, symbolic planner |
+| `src/rl/` | RLlib `MultiAgentEnv` bridge, space adapters, policy-sharing helpers, actor-critic model |
 | `src/core/organization/` | Agent coordination patterns |
 | `src/core/decision_procedure/` | Decision-making temporal patterns |
 | `src/core/memory/` | `FixedMemory` (all cells, default); `WritableMemory` (agentic online-learning — CoALA §3) |
-| `src/core/behaviour/` | `BehaviourController` (`@register`), `PPOTrainer`, `PromptOptimizer` |
+| `src/core/behaviour/` | `BehaviourController` (`@register`), legacy PPO trainer, RLlib PPO trainer, `PromptOptimizer` |
 | `src/core/operations/` | Operations paradigm (autonomous onboard / hybrid / ground, conventional ground) |
 | `src/core/` | Experiment runner, config, shared metrics collector, base interfaces |
 | `configs/` | YAML experiment configurations |

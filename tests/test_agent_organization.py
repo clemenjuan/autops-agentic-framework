@@ -15,6 +15,26 @@ from src.core.organization.centralized_mas import CentralizedMAS
 from src.core.organization.decentralized_mas import DecentralizedMAS
 from src.core.organization.independent_mas import IndependentMAS
 from src.core.organization.hybrid_mas import HybridMAS
+from src.core.satellite_env import (
+    ConstellationState,
+    EnvironmentObservation,
+    SatelliteState,
+)
+
+
+def _make_obs(
+    satellite_ids: list[str],
+    tasks: list[dict] | None = None,
+) -> EnvironmentObservation:
+    """Minimal EnvironmentObservation with the given satellites (for org tests)."""
+    return EnvironmentObservation(
+        constellation_state=ConstellationState(
+            timestep=0,
+            epoch_seconds=0.0,
+            satellites={s: SatelliteState(satellite_id=s) for s in satellite_ids},
+        ),
+        tasks=tasks or [],
+    )
 
 
 # ======================================================================
@@ -96,14 +116,15 @@ class TestCentralizedMAS:
     def test_distribute_observation_no_prior_directive(self) -> None:
         org = CentralizedMAS(config={})
         org.initialize(constellation_size=1)
-        result = org.distribute_observation({"sensor": 42})
+        obs = _make_obs(["eventsat_0"])
+        result = org.distribute_observation(obs)
         assert "mission_manager" in result
         assert "sat_agent_0" in result
-        # Manager gets full observation, no messages
-        assert result["mission_manager"].local_state["full_observation"] == {"sensor": 42}
+        # Centralized MAS: manager AND local both receive the full observation
+        # (full observability + hierarchical directive); local has no directive yet.
+        assert result["mission_manager"].local_state["full_observation"] is obs
         assert result["mission_manager"].messages == []
-        # Local agent also gets full observation, no directive yet (first step)
-        assert result["sat_agent_0"].local_state["full_observation"] == {"sensor": 42}
+        assert result["sat_agent_0"].local_state["full_observation"] is obs
         assert result["sat_agent_0"].messages == []
 
     def test_distribute_observation_with_prior_directive(self) -> None:
@@ -111,7 +132,7 @@ class TestCentralizedMAS:
         org.initialize(constellation_size=1)
         # Simulate a prior collect_actions that stored a directive
         org._last_manager_directive = {"eventsat_0": {"mode": "charging"}}
-        result = org.distribute_observation({"sensor": 99})
+        result = org.distribute_observation(_make_obs(["eventsat_0"]))
         # Local agent now receives directive as message
         assert len(result["sat_agent_0"].messages) == 1
         assert result["sat_agent_0"].messages[0]["from"] == "mission_manager"
@@ -210,7 +231,7 @@ class TestDecentralizedMAS:
 
 
 # ======================================================================
-# IndependentMAS — Flamingo organisation implementation
+# IndependentMAS — local per-satellite views, no deconfliction
 # ======================================================================
 
 
@@ -218,57 +239,64 @@ class TestIndependentMAS:
     def test_agents(self) -> None:
         org = IndependentMAS(config={})
         org.initialize(constellation_size=3)
-        assert len(org.get_agents()) == 3
+        assert org.get_agents() == ["sat_agent_0", "sat_agent_1", "sat_agent_2"]
+
+    def test_satellite_for_agent_maps_base_multisat_default(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=3)
+        assert org.satellite_for_agent("sat_agent_0") == "sat_0"
+        assert org.satellite_for_agent("sat_agent_2") == "sat_2"
+
+    def test_satellite_for_agent_allows_scenario_prefix(self) -> None:
+        org = IndependentMAS(config={"satellite_prefix": "flamingo"})
+        org.initialize(constellation_size=2)
+        assert org.satellite_for_agent("sat_agent_1") == "flamingo_1"
 
     def test_distribute_gives_each_agent_only_its_own_satellite(self) -> None:
-        from src.core.satellite_env import (
-            ConstellationState,
-            EnvironmentObservation,
-            SatelliteState,
-        )
-
-        env_obs = EnvironmentObservation(
-            constellation_state=ConstellationState(
-                timestep=0,
-                epoch_seconds=0.0,
-                satellites={
-                    "flamingo_0": SatelliteState(satellite_id="flamingo_0"),
-                    "flamingo_1": SatelliteState(satellite_id="flamingo_1"),
-                },
-            ),
+        env_obs = _make_obs(
+            ["flamingo_0", "flamingo_1"],
             tasks=[
                 {"satellite_id": "flamingo_0", "target_id": "rso_0", "priority": 3.0},
                 {"satellite_id": "flamingo_1", "target_id": "rso_1", "priority": 2.0},
             ],
         )
 
-        org = IndependentMAS(config={})
+        org = IndependentMAS(config={"satellite_prefix": "flamingo"})
         org.initialize(constellation_size=2)
         result = org.distribute_observation(env_obs)
 
-        # Agent 0 sees only flamingo_0 and only flamingo_0's task (C = ∅).
         local0 = result["sat_agent_0"].local_state["full_observation"]
         assert list(local0.constellation_state.satellites.keys()) == ["flamingo_0"]
         assert [t["target_id"] for t in local0.tasks] == ["rso_0"]
+        assert result["sat_agent_0"].metadata["satellite_id"] == "flamingo_0"
+
         local1 = result["sat_agent_1"].local_state["full_observation"]
         assert list(local1.constellation_state.satellites.keys()) == ["flamingo_1"]
+        assert [t["target_id"] for t in local1.tasks] == ["rso_1"]
+        assert result["sat_agent_1"].messages == []
+
+    def test_distribute_falls_back_to_observation_order_for_unknown_prefix(self) -> None:
+        org = IndependentMAS(config={})
+        org.initialize(constellation_size=2)
+        result = org.distribute_observation(_make_obs(["flamingo_0", "flamingo_1"]))
+        view = result["sat_agent_0"].local_state["full_observation"].constellation_state.satellites
+        assert set(view) == {"flamingo_0"}
+        assert result["sat_agent_0"].metadata["satellite_id"] == "flamingo_0"
 
     def test_collect_merges_without_deconfliction(self) -> None:
         org = IndependentMAS(config={})
         org.initialize(constellation_size=2)
-        # Both independent agents pick the same RSO — the merge must keep the
-        # collision (no deconfliction), composing one env action per satellite.
         actions = {
             "sat_agent_0": AgentAction(
-                agent_id="sat_agent_0", action={"flamingo_0": {"target_id": "rso_0"}}
+                agent_id="sat_agent_0", action={"sat_0": {"target_id": "rso_0"}}
             ),
             "sat_agent_1": AgentAction(
-                agent_id="sat_agent_1", action={"flamingo_1": {"target_id": "rso_0"}}
+                agent_id="sat_agent_1", action={"sat_1": {"target_id": "rso_0"}}
             ),
         }
         env_actions = org.collect_actions(actions)
-        assert env_actions["flamingo_0"] == {"target_id": "rso_0"}
-        assert env_actions["flamingo_1"] == {"target_id": "rso_0"}
+        assert env_actions["sat_0"] == {"target_id": "rso_0"}
+        assert env_actions["sat_1"] == {"target_id": "rso_0"}
 
 
 # ======================================================================

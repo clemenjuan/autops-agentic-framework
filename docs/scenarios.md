@@ -1,12 +1,12 @@
 # Operational Scenarios
 
-**Status:** EventSat implemented (the benchmark scenario). A multi-satellite scenario is planned later.
+**Status:** EventSat implemented (benchmark scenario); Flamingo-lite and BaseMultiSat implemented as lightweight multi-satellite scenarios.
 
 ---
 
 ## Overview
 
-EventSat is the implemented benchmark scenario; a multi-satellite scenario is planned later. Each scenario builds on the environment abstraction in `src/core/satellite_env.py`.
+EventSat is the implemented benchmark scenario. Flamingo-lite exercises the organization axis for SSA scheduling, and BaseMultiSat is a reference multi-satellite RL scenario built from independent EventSat-class satellites. Each scenario builds on the environment abstraction in `src/core/satellite_env.py`.
 
 The scenario choice does **not** affect the cognitive architecture comparison methodology — the same morphological matrix dimensions are evaluated across all scenarios.
 
@@ -175,6 +175,36 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 **File:** `src/flamingo/env.py`
 **Config:** `configs/scenarios/flamingo.yaml`
 **Historical planning note:** [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md)
+
+---
+
+## BaseMultiSat Reference Scenario
+
+**Status:** implemented | **Scale:** configurable N satellites | **Primary use:** multi-agent RL / RLlib bridge validation
+
+BaseMultiSat composes N independent EventSat-class satellites (`sat_0` ...
+`sat_{N-1}`), each with its own EventSat dynamics and launch lottery. It reuses
+EventSat resources, metadata, rewards, and the 25D RL observation contract, but
+returns rewards per satellite so a multi-agent bridge can route each
+`sat_agent_i` reward to its own `sat_i`.
+
+### Implementation
+
+**Environment:** `src/eventsat/basemultisat_env.py`
+**Scenario config:** `configs/scenarios/basemultisat.yaml`
+**Example experiment:** `configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml`
+**Reward blend:** `BaseMultiSatRewardFunction` in `src/eventsat/rewards.py`
+**RLlib bridge:** `src/rl/rllib_env.py`
+
+### Design Notes
+
+- Satellites are physically decoupled in v1: no shared downlink budget, no ISLs,
+  and independent per-satellite EventSat sub-environments.
+- `IndependentMAS` maps `sat_agent_i` to `sat_i` and scopes each observation to
+  that satellite only.
+- `BaseMultiSatRewardFunction` can mix local reward with a team term via
+  `local_weight`, `team_weight`, and `team_reducer` (`mean`, `sum`, or `min`).
+- The scenario is additive: EventSat single-satellite behavior is unchanged.
 
 ---
 

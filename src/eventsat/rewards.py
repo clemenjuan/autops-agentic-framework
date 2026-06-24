@@ -179,3 +179,67 @@ class EventSatRewardFunction:
             max_mission_steps=max_steps,
         )
         return self.reward_scale * (r_resource + r_action + r_mission)
+
+
+class BaseMultiSatRewardFunction:
+    """Per-satellite reward for the ``basemultisat`` constellation scenario.
+
+    Single locus of reward freedom for multi-agent scenarios. Its contract
+    returns a dict keyed by satellite_id, so a future scenario-specific reward
+    class is a drop-in replacement that can compute a collective/shared term
+    internally with no changes to the environment or the RLlib bridge.
+
+    v1: individual per-satellite rewards are produced upstream by each
+    satellite's sub-environment (:class:`EventSatRewardFunction`, Individual
+    Negative, Case 2); :meth:`compute_rewards` scales them and optionally adds a
+    team term: ``local_weight * r_i + team_weight * team(r)``.
+    """
+
+    def __init__(self, config: Dict[str, Any] | None = None) -> None:
+        cfg = config or {}
+        self.local_weight = float(cfg.get("local_weight", 1.0))
+        self.team_weight = float(cfg.get("team_weight", 0.0))
+        self.team_reducer = str(cfg.get("team_reducer", "mean"))  # mean | sum | min
+
+    def team_term(
+        self,
+        individual_rewards: Dict[str, float],
+        per_satellite_inputs: Dict[str, Dict[str, Any]],
+    ) -> float:
+        """Collective reward term shared by all satellites (override for Case 4)."""
+        values = list(individual_rewards.values())
+        if not values:
+            return 0.0
+        if self.team_reducer == "sum":
+            return float(sum(values))
+        if self.team_reducer == "min":
+            return float(min(values))
+        return float(sum(values) / len(values))  # mean
+
+    def compute_rewards(
+        self,
+        individual_rewards: Dict[str, float],
+        per_satellite_inputs: Dict[str, Dict[str, Any]] | None = None,
+    ) -> Dict[str, float]:
+        """Final per-satellite rewards from precomputed individual rewards.
+
+        Each satellite's individual reward (already computed upstream by its
+        sub-environment via :class:`EventSatRewardFunction`) is scaled by
+        ``local_weight`` and, when ``team_weight > 0``, combined with a shared
+        team term: ``local_weight * r_i + team_weight * team(r)``. Returns a dict
+        keyed by satellite_id.
+
+        ``per_satellite_inputs`` is accepted and forwarded to :meth:`team_term`
+        so an override (Case 4) can build a richer collective term from raw
+        per-satellite state; the default mean/sum/min term ignores it.
+        """
+        if self.team_weight == 0.0 or not individual_rewards:
+            return {
+                sat_id: self.local_weight * r
+                for sat_id, r in individual_rewards.items()
+            }
+        team = self.team_term(individual_rewards, per_satellite_inputs or {})
+        return {
+            sat_id: self.local_weight * r + self.team_weight * team
+            for sat_id, r in individual_rewards.items()
+        }

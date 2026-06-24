@@ -27,6 +27,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from src.core.organization.base import AgentAction, AgentObservation, AgentOrganization
+from src.core.satellite_env import scope_observation
 
 
 class IndependentMAS(AgentOrganization):
@@ -44,28 +45,51 @@ class IndependentMAS(AgentOrganization):
     def initialize(self, constellation_size: int, **kwargs: Any) -> None:
         self._agent_ids = [f"sat_agent_{i}" for i in range(constellation_size)]
 
+    def satellite_for_agent(self, agent_id: str) -> str:
+        """Map ``sat_agent_i`` to the satellite it controls.
+
+        ``BaseMultiSat`` uses the default ``sat_i`` ids. Other scenarios can set
+        ``agent_organization_config.satellite_prefix`` (for example
+        ``"flamingo"``) or an explicit ``satellite_ids`` list.
+        """
+        idx = self._agent_index(agent_id)
+        explicit = self.config.get("satellite_ids")
+        if explicit is not None:
+            try:
+                return str(explicit[idx])
+            except IndexError as exc:
+                raise ValueError(
+                    f"No satellite_ids[{idx}] configured for agent '{agent_id}'"
+                ) from exc
+        prefix = str(self.config.get("satellite_prefix", "sat"))
+        return f"{prefix}_{idx}"
+
     def distribute_observation(
         self,
         env_observation: Any,
     ) -> Dict[str, AgentObservation]:
         """Give each agent a local view of only its own satellite.
 
-        Agent ``sat_agent_i`` is mapped by index to the i-th satellite in the
-        constellation observation and receives an observation containing just
-        that satellite's state and just that satellite's visible tasks — no
-        sight of what the others can see or intend (C = ∅).
+        The configured ``satellite_for_agent`` mapping is authoritative when it
+        names a satellite present in the observation. If not, we fall back to the
+        observation's satellite ordering so existing scenario-specific ids such
+        as ``flamingo_0`` still receive correctly scoped local views.
         """
         sat_ids = list(env_observation.constellation_state.satellites.keys())
         result: Dict[str, AgentObservation] = {}
         for idx, agent_id in enumerate(self._agent_ids):
-            if idx >= len(sat_ids):
-                continue
-            sat_id = sat_ids[idx]
+            mapped_sat_id = self.satellite_for_agent(agent_id)
+            sat_id = mapped_sat_id
+            if sat_id not in env_observation.constellation_state.satellites:
+                if idx >= len(sat_ids):
+                    continue
+                sat_id = sat_ids[idx]
             result[agent_id] = AgentObservation(
                 agent_id=agent_id,
                 local_state={
-                    "full_observation": self._local_view(env_observation, sat_id)
+                    "full_observation": scope_observation(env_observation, [sat_id])
                 },
+                metadata={"satellite_id": sat_id},
             )
         return result
 
@@ -77,8 +101,8 @@ class IndependentMAS(AgentOrganization):
 
         Each agent's payload is a ``{satellite_id: action}`` mapping for its own
         satellite; merging them composes the environment action dict. Collisions
-        on the same RSO are intentionally left in place so the environment counts
-        them as duplicate observations.
+        on the same target are intentionally left in place so the environment can
+        count them as duplicate observations.
         """
         merged: Dict[str, Any] = {}
         for agent_action in agent_actions.values():
@@ -90,30 +114,15 @@ class IndependentMAS(AgentOrganization):
         return list(self._agent_ids)
 
     @staticmethod
-    def _local_view(env_observation: Any, sat_id: str) -> Any:
-        """Build a single-satellite slice of the environment observation."""
-        # Import lazily to keep the organisation layer free of a hard dependency
-        # on any one scenario's environment module at import time.
-        from src.core.satellite_env import (
-            ConstellationState,
-            EnvironmentObservation,
-        )
-
-        cstate = env_observation.constellation_state
-        sat_state = cstate.satellites.get(sat_id)
-        local_satellites = {sat_id: sat_state} if sat_state is not None else {}
-        local_tasks = [
-            task
-            for task in (getattr(env_observation, "tasks", []) or [])
-            if task.get("satellite_id") == sat_id
-        ]
-        return EnvironmentObservation(
-            constellation_state=ConstellationState(
-                timestep=cstate.timestep,
-                epoch_seconds=cstate.epoch_seconds,
-                satellites=local_satellites,
-                global_info=dict(getattr(cstate, "global_info", {}) or {}),
-            ),
-            tasks=local_tasks,
-            events=list(getattr(env_observation, "events", []) or []),
-        )
+    def _agent_index(agent_id: str) -> int:
+        prefix = "sat_agent_"
+        if not agent_id.startswith(prefix):
+            raise ValueError(
+                f"IndependentMAS expects 'sat_agent_i' agent ids, got '{agent_id}'"
+            )
+        try:
+            return int(agent_id[len(prefix):])
+        except ValueError as exc:
+            raise ValueError(
+                f"IndependentMAS expects 'sat_agent_i' agent ids, got '{agent_id}'"
+            ) from exc

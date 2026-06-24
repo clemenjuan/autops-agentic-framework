@@ -64,16 +64,20 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - **Outcome vs cost**: with the capable global `rule_based_flamingo`, DMAS matches SAS/CMAS mission utility (validated: utility 660, duplicate rate 0 under the contended scenario) while paying a strictly higher message cost. A decentralized org only loses *outcome* when consensus fails (Kim et al. 17.2× error amplification), which a single deterministic round does not trigger.
 - **Status**: Runnable at N≥3 (`configs/experiments/flamingo_dmas_ag_symb.yaml`), all-to-all topology. Ring/mesh/visibility-limited topology ablations are future work. Degenerate at N=1.
 
-### IndependentMAS — Implemented (Flamingo N≥3)
+### IndependentMAS — Implemented (Flamingo N>=3, BaseMultiSat N>=2)
 
 - **File**: `src/core/organization/independent_mas.py`
-- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = ∅, no inter-agent coordination.
-- **Structure**: A = {sat_agent_0 … sat_agent_{n−1}}, one agent per satellite; C = ∅; Ω = independent (no consensus, no manager).
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = empty set, no inter-agent coordination.
+- **Structure**: A = {sat_agent_0 ... sat_agent_{n-1}}, one agent per satellite; C = empty; Omega = independent (no consensus, no manager).
+- **Mapping**: `satellite_for_agent("sat_agent_i")` defaults to `sat_i` for BaseMultiSat/RLlib and accepts `agent_organization_config.satellite_prefix` or explicit `satellite_ids` for scenario-specific ids such as `flamingo_i`.
 - **Flamingo design decisions**:
-  - `distribute_observation`: agent `sat_agent_i` is mapped by index to the i-th satellite and receives a **local view** containing only that satellite's state and only that satellite's visible tasks — it cannot see what the others see or intend.
-  - `collect_actions`: per-satellite actions are merged **verbatim, without deconfliction**, so independent agents that pick the same RSO reach the environment as duplicate observations (the coordination cost the organisation axis measures).
-  - Contention is supplied by the scenario, not the org: `configs/scenarios/flamingo.yaml` sets `satellite_phase_shift: 0` so the constellation shares visibility windows and the agents must compete. Validated: under that scenario SAS/CMAS keep duplicate rate at 0 while IMAS wastes ≈⅔ of attempts and loses utility/coverage.
-- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_imas_ag_symb.yaml`). Degenerate at N=1 (equivalent to SAS, no coordination overhead).
+  - `distribute_observation`: each agent receives a local view containing only its satellite state and only that satellite's visible tasks.
+  - `collect_actions`: per-satellite actions are merged verbatim, without deconfliction, so duplicate RSO choices reach the environment as duplicate observations.
+  - Contention is supplied by `configs/scenarios/flamingo.yaml` (`satellite_phase_shift: 0`). Under that scenario SAS/CMAS keep duplicate rate at 0 while IMAS wastes attempts and loses utility/coverage.
+- **BaseMultiSat design decisions**:
+  - One `sat_agent_i` controls one `sat_i` EventSat-class sub-environment.
+  - The mapping is used by the RLlib bridge to bind observations, decoded actions, and per-satellite rewards to the same satellite.
+- **Status**: Runnable for Flamingo (`configs/experiments/flamingo_imas_ag_symb.yaml`) and BaseMultiSat (`configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml`). Degenerate at N=1.
 
 ### HybridMAS — Implemented (Flamingo N≥3)
 
@@ -223,21 +227,21 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
   - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
   - Group 5 (7D) — Current mode one-hot
-- **Action space**: `Discrete(7)` operational modes
-- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) -> 1 actor head + 1 critic head; ~70K parameters
-- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), single categorical mode log-prob
+- **Action space**: `MultiDiscrete([7, 2, 2])` — operational mode, data priority, and pipeline routing. EventSat currently consumes the mode and preserves the extra components for RL policy compatibility and future pipeline policies.
+- **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 25->256->256 (Tanh, orthogonal init), three actor heads (7, 2, 2 logits), one critic head.
+- **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-lambda (lambda=0.95), factored joint log-prob over the MultiDiscrete heads.
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
 - **Symbolic grounding** (same constraints as LLMEventSat):
   - Anomaly → forced safe (cannot be overridden)
   - SoC < 0.20 → forced charging
   - Communication without active pass → forced charging
-- **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
-- **reason()**: Returns mode action probabilities as structured explanation steps
-- **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
-- **Orthogonality**: Works with the fixed SDA decision driver and all 4 ops paradigms (ao/ah/ag/conventional)
-- **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
-- **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (EventSatGymnasium)
-- **Supporting modules**: `src/core/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/core/behaviour/training_pipeline.py` (PPOTrainer)
+- **Mock mode**: `rl_mock: true` uses `RandomPolicy` for CI/smoke tests without loading an RLlib checkpoint
+- **reason()**: Returns top mode probabilities as structured explanation steps
+- **update()**: Backward-compatible hook; PPO training is offline via `RLLibPPOTrainer`
+- **Orthogonality**: Works with the fixed SDA decision driver and all configured ops paradigms
+- **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml` or the BaseMultiSat config for multi-agent PPO
+- **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (single-agent EventSat smoke wrapper)
+- **Supporting modules**: `src/core/behaviour/rllib_training_pipeline.py`, `src/rl/rllib_env.py`, `src/rl/space_adapters.py`, `src/rl/policy_mapping.py`, `src/rl/models/autops_actor_critic.py`
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
 - **Configs** (rl cell): `eventsat_sas_ao_rl.yaml`, `eventsat_sas_ag_rl.yaml`, `eventsat_sas_ah_rl_rl.yaml`
 
@@ -586,10 +590,11 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 
 ### PPO Training — subsymbolic learned-policy mechanism
 
-- **File**: `src/core/behaviour/training_pipeline.py` (PPOTrainer)
+- **File**: `src/core/behaviour/rllib_training_pipeline.py` (`RLLibPPOTrainer`)
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
-- **Output**: `data/trained_models/<experiment_id>/policy.pt`
+- **Output**: `data/trained_models/<experiment_id>/` containing an RLlib checkpoint and manifest
+- **Bridge**: `src/rl/rllib_env.py` exposes AUTOPS as an RLlib `MultiAgentEnv`; `src/rl/policy_mapping.py` controls shared, role-based, or per-agent policies.
 
 ### PromptOptimizer — prompt-optimized mechanism
 
@@ -687,7 +692,7 @@ for the framing.
 | FixedMemory | `src/core/memory/fixed_memory.py` | **L1** Memory | fairness invariant | Read-only short/long-term state |
 | WritableMemory | `src/core/memory/writable_memory.py` | **L1** Memory | Sumers et al. 2024 (CoALA §3) | Writable semantic + episodic stores — closest analogue of Bhati L1 "memory files" |
 | BehaviourController | `src/core/behaviour/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
-| PPOTrainer | `src/core/behaviour/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
+| RLLibPPOTrainer | `src/core/behaviour/rllib_training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RLlib PPO learning loop |
 | PromptOptimizer | `src/core/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
 | WritableCoALA | `behaviour_config.mechanism = "writable_coala"` | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
 | Scenario actions/tools | `src/eventsat/agentic_tools.py` and scenario action dictionaries | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
