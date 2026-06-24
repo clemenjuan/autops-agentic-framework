@@ -80,6 +80,7 @@ Phase*.md
 # Personal / per-machine Claude Code instructions (not shared)
 CLAUDE.local.md
 CLAUDE.*.local.md
+AGENTS.md
 
 # Orekit data
 orekit-data.zip
