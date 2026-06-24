@@ -5,7 +5,7 @@ Pre-allocated numpy arrays for on-policy trajectory collection.
 Implements Generalized Advantage Estimation (GAE) for variance reduction.
 
 Design notes:
-- Stores MultiDiscrete([7, 2, 2]) actions as int arrays of shape (T, 3)
+- Stores 7-mode categorical actions as int arrays of shape (T, 1)
 - GAE computation follows Schulman et al. 2017 (PPO paper) and
   Oliver et al. EUCASS 2025 (8KDZ5Z53) trajectory collection
 - CPU-only (numpy) — GPU transfer happens in PPOTrainer.update()
@@ -17,7 +17,7 @@ from typing import Dict, Generator, Optional
 import numpy as np
 
 OBS_DIM = 25
-ACTION_SHAPE = (3,)  # MultiDiscrete([7, 2, 2])
+ACTION_SHAPE = (1,)  # 7-mode categorical action
 
 
 class RolloutBuffer:
@@ -39,7 +39,7 @@ class RolloutBuffer:
 
         # Pre-allocated arrays
         self.observations = np.zeros((buffer_size, obs_dim), dtype=np.float32)
-        self.actions = np.zeros((buffer_size, 3), dtype=np.int64)
+        self.actions = np.zeros((buffer_size, *ACTION_SHAPE), dtype=np.int64)
         self.rewards = np.zeros(buffer_size, dtype=np.float32)
         self.values = np.zeros(buffer_size, dtype=np.float32)
         self.log_probs = np.zeros(buffer_size, dtype=np.float32)
@@ -69,10 +69,10 @@ class RolloutBuffer:
 
         Args:
             obs: float32 array of shape (obs_dim,)
-            action: int array of shape (3,) — MultiDiscrete action
+            action: int array of shape (1,) containing the mode index
             reward: scalar reward
             value: critic value estimate
-            log_prob: joint log-probability of the action
+            log_prob: log-probability of the selected mode
             done: episode done flag
         """
         if self._pos >= self.buffer_size:

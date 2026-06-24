@@ -15,10 +15,10 @@ from typing import Any, Dict, List
 import numpy as np
 
 from src.eventsat.world_model import (
-    ACTION11_NAMES,
+    ACTION_NAMES,
     MODE_LIST,
     OBS25_NAMES,
-    action11_from_mode,
+    action_from_mode,
     eventsat_observation_to_vector,
 )
 
@@ -91,11 +91,7 @@ def action_vector_from_env_action(env_actions: Dict[str, Any]) -> np.ndarray:
     sat_action = (env_actions or {}).get("eventsat_0", {})
     if not isinstance(sat_action, dict):
         sat_action = {}
-    return action11_from_mode(
-        str(sat_action.get("mode", "charging")),
-        data_priority=int(sat_action.get("data_priority", 0)),
-        pipeline_routing=int(sat_action.get("pipeline_routing", 0)),
-    )
+    return action_from_mode(str(sat_action.get("mode", "charging")))
 
 
 def mode_index(mode: str) -> int:
@@ -139,7 +135,7 @@ class WorldModelTraceEpisode:
         if not self.rows:
             return {
                 "obs": np.zeros((0, len(OBS25_NAMES)), dtype=np.float32),
-                "action": np.zeros((0, len(ACTION11_NAMES)), dtype=np.float32),
+                "action": np.zeros((0, len(ACTION_NAMES)), dtype=np.float32),
                 "state": np.zeros((0, len(STATE_NAMES)), dtype=np.float32),
                 "reward": np.zeros((0,), dtype=np.float32),
                 "mode": np.zeros((0,), dtype=np.int64),
@@ -171,7 +167,7 @@ def write_trace_metadata(path: Path, payload: Dict[str, Any]) -> None:
         "schema": "eventsat_world_model_v1",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "obs_names": list(OBS25_NAMES),
-        "action_names": list(ACTION11_NAMES),
+        "action_names": list(ACTION_NAMES),
         "state_names": list(STATE_NAMES),
         "mode_names": list(MODE_LIST),
         "notes": "AUTOPS-native state only; thermal and pointing are absent unless the simulator is extended.",

@@ -3,7 +3,7 @@ Tests for Phase 4b: Subsymbolic RL Representation.
 
 Covers:
 - EventSat env orbital lookahead metadata (backward compatible)
-- EventSat env sub-action processing (data_priority, pipeline_routing)
+- EventSat env mode-only action processing
 - Gymnasium wrapper: obs shape, action space, reset/step contract, reward scalar
 - Neural policy (RandomPolicy always; ActorCritic if torch available):
   forward shape, deterministic vs stochastic, save/load
@@ -126,93 +126,31 @@ class TestEventSatOrbitalLookahead(unittest.TestCase):
 
 
 # ===========================================================================
-# Section 2: EventSat env — sub-action processing
+# Section 2: EventSat env - mode-only action processing
 # ===========================================================================
 
-class TestEventSatSubActions(unittest.TestCase):
+class TestEventSatModeActions(unittest.TestCase):
 
     def setUp(self):
         self.env = _make_eventsat_env(max_steps=200)
         self.env.reset(seed=0)
-        # Force battery high so communication is not blocked by SoC
         self.env.battery_soc = 0.9
 
-    def test_data_priority_stored(self):
-        self.env.step({"eventsat_0": {"mode": "charging", "data_priority": 1, "pipeline_routing": 0}})
-        self.assertEqual(self.env._data_priority, 1)
-        self.assertEqual(self.env._pipeline_routing, 0)
-
-    def test_urgent_priority_increases_downlink(self):
-        """Urgent (data_priority=1) should download more than normal during a ground pass."""
-        # Step until a pass is active
-        found_pass = False
-        for _ in range(200):
-            obs = self.env.get_observation()
-            sat = obs.constellation_state.satellites["eventsat_0"]
-            if sat.metadata.get("ground_pass_active", False):
-                found_pass = True
-                break
-            self.env.step({"eventsat_0": {"mode": "charging"}})
-
-        if not found_pass:
-            self.skipTest("No ground pass in 200 steps (stochastic — skip)")
-
-        # Setup: put some data on OBC
-        self.env.obc_data_mb = 100.0
-
-        # Normal downlink
-        env_normal = _make_eventsat_env(max_steps=200)
-        env_normal.reset(seed=0)
-        env_normal.obc_data_mb = 100.0
-        env_normal.battery_soc = 0.9
-        # Force a pass
-        env_normal._data_priority = 0
-
-        # Compute expected downlink with 1x vs 1.5x multiplier
-        dl_normal = (self.env.downlink_rate_kbps / 8.0) * (self.env.step_duration_s / 1000.0)
-        dl_urgent = dl_normal * 1.5
-
-        # Verify env stores values correctly
-        self.assertAlmostEqual(dl_urgent, dl_normal * 1.5)
-
-    def test_pipeline_routing_detect_first_redirects(self):
-        """detect_first routing redirects payload_compress to detection when applicable."""
-        self.env.uncompressed_observations = 0  # no compression backlog
-        self.env.undetected_observations = 2    # detection backlog exists
-        self.env.detection_progress = 0
-        self.env.battery_soc = 0.8
-
-        result = self.env.step({
-            "eventsat_0": {
-                "mode": "payload_compress",
-                "data_priority": 0,
-                "pipeline_routing": 1,  # detect_first
-            }
-        })
-        self.assertIn("pipeline_routed_to_detect", result.info)
-
-    def test_pipeline_routing_compress_first_redirects(self):
-        """compress_first routing redirects payload_detect to compression when applicable."""
-        self.env.undetected_observations = 0    # no detection backlog
-        self.env.uncompressed_observations = 2  # compression backlog exists
-        self.env.compression_progress = 0
-        self.env.battery_soc = 0.8
-
-        result = self.env.step({
-            "eventsat_0": {
-                "mode": "payload_detect",
-                "data_priority": 0,
-                "pipeline_routing": 0,  # compress_first
-            }
-        })
-        self.assertIn("pipeline_routed_to_compress", result.info)
-
-    def test_symbolic_action_no_sub_actions(self):
-        """Symbolic representations that don't pass sub-actions work without errors."""
+    def test_mode_action_has_no_sub_action_state(self):
         result = self.env.step({"eventsat_0": {"mode": "charging"}})
-        # Default sub-actions should be 0
-        self.assertEqual(self.env._data_priority, 0)
-        self.assertEqual(self.env._pipeline_routing, 0)
+        self.assertEqual(result.info.get("requested_mode"), "charging")
+
+    def test_payload_compress_does_not_reroute_to_detect(self):
+        self.env.uncompressed_observations = 0
+        self.env.undetected_observations = 2
+        result = self.env.step({"eventsat_0": {"mode": "payload_compress"}})
+        self.assertFalse(result.info.get("had_data_to_compress", True))
+
+    def test_payload_detect_does_not_reroute_to_compress(self):
+        self.env.undetected_observations = 0
+        self.env.uncompressed_observations = 2
+        result = self.env.step({"eventsat_0": {"mode": "payload_detect"}})
+        self.assertFalse(result.info.get("had_data_to_detect", True))
 
 
 # ===========================================================================
@@ -272,17 +210,17 @@ class TestEventSatGymnasium(unittest.TestCase):
     def test_action_space(self):
         if not self.gymnasium_available:
             self.skipTest("gymnasium not installed")
-        from gymnasium.spaces import MultiDiscrete
+        from gymnasium.spaces import Discrete
         wrapper = self._make_wrapper()
-        self.assertIsInstance(wrapper.action_space, MultiDiscrete)
-        np.testing.assert_array_equal(wrapper.action_space.nvec, [7, 2, 2])
+        self.assertIsInstance(wrapper.action_space, Discrete)
+        self.assertEqual(wrapper.action_space.n, 7)
 
     def test_step_contract(self):
         if not self.gymnasium_available:
             self.skipTest("gymnasium not installed")
         wrapper = self._make_wrapper()
         wrapper.reset(seed=0)
-        action = np.array([0, 0, 0], dtype=int)  # charging, normal, compress_first
+        action = np.array(0, dtype=int)  # charging
         obs, reward, terminated, truncated, info = wrapper.step(action)
         self.assertEqual(obs.shape, (25,))
         self.assertIsInstance(reward, float)
@@ -294,7 +232,7 @@ class TestEventSatGymnasium(unittest.TestCase):
             self.skipTest("gymnasium not installed")
         wrapper = self._make_wrapper()
         wrapper.reset(seed=0)
-        _, reward, _, _, _ = wrapper.step(np.array([0, 0, 0]))
+        _, reward, _, _, _ = wrapper.step(np.array(0))
         # Reward must be a finite scalar
         self.assertTrue(np.isfinite(reward))
 
@@ -347,25 +285,23 @@ class TestRandomPolicy(unittest.TestCase):
     def test_get_action_shape(self):
         obs = np.zeros(25, dtype=np.float32)
         action, log_prob, value = self.policy.get_action(obs)
-        self.assertEqual(action.shape, (3,))
+        self.assertEqual(action.shape, (1,))
 
     def test_get_action_bounds(self):
         obs = np.zeros(25, dtype=np.float32)
         for _ in range(20):
             action, _, _ = self.policy.get_action(obs)
             self.assertIn(action[0], range(7))
-            self.assertIn(action[1], range(2))
-            self.assertIn(action[2], range(2))
 
     def test_get_action_deterministic_same(self):
         """Deterministic mode should return same action each call (not really for random, but shouldn't crash)."""
         obs = np.zeros(25, dtype=np.float32)
         action, _, _ = self.policy.get_action(obs, deterministic=True)
-        self.assertEqual(action.shape, (3,))
+        self.assertEqual(action.shape, (1,))
 
     def test_evaluate_actions_shape(self):
         obs_batch = np.zeros((10, 25), dtype=np.float32)
-        actions_batch = np.zeros((10, 3), dtype=np.int64)
+        actions_batch = np.zeros((10, 1), dtype=np.int64)
         log_probs, entropy, values = self.policy.evaluate_actions(obs_batch, actions_batch)
         self.assertEqual(log_probs.shape, (10,))
         self.assertEqual(values.shape, (10, 1))
@@ -388,7 +324,7 @@ class TestActorCritic(unittest.TestCase):
         import torch
         obs = torch.zeros(1, 25)
         dists, value = self.policy.forward(obs)
-        self.assertEqual(len(dists), 3)
+        self.assertEqual(len(dists), 1)
         self.assertEqual(value.shape, (1, 1))
 
     def test_forward_dist_shapes(self):
@@ -396,14 +332,12 @@ class TestActorCritic(unittest.TestCase):
         obs = torch.zeros(1, 25)
         dists, _ = self.policy.forward(obs)
         self.assertEqual(dists[0].param_shape, (1, 7))
-        self.assertEqual(dists[1].param_shape, (1, 2))
-        self.assertEqual(dists[2].param_shape, (1, 2))
 
     def test_get_action_shape(self):
         import torch
         obs = torch.zeros(25)
         action, log_prob, value = self.policy.get_action(obs)
-        self.assertEqual(action.shape, (3,))
+        self.assertEqual(action.shape, (1,))
         self.assertIn(action[0], range(7))
 
     def test_get_action_deterministic(self):
@@ -426,7 +360,7 @@ class TestActorCritic(unittest.TestCase):
     def test_evaluate_actions_shapes(self):
         import torch
         obs_batch = torch.zeros(8, 25)
-        actions_batch = torch.zeros(8, 3, dtype=torch.long)
+        actions_batch = torch.zeros(8, 1, dtype=torch.long)
         log_probs, entropy, values = self.policy.evaluate_actions(obs_batch, actions_batch)
         self.assertEqual(log_probs.shape, (8,))
         self.assertEqual(values.shape, (8, 1))
@@ -456,8 +390,8 @@ class TestActorCritic(unittest.TestCase):
 
     def test_parameter_count(self):
         total = sum(p.numel() for p in self.policy.parameters())
-        # ~70K parameters (25*256 + 256 + 256*256 + 256 + 3*(256*2+2) + 256*1+1)
-        # Approximately 72K — accept anything in [50K, 150K] for robustness
+        # ~73K parameters for 25D input, two 256-wide hidden layers, one mode head, and one critic.
+        # Accept a broad range for robustness.
         self.assertGreater(total, 50_000)
         self.assertLess(total, 150_000)
 
@@ -477,7 +411,7 @@ class TestRolloutBuffer(unittest.TestCase):
         for i in range(5):
             buf.store(
                 obs=np.zeros(25, dtype=np.float32),
-                action=np.array([0, 0, 0], dtype=np.int64),
+                action=np.array([0], dtype=np.int64),
                 reward=1.0,
                 value=0.5,
                 log_prob=-1.0,
@@ -488,20 +422,20 @@ class TestRolloutBuffer(unittest.TestCase):
     def test_overflow_raises(self):
         buf = self._make_buffer(3)
         for _ in range(3):
-            buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), 0.0, 0.0, 0.0, False)
+            buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), 0.0, 0.0, 0.0, False)
         with self.assertRaises(RuntimeError):
-            buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), 0.0, 0.0, 0.0, False)
+            buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), 0.0, 0.0, 0.0, False)
 
     def test_is_full(self):
         buf = self._make_buffer(3)
         self.assertFalse(buf.is_full)
         for _ in range(3):
-            buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), 0.0, 0.0, 0.0, False)
+            buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), 0.0, 0.0, 0.0, False)
         self.assertTrue(buf.is_full)
 
     def test_reset_clears(self):
         buf = self._make_buffer(5)
-        buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), 1.0, 0.5, -1.0, False)
+        buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), 1.0, 0.5, -1.0, False)
         buf.reset()
         self.assertEqual(buf.size, 0)
         self.assertFalse(buf.is_full)
@@ -512,7 +446,7 @@ class TestRolloutBuffer(unittest.TestCase):
         for i in range(5):
             buf.store(
                 obs=np.zeros(25),
-                action=np.zeros(3, dtype=np.int64),
+                action=np.zeros(1, dtype=np.int64),
                 reward=1.0,
                 value=0.5,
                 log_prob=-1.0,
@@ -526,7 +460,7 @@ class TestRolloutBuffer(unittest.TestCase):
     def test_get_batches_covers_all_samples(self):
         buf = self._make_buffer(20)
         for i in range(20):
-            buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), float(i), 0.5, -1.0, False)
+            buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), float(i), 0.5, -1.0, False)
         buf.compute_returns_and_advantages(0.0)
         total = 0
         for batch in buf.get_batches(5):
@@ -535,13 +469,13 @@ class TestRolloutBuffer(unittest.TestCase):
 
     def test_get_batches_without_gae_raises(self):
         buf = self._make_buffer(5)
-        buf.store(np.zeros(25), np.zeros(3, dtype=np.int64), 1.0, 0.5, -1.0, False)
+        buf.store(np.zeros(25), np.zeros(1, dtype=np.int64), 1.0, 0.5, -1.0, False)
         with self.assertRaises(RuntimeError):
             list(buf.get_batches(5))
 
     def test_actions_stored_correctly(self):
         buf = self._make_buffer(3)
-        action = np.array([3, 1, 0], dtype=np.int64)
+        action = np.array([3], dtype=np.int64)
         buf.store(np.zeros(25), action, 0.0, 0.0, 0.0, False)
         np.testing.assert_array_equal(buf.actions[0], action)
 
@@ -683,7 +617,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
                  "payload_detect", "payload_send", "safe"}
         self.assertIn(mode, valid)
 
-    def test_select_action_has_sub_actions(self):
+    def test_select_action_is_mode_only(self):
         from src.core.decision_procedure.context import DecisionContext
         state = self.repr.encode_observation(self.obs)
         context = DecisionContext(
@@ -691,10 +625,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         )
         action = self.repr.select_action(context)
         sat_action = action["eventsat_0"]
-        self.assertIn("data_priority", sat_action)
-        self.assertIn("pipeline_routing", sat_action)
-        self.assertIn(sat_action["data_priority"], [0, 1])
-        self.assertIn(sat_action["pipeline_routing"], [0, 1])
+        self.assertEqual(set(sat_action.keys()), {"mode"})
 
     def test_anomaly_forces_safe(self):
         from src.core.decision_procedure.context import DecisionContext
@@ -727,7 +658,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
         original_get_action = self.repr._policy.get_action
 
         def forced_action(obs, **kwargs):
-            return np.array([1, 0, 0]), 0.0, 0.0  # communication
+            return np.array([1]), 0.0, 0.0  # communication
 
         self.repr._policy.get_action = forced_action
         context = DecisionContext(

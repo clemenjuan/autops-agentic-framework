@@ -3,10 +3,7 @@ Gymnasium Wrapper for EventSat Environment.
 
 Wraps EventSatEnvironment as a standard gymnasium.Env with:
 - observation_space: Box(25,) normalized to [0, 1]
-- action_space: MultiDiscrete([7, 2, 2])
-  Sub-action 0: primary mode (7 modes)
-  Sub-action 1: data_priority {0=normal, 1=urgent}
-  Sub-action 2: pipeline_routing {0=compress_first, 1=detect_first}
+- action_space: Discrete(7) operational modes
 
 The observation vector is a 25D normalized feature vector designed per the
 EUCASS 2025 paper (Oliver et al.) and Hamilton et al. 2025 observation space
@@ -104,8 +101,8 @@ class EventSatGymnasium:
             dtype=np.float32,
         )
 
-        # Action space: MultiDiscrete([7, 2, 2])
-        self.action_space = spaces.MultiDiscrete([7, 2, 2])
+        # Action space: Discrete(7) operational modes
+        self.action_space = spaces.Discrete(len(MODE_LIST))
 
         self._current_step: int = 0
         self._max_steps: int = self._env.max_steps
@@ -134,7 +131,7 @@ class EventSatGymnasium:
         """Apply action and return (obs, reward, terminated, truncated, info).
 
         Args:
-            action: int array of shape (3,) from MultiDiscrete([7, 2, 2])
+            action: integer mode index from Discrete(7)
 
         Returns:
             obs_vec: 25D float32 observation vector
@@ -143,21 +140,13 @@ class EventSatGymnasium:
             truncated: False (no time limit beyond max_steps)
             info: dict with step metadata
         """
-        action = np.asarray(action, dtype=int)
-        mode_idx = int(action[0])
-        data_priority = int(action[1])
-        pipeline_routing = int(action[2])
+        action_arr = np.asarray(action, dtype=int)
+        mode_idx = int(action_arr.item() if action_arr.shape == () else action_arr.reshape(-1)[0])
 
         # Build env action dict with symbolic grounding
         mode = self._apply_symbolic_grounding(mode_idx)
 
-        env_action = {
-            "eventsat_0": {
-                "mode": mode,
-                "data_priority": data_priority,
-                "pipeline_routing": pipeline_routing,
-            }
-        }
+        env_action = {"eventsat_0": {"mode": mode}}
 
         result = self._env.step(env_action)
         self._current_step += 1

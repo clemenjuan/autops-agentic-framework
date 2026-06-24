@@ -1,23 +1,22 @@
 """
 Neural Policy for RL-based EventSat Representation.
 
-Implements a multi-head Actor-Critic network for MultiDiscrete([7, 2, 2]) actions:
+Implements an Actor-Critic network for 7-mode EventSat actions:
   - Shared MLP trunk: 25 → 256 → 256 (Tanh activations)
-  - 3 independent actor heads: → 7 logits, → 2 logits, → 2 logits
+  - 1 actor head: → 7 mode logits
   - 1 critic head: → 1 value estimate
 
 Architecture matches Oliver et al. EUCASS 2025 (8KDZ5Z53): [256, 256] hidden layers
 with tanh activation, PPO, ~70K parameters, confirmed feasible for Jetson Orin Nano
 (50μs inference per the paper).
 
-Joint log-probability = sum of per-head log-probs (factored MultiDiscrete distribution).
-Joint entropy = sum of per-head entropies.
+Log-probability and entropy come from a single categorical mode distribution.
 
 RandomPolicy provides the same interface without torch, for CI/mock mode (rl_mock: true).
 
 Papers:
 - Oliver et al. EUCASS 2025 (8KDZ5Z53): network architecture [256,256] tanh
-- Hamilton et al. 2025 (GWQ3LK6H): multi-head action space design
+- Hamilton et al. 2025 (GWQ3LK6H): mode action space design
 """
 from __future__ import annotations
 
@@ -36,8 +35,8 @@ except ImportError:
     nn = None  # type: ignore
     Categorical = None  # type: ignore
 
-# MultiDiscrete([7, 2, 2]) — must match EventSatGymnasium.action_space
-ACTION_DIMS = [7, 2, 2]
+# Single 7-way mode action head; must match EventSatGymnasium.action_space
+ACTION_DIMS = [7]
 OBS_DIM = 25
 HIDDEN_SIZE = 256
 
@@ -46,15 +45,15 @@ _BaseModule = nn.Module if TORCH_AVAILABLE else object
 
 
 class ActorCritic(_BaseModule):  # type: ignore[misc]
-    """Multi-head Actor-Critic for MultiDiscrete([7, 2, 2]) action space.
+    """Actor-Critic for the 7-mode EventSat action space.
 
-    Shared trunk → 3 actor heads + 1 critic head.
+    Shared trunk -> mode actor head + critic head.
     Architecture: 25→256→256 (Tanh) per Juan Oliver et al. EUCASS 2025.
 
     Args:
         obs_dim: Observation dimension (default 25).
         hidden_size: Hidden layer width (default 256).
-        action_dims: List of per-head action dimensions (default [7, 2, 2]).
+        action_dims: List containing the mode action dimension (default [7]).
     """
 
     def __init__(
@@ -77,7 +76,7 @@ class ActorCritic(_BaseModule):  # type: ignore[misc]
             nn.Tanh(),
         )
 
-        # Independent actor heads — one per MultiDiscrete sub-action
+        # Actor head for the 7 operational modes
         self.actor_heads = nn.ModuleList([
             nn.Linear(hidden_size, dim) for dim in action_dims
         ])
@@ -107,7 +106,7 @@ class ActorCritic(_BaseModule):  # type: ignore[misc]
             obs: float32 tensor of shape (batch, obs_dim) or (obs_dim,)
 
         Returns:
-            dists: List of Categorical distributions, one per sub-action head
+            dists: List containing the mode Categorical distribution
             value: float32 tensor of shape (batch, 1) or (1,)
         """
         features = self.trunk(obs)
@@ -122,11 +121,11 @@ class ActorCritic(_BaseModule):  # type: ignore[misc]
 
         Args:
             obs: float32 tensor, shape (obs_dim,) — single observation
-            deterministic: If True, take argmax per head (evaluation mode)
+            deterministic: If True, take argmax mode (evaluation mode)
 
         Returns:
-            action_vec: int numpy array of shape (3,) — MultiDiscrete action
-            log_prob: scalar tensor — joint log-prob (sum of per-head log-probs)
+            action_vec: int numpy array of shape (1,) containing the mode index
+            log_prob: scalar tensor
             value: scalar tensor — critic value estimate
         """
         with torch.no_grad():
@@ -151,13 +150,15 @@ class ActorCritic(_BaseModule):  # type: ignore[misc]
 
         Args:
             obs_batch: float32 tensor, shape (batch, obs_dim)
-            actions_batch: int64 tensor, shape (batch, 3) — MultiDiscrete actions
+            actions_batch: int64 tensor, shape (batch,) or (batch, 1) mode actions
 
         Returns:
-            log_probs: shape (batch,) — joint log-prob per sample
-            entropy: scalar — mean joint entropy (for entropy regularisation)
+            log_probs: shape (batch,) — log-prob per sample
+            entropy: scalar — mean mode entropy (for entropy regularisation)
             values: shape (batch, 1)
         """
+        if actions_batch.ndim == 1:
+            actions_batch = actions_batch[:, None]
         dists, values = self.forward(obs_batch)
         log_probs = torch.zeros(obs_batch.shape[0], device=obs_batch.device)
         entropy = torch.tensor(0.0, device=obs_batch.device)
@@ -184,7 +185,7 @@ class RandomPolicy:
     """Random policy with the same interface as ActorCritic.
 
     Used when rl_mock=True (CI mode without torch or trained checkpoint).
-    Samples uniformly from MultiDiscrete([7, 2, 2]).
+    Samples uniformly from the 7 EventSat modes.
     """
 
     def __init__(
@@ -202,7 +203,7 @@ class RandomPolicy:
         """Return random action with dummy log_prob and value.
 
         Returns:
-            action_vec: int array of shape (3,)
+            action_vec: int array of shape (1,)
             log_prob: 0.0 (placeholder)
             value: 0.0 (placeholder)
         """

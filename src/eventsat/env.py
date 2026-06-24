@@ -174,9 +174,6 @@ class EventSatEnvironment(SatelliteEnvironment):
         self._orbital_ctx: Optional[OrbitalContext] = None
         self._episode_orbit: Dict[str, Any] = {}
         self.active_anomaly = None
-        # RL sub-actions (set in step(), initialised here for get_observation() safety)
-        self._data_priority: int = 0
-        self._pipeline_routing: int = 0
         self.forced_safe_steps = 0
         # Dedicated RNG for anomaly injection — isolated from the global stream
         # so that different recovery timings between ops paradigms don't desync
@@ -231,8 +228,6 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.previous_mode = "charging"
         self.active_anomaly = None
         self.forced_safe_steps = 0
-        self._data_priority = 0
-        self._pipeline_routing = 0
         self._anomaly_rng = random.Random(seed * 131 + 7919 if seed is not None else None)
         self.episode_reward = 0.0
         self._step_metrics = {}
@@ -270,13 +265,8 @@ class EventSatEnvironment(SatelliteEnvironment):
         sat_action = actions.get("eventsat_0", {})
         if isinstance(sat_action, dict):
             requested_mode = sat_action.get("mode", "charging")
-            # RL sub-actions (MultiDiscrete): ignored by symbolic/LLM representations
-            self._data_priority = int(sat_action.get("data_priority", 0))       # 0=normal, 1=urgent
-            self._pipeline_routing = int(sat_action.get("pipeline_routing", 0)) # 0=compress_first, 1=detect_first
         else:
             requested_mode = "charging"
-            self._data_priority = 0
-            self._pipeline_routing = 0
         resolved_mode = self._resolve_mode(requested_mode)
         forced = resolved_mode != requested_mode
 
@@ -561,28 +551,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["storage_overflow"] = storage_overflow
 
         elif mode == "payload_compress":
-            # RL sub-action: detect_first → if detection backlog exists and no compression backlog,
-            # advance detection instead (agent wants to prioritize detection pipeline)
-            if (
-                getattr(self, "_pipeline_routing", 0) == 1
-                and self.undetected_observations > 0
-                and self.uncompressed_observations == 0
-            ):
-                # Redirect: treat as payload_detect step (detect_first routing)
-                self.detection_progress += 1
-                if self.detection_progress >= self.detection_steps:
-                    self.undetected_observations -= 1
-                    self.obc_data_mb += self.detection_metadata_mb
-                    self.total_detections += 1
-                    self.detection_progress = 0
-                    action_info["detection_completed"] = True
-                else:
-                    action_info["detection_in_progress"] = True
-                action_info["pipeline_routed_to_detect"] = True
-                had_data = True
-            else:
-                had_data = self.uncompressed_observations > 0
-            if had_data and not action_info.get("pipeline_routed_to_detect"):
+            had_data = self.uncompressed_observations > 0
+            if had_data:
                 # P1: multi-step compression
                 self.compression_progress += 1
                 if self.compression_progress >= self.compression_time_factor:
@@ -601,30 +571,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["had_data_to_compress"] = had_data
 
         elif mode == "payload_detect":
-            # RL sub-action: compress_first → if compression backlog exists and no detection backlog,
-            # advance compression instead
-            if (
-                getattr(self, "_pipeline_routing", 0) == 0
-                and self.uncompressed_observations > 0
-                and self.undetected_observations == 0
-            ):
-                # Redirect: treat as payload_compress step (compress_first routing)
-                self.compression_progress += 1
-                if self.compression_progress >= self.compression_time_factor:
-                    self.uncompressed_observations -= 1
-                    compressed_size = self.observation_size_mb / self.compression_ratio
-                    self.jetson_raw_mb = max(0.0, self.jetson_raw_mb - self.observation_size_mb)
-                    self.jetson_compressed_mb += compressed_size
-                    self.compression_progress = 0
-                    self.undetected_observations += 1
-                    action_info["compression_completed"] = True
-                else:
-                    action_info["compression_in_progress"] = True
-                action_info["pipeline_routed_to_compress"] = True
-                had_data = True
-            else:
-                had_data = self.undetected_observations > 0
-            if had_data and not action_info.get("pipeline_routed_to_compress"):
+            had_data = self.undetected_observations > 0
+            if had_data:
                 self.detection_progress += 1
                 if self.detection_progress >= self.detection_steps:
                     # Detection complete: produce small metadata → OBC
@@ -652,9 +600,6 @@ class EventSatEnvironment(SatelliteEnvironment):
                 # seconds actually in contact this step (short passes downlink less).
                 contact_s = self._contact_seconds()
                 dl_mb = (self.downlink_rate_kbps / 8.0) * (contact_s / 1000.0)
-                # RL sub-action: urgent data_priority → 1.5x downlink chunk
-                if getattr(self, "_data_priority", 0) == 1:
-                    dl_mb *= 1.5
                 actual_dl = min(dl_mb, self.obc_data_mb)
                 raw_equivalent_dl = 0.0
                 if self.obc_data_mb > 0:
@@ -665,7 +610,6 @@ class EventSatEnvironment(SatelliteEnvironment):
                 self.downlink_raw_equivalent_mb += raw_equivalent_dl
                 self.data_downlinked_mb += actual_dl
                 action_info["data_downlinked_mb"] = actual_dl
-                action_info["data_priority_urgent"] = getattr(self, "_data_priority", 0) == 1
 
         # --- Reward computation ---
         obs_hours = self.total_observation_s / 3600.0

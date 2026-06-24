@@ -10,12 +10,27 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
 OREKIT_AVAILABLE = False
 _orekit_initialized = False
+
+
+def _orekit_data_path() -> str:
+    """Find the bundled Orekit data zip from the module location."""
+    source_path = Path(__file__).resolve()
+    for parent in source_path.parents:
+        candidate = parent / "orekit-data.zip"
+        if candidate.exists():
+            return str(candidate)
+    for parent in source_path.parents:
+        if (parent / "pyproject.toml").exists():
+            return str(parent / "orekit-data.zip")
+    return str(Path.cwd() / "orekit-data.zip")
+
 
 try:
     import orekit_jpype
@@ -24,10 +39,9 @@ try:
     if not jpype.isJVMStarted():
         orekit_jpype.initVM()
 
-    from pathlib import Path as _Path
     from orekit_jpype.pyhelpers import setup_orekit_data
-    # Use absolute path so it works regardless of CWD (e.g. when called from notebooks/)
-    _orekit_data = str(_Path(__file__).parent.parent.parent.parent / "orekit-data.zip")
+    # Use absolute path so it works regardless of CWD or source package depth.
+    _orekit_data = _orekit_data_path()
     # from_pip_library=False: skip the optional orekitdata pip package
     # (we ship the zip in-repo) and avoid the "Failed to load orekitdata
     # library" WARNING that would otherwise fire on every JVM init.

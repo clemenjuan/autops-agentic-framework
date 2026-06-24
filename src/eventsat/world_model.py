@@ -36,13 +36,7 @@ MODE_LIST = [
     "safe",
 ]
 MODE_TO_IDX = {mode: idx for idx, mode in enumerate(MODE_LIST)}
-ACTION11_NAMES = (
-    *(f"mode_{mode}" for mode in MODE_LIST),
-    "data_priority_normal",
-    "data_priority_urgent",
-    "pipeline_compress_first",
-    "pipeline_detect_first",
-)
+ACTION_NAMES = tuple(f"mode_{mode}" for mode in MODE_LIST)
 
 OBS25_NAMES = (
     "battery_soc",
@@ -122,17 +116,10 @@ def _mode_one_hot(mode: str) -> np.ndarray:
     return out
 
 
-def action11_from_mode(
-    mode: str,
-    *,
-    data_priority: int = 0,
-    pipeline_routing: int = 0,
-) -> np.ndarray:
-    """Encode AUTOPS mode + RL subactions as the planned 11D action vector."""
-    out = np.zeros(len(ACTION11_NAMES), dtype=np.float32)
+def action_from_mode(mode: str) -> np.ndarray:
+    """Encode an AUTOPS operational mode as a 7D one-hot action vector."""
+    out = np.zeros(len(ACTION_NAMES), dtype=np.float32)
     out[MODE_TO_IDX.get(mode, 0)] = 1.0
-    out[7 + int(bool(data_priority))] = 1.0
-    out[9 + int(bool(pipeline_routing))] = 1.0
     return out
 
 
@@ -263,10 +250,7 @@ class _ArtifactLatentBackend:
         self.history_size = int(lewm.get("history_size", artifact.get("history_size", 3)))
         self.embed_dim = int(lewm.get("embed_dim", artifact.get("embed_dim", 192)))
         self.obs_dim = int(lewm.get("obs_dim", 25))
-        self.action_dim = int(lewm.get("action_dim", len(ACTION11_NAMES)))
-        self.data_priority = int(config.get("data_priority", 0))
-        self.pipeline_routing = int(config.get("pipeline_routing", 0))
-
+        self.action_dim = int(lewm.get("action_dim", len(ACTION_NAMES)))
         self.W = np.asarray(probe.get("W"), dtype=np.float32)
         self.b = np.asarray(probe.get("b"), dtype=np.float32)
         self.attribute_names = [str(x) for x in probe.get("attribute_names", [])]
@@ -341,11 +325,11 @@ class _ArtifactLatentBackend:
     def rollout(self, history: Dict[str, np.ndarray], seq: np.ndarray) -> np.ndarray:
         torch = self.torch
         obs = self._pad_history(np.asarray(history["obs"], dtype=np.float32), self.obs_dim)
-        action = self._pad_history(np.asarray(history["action"], dtype=np.float32), self.action_dim)
-        action11 = self._encode_sequences(seq)
+        history_action = self._pad_history(np.asarray(history["action"], dtype=np.float32), self.action_dim)
+        candidate_actions = self._encode_sequences(seq)
         obs_n = self._norm_obs(obs)
-        act_n = self._norm_action(action)
-        n, horizon, _ = action11.shape
+        act_n = self._norm_action(history_action)
+        n, horizon, _ = candidate_actions.shape
         with torch.no_grad():
             batch = {
                 "obs": torch.from_numpy(obs_n[None]).to(self.device),
@@ -354,7 +338,7 @@ class _ArtifactLatentBackend:
             encoded = self.model.encode(batch)
             emb_hist = encoded["emb"].repeat(n, 1, 1)
             act_hist = torch.from_numpy(np.repeat(act_n[None], n, axis=0)).to(self.device)
-            first = self._norm_action(action11[:, 0])
+            first = self._norm_action(candidate_actions[:, 0])
             act_hist[:, -1, :] = torch.from_numpy(first).to(self.device)
             pred_rows = []
             for t in range(horizon):
@@ -363,7 +347,7 @@ class _ArtifactLatentBackend:
                 pred_rows.append(pred[:, 0])
                 emb_hist = torch.cat([emb_hist, pred], dim=1)
                 if t + 1 < horizon:
-                    nxt = self._norm_action(action11[:, t + 1])
+                    nxt = self._norm_action(candidate_actions[:, t + 1])
                     act_hist = torch.cat([act_hist, torch.from_numpy(nxt[:, None]).to(self.device)], dim=1)
             return torch.stack(pred_rows, dim=1).detach().cpu().numpy().astype(np.float32)
 
@@ -386,9 +370,6 @@ class _ArtifactLatentBackend:
         out = np.zeros((*seq.shape, self.action_dim), dtype=np.float32)
         rows = np.indices(seq.shape)
         out[rows[0], rows[1], seq] = 1.0
-        if self.action_dim >= 11:
-            out[..., 7 + int(bool(self.data_priority))] = 1.0
-            out[..., 9 + int(bool(self.pipeline_routing))] = 1.0
         return out
 
 
@@ -514,11 +495,7 @@ class _WorldModelPlanner:
         self.mode_weights = self._load_mode_weights(config)
         self._obs_history: list[np.ndarray] = []
         self._action_history: list[np.ndarray] = []
-        self._last_action11 = action11_from_mode(
-            "charging",
-            data_priority=int(config.get("data_priority", 0)),
-            pipeline_routing=int(config.get("pipeline_routing", 0)),
-        )
+        self._last_action = action_from_mode("charging")
 
         self._last_metrics: Dict[str, float] = {
             "candidate_count": float(self.samples),
@@ -560,13 +537,9 @@ class _WorldModelPlanner:
             elapsed = time.perf_counter() - start
             mode = str(response["mode"])
             self.previous_solution = np.asarray(response.get("best_sequence", []), dtype=np.int64)
-            self._last_action11 = action11_from_mode(
-                mode,
-                data_priority=int(self.config.get("data_priority", 0)),
-                pipeline_routing=int(self.config.get("pipeline_routing", 0)),
-            )
+            self._last_action = action_from_mode(mode)
             if self._action_history:
-                self._action_history[-1] = self._last_action11
+                self._action_history[-1] = self._last_action
             rollouts = float(samples * self.iters)
             self._last_metrics.update(
                 {
@@ -621,13 +594,9 @@ class _WorldModelPlanner:
         if best_seq is None:
             best_seq = np.asarray([MODE_TO_IDX["charging"]], dtype=np.int64)
         selected_mode = MODE_LIST[int(best_seq[0])]
-        self._last_action11 = action11_from_mode(
-            selected_mode,
-            data_priority=int(self.config.get("data_priority", 0)),
-            pipeline_routing=int(self.config.get("pipeline_routing", 0)),
-        )
+        self._last_action = action_from_mode(selected_mode)
         if self._action_history:
-            self._action_history[-1] = self._last_action11
+            self._action_history[-1] = self._last_action
         self.previous_solution = best_seq
         return selected_mode, dict(self._last_metrics)
 
@@ -642,7 +611,7 @@ class _WorldModelPlanner:
         if obs_arr.shape[0] != 25:
             return
         self._obs_history.append(obs_arr)
-        self._action_history.append(self._last_action11.astype(np.float32).copy())
+        self._action_history.append(self._last_action.astype(np.float32).copy())
         keep = max(self.horizon + self._history_size(), self._history_size() + 1)
         self._obs_history = self._obs_history[-keep:]
         self._action_history = self._action_history[-keep:]
@@ -656,7 +625,7 @@ class _WorldModelPlanner:
         if not self._obs_history:
             return {
                 "obs": np.zeros((1, 25), dtype=np.float32),
-                "action": self._last_action11[None].astype(np.float32),
+                "action": self._last_action[None].astype(np.float32),
             }
         return {
             "obs": np.asarray(self._obs_history, dtype=np.float32),
@@ -919,13 +888,7 @@ class _WorldModelEventSatBase(Representation):
             f"{self.planner_name}: selected {mode} using "
             f"{self._planner.backend} backend, mission_mode={self._planner.mode_weight_name}."
         )
-        return {
-            "eventsat_0": {
-                "mode": mode,
-                "data_priority": int(self.config.get("data_priority", 0)),
-                "pipeline_routing": int(self.config.get("pipeline_routing", 0)),
-            }
-        }
+        return {"eventsat_0": {"mode": mode}}
 
     def get_rationale(self) -> Optional[str]:
         return self._last_rationale
@@ -994,7 +957,7 @@ class DreamerV3EventSat(Representation):
             if self._policy_table
             else "DreamerV3 artifact missing; using AUTOPS heuristic fallback."
         )
-        return {"eventsat_0": {"mode": mode, "data_priority": 0, "pipeline_routing": 0}}
+        return {"eventsat_0": {"mode": mode}}
 
     def _heuristic_mode(self, state: Dict[str, Any]) -> str:
         if state.get("health_status", "nominal") != "nominal":

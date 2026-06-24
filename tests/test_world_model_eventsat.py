@@ -56,7 +56,7 @@ def test_world_model_representations_register_and_smoke_run(tmp_path):
 def test_eventsat_world_model_trace_schema(tmp_path):
     from src.eventsat.env import EventSatEnvironment
     from src.eventsat.trace import (
-        ACTION11_NAMES,
+        ACTION_NAMES,
         OBS25_NAMES,
         STATE_NAMES,
         WorldModelTraceEpisode,
@@ -71,7 +71,7 @@ def test_eventsat_world_model_trace_schema(tmp_path):
         }
     )
     obs = env.reset(seed=11)
-    action = {"eventsat_0": {"mode": "charging", "data_priority": 0, "pipeline_routing": 0}}
+    action = {"eventsat_0": {"mode": "charging"}}
     result = env.step(action)
 
     trace = WorldModelTraceEpisode(episode_id=0, seed=11)
@@ -79,10 +79,10 @@ def test_eventsat_world_model_trace_schema(tmp_path):
     arrays = trace.as_arrays()
 
     assert arrays["obs"].shape == (1, len(OBS25_NAMES))
-    assert arrays["action"].shape == (1, len(ACTION11_NAMES))
+    assert arrays["action"].shape == (1, len(ACTION_NAMES))
     assert arrays["state"].shape == (1, len(STATE_NAMES))
     assert np.isfinite(arrays["obs"]).all()
-    assert np.isclose(arrays["action"].sum(), 3.0)
+    assert np.isclose(arrays["action"].sum(), 1.0)
 
     out = tmp_path / "episode.npz"
     trace.write_npz(out)

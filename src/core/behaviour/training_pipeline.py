@@ -58,7 +58,7 @@ _DEFAULTS = {
 
 
 class PPOTrainer:
-    """PPO trainer for ActorCritic with MultiDiscrete([7, 2, 2]) actions.
+    """PPO trainer for ActorCritic with 7-mode categorical actions.
 
     Args:
         policy: ActorCritic instance (must have torch available).

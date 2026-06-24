@@ -9,7 +9,7 @@ and all 3 operations paradigms (AH, AG, CG) — orthogonal in the morphological
 matrix.
 
 The policy operates on a 25D observation vector (Groups 1-5 per the plan),
-outputs MultiDiscrete([7, 2, 2]) actions, and is subject to the same symbolic
+outputs 7-way mode actions, and is subject to the same symbolic
 safety grounding constraints as LLMEventSat.
 
 When behaviour == "emergent" the representation delegates PPO updates to
@@ -219,14 +219,14 @@ class SubsymbolicEventSat(Representation):
 
         t0 = time.perf_counter()
         if self._mock:
-            action_vec, log_prob, value = self._policy.get_action(
+            mode_action, log_prob, value = self._policy.get_action(
                 obs_vec, deterministic=self._deterministic
             )
             mode_probs = self._policy.get_mode_probs(obs_vec)
         else:
             import torch
             obs_tensor = torch.FloatTensor(obs_vec)
-            action_vec, log_prob, value = self._policy.get_action(
+            mode_action, log_prob, value = self._policy.get_action(
                 obs_tensor, deterministic=self._deterministic
             )
             mode_probs = self._policy.get_mode_probs(obs_tensor)
@@ -236,9 +236,7 @@ class SubsymbolicEventSat(Representation):
         self._last_inference_latency_s = time.perf_counter() - t0
         self._total_steps += 1
 
-        mode_idx = int(action_vec[0])
-        data_priority = int(action_vec[1])
-        pipeline_routing = int(action_vec[2])
+        mode_idx = int(np.asarray(mode_action).reshape(-1)[0])
         mode = MODE_LIST[mode_idx]
 
         # Symbolic grounding
@@ -246,7 +244,7 @@ class SubsymbolicEventSat(Representation):
         if mode != MODE_LIST[mode_idx]:
             self._grounding_overrides += 1
 
-        self._last_action_vec = action_vec
+        self._last_action_vec = np.asarray(mode_action, dtype=np.int64).reshape(-1)
         self._last_mode_probs = mode_probs
         self._last_value = float(value)
         self._last_log_prob = float(log_prob)
@@ -258,16 +256,10 @@ class SubsymbolicEventSat(Representation):
             f"value={self._last_value:.3f}"
         )
 
-        return {
-            "eventsat_0": {
-                "mode": mode,
-                "data_priority": data_priority,
-                "pipeline_routing": pipeline_routing,
-            }
-        }
+        return {"eventsat_0": {"mode": mode}}
 
     def reason(self, state: Dict[str, Any], memory: Any) -> List[Dict[str, Any]]:
-        """Return per-head action probabilities as reasoning steps for explanations.
+        """Return mode-action probabilities as reasoning steps for explanations.
 
         Returns a structured list
         so the loop can include policy uncertainty in its decision trace.
@@ -317,7 +309,7 @@ class SubsymbolicEventSat(Representation):
         self._trainer = trainer
 
     def get_last_step_data(self) -> Optional[Dict[str, Any]]:
-        """Return (obs_vec, action_vec, log_prob, value) from the last select_action().
+        """Return (obs_vec, mode_action, log_prob, value) from the last select_action().
 
         Used by experiment_runner to populate the rollout buffer for PPO training.
         Returns None if select_action() has not been called yet this episode.

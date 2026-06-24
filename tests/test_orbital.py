@@ -7,6 +7,7 @@ installed.
 
 import pytest
 import random
+from pathlib import Path
 
 from src.orbital.eclipse import (
     EclipseInterval,
@@ -21,7 +22,21 @@ from src.orbital.context import (
     OrbitalContext,
     compute_orbital_context,
 )
+from src.orbital import propagator
 from src.orbital.propagator import is_available as orekit_available
+
+
+# -----------------------------------------------------------------
+# Orekit data path
+# -----------------------------------------------------------------
+
+
+class TestOrekitDataPath:
+    def test_bundled_orekit_data_path_survives_source_moves(self):
+        repo_data = Path(__file__).resolve().parents[1] / "orekit-data.zip"
+        if not repo_data.exists():
+            pytest.skip("orekit-data.zip not bundled in this checkout")
+        assert Path(propagator._orekit_data_path()) == repo_data
 
 
 # -----------------------------------------------------------------
