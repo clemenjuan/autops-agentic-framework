@@ -333,7 +333,7 @@ TEMPLATE = r"""<!DOCTYPE html>
 </section>
 
 <section>
- <h2>3&emsp;EventSat LLM closeout</h2>
+ <h2>3&emsp;LLM-bearing EventSat runs</h2>
  <div class="caption">Measured LLM-bearing EventSat runs plus available symbolic comparators.
  Mission metrics come from the simulation results; latency columns separate cached replay wall-clock from weighted live-call LLM cost.</div>
  <table id="llmCloseout"></table>
@@ -387,7 +387,7 @@ TEMPLATE = r"""<!DOCTYPE html>
   <div style="font-size:13.5px">
    <p><b>Pre-registered rule:</b> n<sub>pairs</sub> = (z<sub>1&minus;&alpha;/2m</sub> + z<sub>0.8</sub>)&sup2; &middot; 2(1&minus;&rho;) / d&sup2; &divide; 0.955 (Wilcoxon ARE).</p>
    <p><b>Measured inputs</b> (symbolic AO/AH, shared launch-lottery seeds): &rho; = <span id="rhoval"></span>, &sigma;<sub>U</sub> = <span id="sigval"></span>.</p>
-   <p><b>In force:</b> 100 episodes per confirmatory cell — sufficient for d &ge; 0.25 at &alpha; = 0.05, power 0.8, Bonferroni m &le; 10. Cells under 30 episodes are screening pilots.</p>
+   <p><b>In force:</b> 100 episodes per confirmatory cell — sufficient for d &ge; 0.25 at &alpha; = 0.05, power 0.8, Bonferroni m &le; 10. Cells under 30 episodes are low-sample previews.</p>
   </div>
  </div>
 </section>
@@ -617,7 +617,7 @@ const stc = (s,txt) => `<span class="st ${s}">${txt||s}</span>`;
   }
 })();
 
-// ---- 3: EventSat LLM closeout
+// ---- 3: LLM-bearing EventSat runs
 (function(){
   const isLLM = c => /llm/i.test(c.id) || /LLM/i.test(c.rep);
   const closeIds = new Set();

@@ -137,7 +137,7 @@ The EventSat baseline runs with `autonomous_hybrid` (agent has full real-time st
 
 A future multi-satellite scenario (e.g. a small constellation such as Vyoma's Flamingo — AUTOPS project partners — or similar). This is where the **organisation** component opens up: comparing agent-organisation variants (centralised vs. hierarchical vs. distributed). Out of scope for the current EventSat benchmark; recorded here so the scenario specs have a home.
 
-The first implementation increment is the Flamingo-lite MVP described in [`flamingo_mvp.md`](flamingo_mvp.md): a small SSA scheduling scenario that runs the five literature organization configs (`sas`, `cmas`, `imas`, `dmas`, `hmas`) at N = 3 before scaling to N = 6 and N = 12.
+The current lightweight implementation is Flamingo-lite: a small SSA scheduling scenario that runs the five literature organization configs (`sas`, `cmas`, `imas`, `dmas`, `hmas`) at N = 3 and supports N = 6 / N = 12 scale sweeps. The original planning note is archived at [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md).
 
 ### Mission Domain
 
@@ -174,7 +174,7 @@ AUTOPS project collaboration with Vyoma — high confidence in obtaining useful 
 
 **File:** `src/flamingo/env.py`
 **Config:** `configs/scenarios/flamingo.yaml`
-**MVP plan:** [`docs/flamingo_mvp.md`](flamingo_mvp.md)
+**Historical planning note:** [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md)
 
 ---
 

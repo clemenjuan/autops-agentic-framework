@@ -73,17 +73,13 @@ uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml                 
 ## Architecture
 ```
 src/
-  environment/        # Satellite sim (ABC + EventSat scenario + orbital/)
-  agent_organization/ # SAS (EventSat) + CentralizedMAS / DecentralizedMAS / IndependentMAS / HybridMAS (Kim et al. 2025; multi-satellite scenario)
-  decision_procedure/      # per-step decision driver (+DecisionContext interface)
-  representation/     # Symbolic / Subsymbolic / Hybrid cores + llm_client.py
-  memory/             # FixedMemory (default, all cells); WritableMemory (agentic online-learning variant — see below)
-  behaviour/          # controller.py @register() factory; PPO/prompt training helpers
-  operations/         # autonomous_onboard / autonomous_hybrid / autonomous_ground / conventional_ground
-  orchestration/      # config_loader.py (Pydantic) + experiment_runner.py
-  tools/              # BaseTool interface + per-scenario action definitions (stateless, YAML-serializable)
-configs/experiments/  # EventSat experiment configs + template (the 32-experiment matrix — morphological_matrix.md §4)
-tests/                # test suite (683 pass, 23 RL skipped without --extra rl)
+  core/                # Runner, config, base interfaces, organisation, operations, memory, SDA, behaviour
+  eventsat/            # EventSat env, metrics, representations, rewards, schedulers, trace export
+  flamingo/            # Flamingo-lite env, metrics, symbolic planner
+  orbital/             # Eclipse, ground access, link budget, optional Orekit wrapper
+configs/experiments/   # EventSat experiment configs + template (the 32-experiment matrix — morphological_matrix.md §4)
+configs/scenarios/     # Scenario parameter files
+tests/                 # test suite (RL tests skipped without --extra rl)
 ```
 
 **Key interfaces:**
@@ -97,11 +93,11 @@ variant** (`writable_coala`) uses `WritableMemory`, which adds writable semantic
 stores (CoALA §3, Sumers et al. 2024) — the *online-learning* internal action available only to
 agentic cells (`llm-a` / `hllm-a`). It deviates from the fairness invariant intentionally and is
 compared against the *same* agentic cell with fixed memory, not against other representations.
-See `src/memory/writable_memory.py`.
+See `src/core/memory/writable_memory.py`.
 
 ## Coding conventions
-- Pydantic v2 for all config validation (`src/orchestration/config_loader.py`)
-- Configs declare the framework cell in `representation` (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`); a `model_validator(mode="before")` (`_normalize_representation_cell`) expands the cell to the internal substrate + `action_space` and records `representation_cell`, so resolution (`resolved_representation_type` / `resolved_onboard_type` / `resolved_ground_planner_type`) is unchanged (e.g. symb+AH onboard→`rule_based_eventsat`; hllm-s ground→`llm_scheduler_eventsat`). Legacy substrate values (`symbolic/subsymbolic/hybrid` + `action_space`) are still accepted. **Dual-core AH** with *independent* onboard/ground reps (the 21 `ah_<onboard>_<ground>` pairs) is **implemented and runnable** — configs carry top-level `onboard:`/`ground:` blocks and the runner wires a per-step onboard loop plus a ground-planner loop at passes. The **agentic ground schedulers are now real** (`is_placeholder=False`): `hllm-a` → `agentic_scheduler_eventsat` and `llm-a` → `llm_agentic_scheduler_eventsat`, both in `agentic_scheduler_eventsat.py` — a CoALA Plan-Tool-Reflect-Decide loop (Sumers et al. 2024) whose terminal DECIDE emits a whole-pass `[mode,steps]` schedule, reusing the per-step core's tools/parser (`agentic_eventsat.py`). `hllm-a` vs `llm-a` differ **only** in the symbolic safety shield (on for hllm-a, off for llm-a — mirrors hllm-s↔llm-s); all four single-shot + agentic ground schedulers (`llm_scheduler_eventsat` hllm-s, `llm_single_scheduler_eventsat` llm-s, plus the two agentic) are real. The real `agentic_eventsat` CoALA core remains a *per-step* controller (used by the AG/AH per-step loop), distinct from these whole-pass ground schedulers. The only cell still routing to a symbolic stand-in (`is_placeholder=True`) is `hrl` (`placeholder_cells.py`). `representation_config.type` is an optional explicit override.
+- Pydantic v2 for all config validation (`src/core/config_loader.py`)
+- Configs declare the framework cell in `representation` (`symb/rl/hrl/llm-s/llm-a/hllm-s/hllm-a`); a `model_validator(mode="before")` (`_normalize_representation_cell`) expands the cell to the internal substrate + `action_space` and records `representation_cell`, so resolution (`resolved_representation_type` / `resolved_onboard_type` / `resolved_ground_planner_type`) is unchanged (e.g. symb+AH onboard→`rule_based_eventsat`; hllm-s ground→`llm_scheduler_eventsat`). Legacy substrate values (`symbolic/subsymbolic/hybrid` + `action_space`) are still accepted. **Dual-core AH** with *independent* onboard/ground reps (the 21 `ah_<onboard>_<ground>` pairs) is **implemented and runnable** — configs carry top-level `onboard:`/`ground:` blocks and the runner wires a per-step onboard loop plus a ground-planner loop at passes. The **agentic ground schedulers are now real** (`is_placeholder=False`): `hllm-a` → `agentic_scheduler_eventsat` and `llm-a` → `llm_agentic_scheduler_eventsat`, both in `agentic_scheduler_eventsat.py` — a CoALA Plan-Tool-Reflect-Decide loop (Sumers et al. 2024) whose terminal DECIDE emits a whole-pass `[mode,steps]` schedule, reusing the per-step core's tools/parser (`agentic_eventsat.py`). `hllm-a` vs `llm-a` differ **only** in the symbolic safety shield (on for hllm-a, off for llm-a — mirrors hllm-s↔llm-s); all four single-shot + agentic ground schedulers (`llm_scheduler_eventsat` hllm-s, `llm_single_scheduler_eventsat` llm-s, plus the two agentic) are real. The real `agentic_eventsat` CoALA core remains a *per-step* controller (used by the AG/AH per-step loop), distinct from these whole-pass ground schedulers. The only cell still routing to a symbolic stand-in (`is_placeholder=True`) is `hrl` (`placeholders.py`). `representation_config.type` is an optional explicit override.
 - Loop-specific data goes in `context.enrichments`, never in representation state
 - All representations must implement `encode_observation()` + `select_action()`; optionally `update()` for learned variants
 - Rationale strings always set `self._last_rationale` for explainability metrics

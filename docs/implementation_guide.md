@@ -137,7 +137,9 @@ uv run autops run configs/experiments/my_experiment.yaml --episodes 1 --steps 10
 ### Training Learned-Emergence Variants
 ```bash
 uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml      # PPO (RL onboard)
-uv run autops train configs/experiments/eventsat_sas_ag_llm-a.yaml   # writable CoALA (agentic online learning)
+# For writable CoALA, copy a matching agentic config, set behaviour: emergent and
+# behaviour_config.mechanism: writable_coala, then run:
+uv run autops train <your_writable_coala_config.yaml>
 ```
 
 ### Batch Experiments

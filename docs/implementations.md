@@ -7,10 +7,11 @@ its paper basis, and key design decisions. Grows as new components are added.
 > ([`morphological_matrix.md`](morphological_matrix.md)): an architecture is organisation ×
 > representation (cognitive **substrate** × **action space**) × operational paradigm. The seven
 > representations are `symb · rl · hrl · llm-s · llm-a · hllm-s · hllm-a`; run names follow
-> `eventsat_sas_<paradigm>_<rep>` (ah: `_<onboard>_<ground>`). The `decision_procedure` and
-> `behaviour` modules and config fields are held at defaults (not framework components). **NB —
-> work in progress:** configs now declare the 7-cell token in `representation` (the loader
-> normalises it to the internal substrate + `action_space`, so the `@register` class names below —
+> `eventsat_sas_<paradigm>_<rep>` (ah: `_<onboard>_<ground>`). `decision_procedure`
+> is held fixed to SDA and is not a framework component; `behaviour` is an overlay for
+> training or online memory mechanisms, not an O-axis. Configs declare the 7-cell token
+> in `representation` (the loader normalises it to the internal substrate + `action_space`,
+> so the `@register` class names below —
 > `rule_based_eventsat`, `subsymbolic_eventsat`, `llm_eventsat`, `agentic_eventsat`,
 > `*_scheduler_eventsat` — are unchanged). Dual-core AH with *independent* onboard/ground representations (the 21
 > `ah_<onboard>_<ground>` pairs) is **implemented and runnable**, and the LLM **ground** cells
@@ -222,22 +223,19 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
   - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
   - Group 5 (7D) — Current mode one-hot
-- **Action space**: `MultiDiscrete([7, 2, 2])`:
-  - Sub-action 0: Primary operational mode (7 modes)
-  - Sub-action 1: data_priority {0=normal, 1=urgent} → 1.5x downlink in comms mode
-  - Sub-action 2: pipeline_routing {0=compress_first, 1=detect_first} → redirects between compression and detection pipelines
-- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) → 3 actor heads + 1 critic head; ~70K parameters
-- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), factored joint log-prob over MultiDiscrete heads
+- **Action space**: `Discrete(7)` operational modes
+- **Architecture**: ActorCritic — shared trunk 25→256→256 (Tanh, orthogonal init) -> 1 actor head + 1 critic head; ~70K parameters
+- **Training**: PPO (Schulman et al. 2017) with GAE-λ (λ=0.95), single categorical mode log-prob
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
 - **Symbolic grounding** (same constraints as LLMEventSat):
   - Anomaly → forced safe (cannot be overridden)
   - SoC < 0.20 → forced charging
   - Communication without active pass → forced charging
 - **Mock mode**: `rl_mock: true` uses `RandomPolicy` — no torch, for CI
-- **reason()**: Returns per-head action probabilities as structured explanation steps
+- **reason()**: Returns mode action probabilities as structured explanation steps
 - **update()**: Delegates to PPOTrainer (called from experiment_runner post-episode in learned mode)
 - **Orthogonality**: Works with the fixed SDA decision driver and all 4 ops paradigms (ao/ah/ag/conventional)
-- **Training script**: `scripts/train_subsymbolic.py`
+- **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
 - **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (EventSatGymnasium)
 - **Supporting modules**: `src/core/behaviour/rollout_buffer.py` (RolloutBuffer + GAE), `src/core/behaviour/training_pipeline.py` (PPOTrainer)
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
@@ -279,12 +277,13 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   of the M-01...M-14 scientific metric registry; cache-hit reruns correctly report
   zero live-call latency and zero new token counts.
 - **Operations paradigm**: All (autonomous_hybrid, autonomous_ground, conventional_ground).
-- **Learned-emergence variant** (Phase 5):
-  - `prompt_optimized` (`_hyre_lep_*`): loads offline-optimised system prompt. `FixedMemory`
-    invariant preserved. **Note**: `writable_coala` does NOT apply here — emergent·memory is
-    gated by the *agentic* action space (writing is an action), which the reactive single-shot
-    LLM lacks (see [morphological_matrix.md](morphological_matrix.md)).
-- **Cell**: `hllm-s` (hybrid LLM + symbolic, single-shot). **Config**: `eventsat_sas_ag_hllm-s` (ground planner via `llm_scheduler_eventsat`). The AH-ground hllm-s and a prompt-optimized variant are pending the dual-core + 32-config increment.
+- **Behaviour overlays**:
+  - `prompt_optimized`: loads an offline-optimised system prompt while preserving the
+    `FixedMemory` invariant.
+  - `writable_coala` does not apply here; emergent memory is gated by the agentic action
+    space because writing to memory is itself an action.
+- **Cell**: `hllm-s` (hybrid LLM + symbolic, single-shot). **Configs**: `eventsat_sas_ag_hllm-s`
+  and AH ground slots such as `eventsat_sas_ah_symb_hllm-s` resolve to `llm_scheduler_eventsat`.
 
 ### Agentic EventSat — Phase 4c (agentic hybrid)
 
@@ -348,14 +347,14 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   `max_agentic_steps` and forced final answer extraction.
 - **Metrics**: All LLM client metrics + `agentic_total_tool_calls`,
   `agentic_avg_steps_per_decision`, `agentic_grounding_overrides`, per-tool histogram.
-- **Learned-emergence variants** (Phase 5):
+- **Behaviour overlays**:
   - `hand_designed` (default): fixed `AGENTIC_SYSTEM_PROMPT` + `FixedMemory`.
-  - `prompt_optimized` (`_hyag_lep_*`): loads offline-optimised system prompt from
-    `data/trained_prompts/<experiment_id>/prompt.txt` (written by `PromptOptimizer`).
-    `FixedMemory` invariant preserved.
-  - `writable_coala` (`_hyag_lec_*`): swaps `FixedMemory` for `WritableMemory`;
-    injects two writable memory tools; expands system prompt with CoALA memory
-    instructions. **Fairness trade-off**: compared against `_hyag_hd_` baseline only.
+  - `prompt_optimized`: loads an offline-optimised system prompt from
+    `data/trained_prompts/<experiment_id>/prompt.txt` (written by `PromptOptimizer`) while
+    preserving the `FixedMemory` invariant.
+  - `writable_coala`: swaps `FixedMemory` for `WritableMemory`, injects writable memory
+    tools, and expands the system prompt with CoALA memory instructions. **Fairness
+    trade-off**: compare against the same agentic cell with fixed memory.
 - **Cell**: `hllm-a` (hybrid LLM + symbolic, agentic), as a **per-step** core. **Config**: `eventsat_sas_ag_hllm-a` (and the AH ground-planner) resolve `hllm-a` to the *agentic schedule producer* `agentic_scheduler_eventsat`, not this per-step core — see *Agentic EventSat Scheduler* below. The writable_coala online-learning variant (mechanism, not a separate class) for the scheduler is pending.
 
 ### Agentic EventSat Scheduler — Phase 4.e (agentic ground planner: hllm-a / llm-a)
@@ -470,8 +469,8 @@ paradigms carry no overhead.
   The AH **ground-planner** slot uses the real LLM schedule producers — single-shot
   `llm_scheduler_eventsat` (hllm-s) / `llm_single_scheduler_eventsat` (llm-s) and **agentic**
   `agentic_scheduler_eventsat` (hllm-a) / `llm_agentic_scheduler_eventsat` (llm-a). Only the RL
-  schedule producer (`subsymbolic_scheduler_eventsat`) and the `_lep_`/`_lec_` *ground* learned
-  variants remain pending. The onboard LLM/agentic core itself is also live.
+  schedule producer (`subsymbolic_scheduler_eventsat`) and ground-planner learned-behaviour
+  overlays remain pending. The onboard LLM/agentic core itself is also live.
 
 ### Autonomous Ground — Phase 3 (renamed from ConventionalGround)
 
@@ -545,7 +544,7 @@ paradigms carry no overhead.
 - **Fairness invariant**: All variants that use `FixedMemory` are on equal footing;
   memory cannot be a confound in cross-architecture comparisons.
 
-### WritableMemory — `_lec_` variants only (CoALA learning)
+### WritableMemory — writable-CoALA mechanism only
 
 - **File**: `src/core/memory/writable_memory.py`
 - **Used by**: Only `behaviour_config.mechanism = "writable_coala"` configs.
@@ -554,7 +553,7 @@ paradigms carry no overhead.
   decision loops inject it into `DecisionContext.memory`. The representation always uses
   `context.memory`; its own internal `_resolve_memory()` instance is only a fallback for
   unit tests that call `select_action()` directly with no runner. (Earlier the runner
-  always injected `FixedMemory`, which silently downgraded `_lec_` to the fixed-memory
+  always injected `FixedMemory`, which silently downgraded `writable_coala` to the fixed-memory
   baseline — every write hit the `not hasattr(memory, "write_semantic_rule")` guard in
   `agentic_tools.py` and no-oped. Fixed; regression-tested in `test_orchestration.py`.)
 - **Paper basis**: Sumers et al. (2024) [CoALA] §3 — four-memory architecture; semantic and
@@ -573,9 +572,9 @@ paradigms carry no overhead.
 - **Reset semantics**: `reset()` clears working/task memory only (inherited from
   FixedMemory). Writable stores deliberately NOT cleared — they accumulate across episodes.
   Use `clear_learned_state()` for a full wipe.
-- **Fairness note**: `_lec_` variants intentionally deviate from the FixedMemory invariant.
-  These configs are compared against `_hyag_hd_` baselines only, not against symbolic or
-  LLM variants. The deviation is documented here and in CLAUDE.md.
+- **Fairness note**: `writable_coala` intentionally deviates from the FixedMemory invariant.
+  Compare it against the same agentic cell with fixed memory, not against symbolic or
+  single-shot LLM variants. The deviation is documented here and in CLAUDE.md.
 
 ---
 
@@ -585,14 +584,14 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 `ppo`/`prompt_optimized` = emergent·policy (gated by substrate); `writable_coala` = emergent·memory
 (gated by the agentic action space). Mechanism is derived from Behaviour × substrate, not chosen freely.
 
-### PPO Training — `_le_` subsymbolic variants
+### PPO Training — subsymbolic learned-policy mechanism
 
 - **File**: `src/core/behaviour/training_pipeline.py` (PPOTrainer)
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_rl_ah.yaml`
+- **Command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
 - **Output**: `data/trained_models/<experiment_id>/policy.pt`
 
-### PromptOptimizer — `_lep_` LLM/agentic variants
+### PromptOptimizer — prompt-optimized mechanism
 
 - **File**: `src/core/behaviour/prompt_optimizer.py`
 - **Mechanism**: `behaviour_config.mechanism = "prompt_optimized"`
@@ -605,20 +604,19 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
   3. Generate `num_candidates` few-shot-augmented system prompt candidates.
   4. Score candidates on 20% held-out split (mock-mode: proxy score; live: LLM accuracy).
   5. Write best prompt to `data/trained_prompts/<experiment_id>/prompt.txt` + `metadata.json`.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_llm_ah.yaml`
-- **Source dir**: auto-derived from experiment_id (`_lep_` → `_hd_`), or explicit via
-  `--source-dir`.
+- **Command**: configure `behaviour_config.mechanism = "prompt_optimized"` from `configs/experiments/template.yaml`, then run `uv run autops train <config>`
+- **Source dir**: provide a hand-designed baseline results directory with `--source-dir` when auto-derivation is ambiguous.
 - **Runtime**: `LLMEventSat` and `AgenticEventSat` load the prompt at `__init__`; fall back
   to the default system prompt with a warning if the file is missing.
 - **Why no DSPy**: Keeps the dependency graph minimal. The bootstrap-fewshot approach is
   sufficient for the experimental goals; DSPy's full optimizer suite is overkill at this
   stage and would add a heavy dependency.
 
-### WritableCoALA — `_lec_` agentic variants (online learning)
+### WritableCoALA — agentic online-memory mechanism
 
 - **Mechanism**: `behaviour_config.mechanism = "writable_coala"`
 - **Pre-training**: None. Memory accretion happens online at run-time.
-- **Command**: `uv run autops train configs/experiments/eventsat_sas_agentic_ah.yaml`
+- **Command**: configure an agentic cell with `behaviour_config.mechanism = "writable_coala"`, then run `uv run autops train <config>`
   (prints guidance; no artifact written)
 - **Runtime flow**: `AgenticEventSat.__init__` detects `writable_coala` and injects the
   `memory_write_rule` + `memory_write_episode` tools into the tool schema and CoALA memory
@@ -691,7 +689,7 @@ for the framing.
 | BehaviourController | `src/core/behaviour/controller.py` | **L1** Self-reflection / learning controller | `@register` factory | Selects hand-designed vs learned variant |
 | PPOTrainer | `src/core/behaviour/training_pipeline.py` | **L1** (learned reasoning) | PPO (Schulman et al. 2017) | RL-based learning loop |
 | PromptOptimizer | `src/core/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
-| WritableCoALA | `_lec_` configs | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
+| WritableCoALA | `behaviour_config.mechanism = "writable_coala"` | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
 | Scenario actions/tools | `src/eventsat/agentic_tools.py` and scenario action dictionaries | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
 | Satellite environment | `src/core/satellite_env.py`, `src/eventsat/`, `src/flamingo/`, `src/orbital/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
 | Autonomous Hybrid | `src/core/operations/autonomous_hybrid.py` | **L5** Governance & Safety | Rossi et al. 2023 | Onboard FDIR; no ground gate; closest to "auto" autonomy level |

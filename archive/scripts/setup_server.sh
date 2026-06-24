@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Archived legacy admin helper. Kept for provenance only; path and host
+# assumptions below may be stale and are not part of the student setup flow.
+#
 # setup_server.sh — one-shot bring-up for a fresh Ubuntu 24.04 Server VM
 #
 # Idempotent: safe to re-run if a step fails. Each step checks before doing.

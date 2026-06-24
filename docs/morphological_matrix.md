@@ -26,8 +26,8 @@ How many reasoning loci and how they relate.
 | `hmas` | Hierarchical MAS |
 
 The MAS organisations belong to the multi-satellite scenario and are not exercised
-by this benchmark. The first planned multi-satellite sweep is documented in
-[`flamingo_mvp.md`](flamingo_mvp.md).
+by the current EventSat benchmark. The historical Flamingo-lite planning note is
+archived at [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md).
 
 ---
 

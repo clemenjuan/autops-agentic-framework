@@ -99,3 +99,21 @@ papers/
 data/experiments/
 data/ssp/
 data/sweep/
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Common experiment/training outputs
+outputs/
+wandb/
+lightning_logs/
+
+# Tool caches
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# AUTOPS generated state
+data/trained_prompts/
+data/writable_memory_state/

@@ -223,7 +223,7 @@ TEMPLATE = r"""<!DOCTYPE html>
  <h1>AUTOPS — Flamingo-lite organisation board</h1>
  <div class="sub">Standalone board for the multi-satellite SSA scheduling increment. Representation and paradigm are held fixed
  at <b>symbolic AG</b>; the comparison varies the five literature organisation configs at N = 3 before scaling to N = 6 and N = 12.
- Values appear only for measured runs. Source plan: <i>docs/flamingo_mvp.md</i>.</div>
+ Values appear only for measured runs. Historical planning note: <i>archive/docs/flamingo_mvp.md</i>.</div>
 </header>
 
 <section>

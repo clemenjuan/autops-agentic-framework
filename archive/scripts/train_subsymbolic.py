@@ -1,4 +1,9 @@
-"""
+"""Archived direct PPO training helper.
+
+Kept for provenance only; use ``uv run autops train <config>`` for the
+student-facing training path.
+
+
 Training Script for Subsymbolic RL Representation.
 
 Runs multi-episode PPO training using the EventSat Gymnasium wrapper,

@@ -1,4 +1,9 @@
-"""One-call sanity check for TUM Ollama (uses the small qwen3.5:4b for speed).
+"""Archived live endpoint probe.
+
+Kept for provenance only; the student-safe LLM check is
+``scripts/smoke_llm.py`` with ``llm_mock=true``.
+
+One-call sanity check for TUM Ollama (uses the small qwen3.5:4b for speed).
 
 Usage::
 

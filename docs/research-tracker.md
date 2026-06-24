@@ -1,28 +1,30 @@
 # Research Tracker
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
-This is the single AUTOPS-side tracker for the current paper work. Keep it short: status, handoffs, commands, and decisions that must stay aligned with `space-world-models`.
+Active AUTOPS-side tracker for current research work. This is intentionally kept
+in `docs/` because it records live scientific direction, not historical archive
+material.
 
 ## Active Threads
 
-| Thread | AUTOPS owns | External owner / handoff |
+| Thread | AUTOPS owns | External handoff |
 |---|---|---|
 | EventSat O-benchmark | Simulator, 32-cell architecture matrix, configs, metrics, board. | None; this repo is canonical. |
 | Flamingo scaling | Scenario simulator, scaling configs, board scripts. | Future multi-agent extensions. |
-| World-model scheduling | EventSat trace export, canonical evaluation configs, metrics, board cells. | `space-world-models` owns LeWM/Dreamer training, probes, CEM planner artifacts, Jetson export. |
+| World-model scheduling | EventSat trace export, AUTOPS evaluation configs, metrics, board cells. | `space-world-models` owns LeWM/Dreamer training, probes, CEM planner artifacts, Jetson export. |
 
 ## Current State
 
-- LLM/agentic EventSat runs may still be active under `logs/`; do not edit running LLM configs or LLM/agentic representation code mid-campaign.
 - `data/world_model/` is generated export data and is ignored by Git.
-- `notebooks/` is local scratch and is no longer tracked.
-- World-model entries are intended to appear as board grid cells, not as a separate side table only.
+- World-model entries should appear as EventSat board cells, not only as a side table.
 - Random shooting is out of scope for the current paper plan.
+- Normal LLM board runs do not automatically produce world-model traces.
 
 ## Trace Export
 
-Symbolic traces can be exported without waiting for `llm-a`. Wait for LLM/HLLM only if the training dataset must include those behaviours. Normal LLM board runs do not automatically produce world-model traces.
+Symbolic traces can be exported without waiting for `llm-a`. Include LLM/HLLM
+rollouts only if the training dataset must represent those behaviours.
 
 Canonical initial export, inheriting each config's `num_episodes` and `max_steps`:
 
@@ -34,15 +36,17 @@ uv run python scripts/export_eventsat_world_model_traces.py \
   --out data/world_model/eventsat_autops_v1
 ```
 
-Current generated EventSat configs use `num_episodes: 5` and `max_steps: 10080`. If the final board campaign uses a different paired-seed budget, pass the same values explicitly, for example `--episodes 100 --steps 10080`.
+Current EventSat configs use `num_episodes: 5` and `max_steps: 10080`. If the
+final board campaign uses a different paired-seed budget, pass it explicitly, for
+example `--episodes 100 --steps 10080`.
 
 Expected outputs:
 
 - `data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz`
 - `data/world_model/eventsat_autops_v1/eventsat_world_model_v1.metadata.json`
-- Per-run traces under `data/world_model/eventsat_autops_v1/runs/*/trace/`
+- `data/world_model/eventsat_autops_v1/runs/*/trace/episode_*.npz`
 
-Smoke export only:
+Smoke export:
 
 ```bash
 uv run python scripts/export_eventsat_world_model_traces.py \
@@ -57,7 +61,7 @@ uv run python scripts/export_eventsat_world_model_traces.py \
 The stacked AUTOPS world-model dataset contains:
 
 - `obs[E,T,25]`
-- `action[E,T,11]`
+- `action[E,T,7]`
 - `state[E,T,S]`
 - `reward[E,T]`
 - `mode[E,T]`
@@ -66,17 +70,26 @@ The stacked AUTOPS world-model dataset contains:
 - `episode_seed[E]`
 - `episode_id[E]`
 
-The 11D action vector is 7 mode one-hot values plus 2 data-priority values plus 2 pipeline-routing values. Thermal and pointing are not invented targets; v1 uses AUTOPS-native state fields only.
+The 7D action vector is one-hot over the seven EventSat operational modes.
+Thermal and pointing targets are not invented; v1 uses AUTOPS-native state fields.
 
 ## Handoff To `space-world-models`
 
-After export, train LeWM with AUTOPS action dimension 11 and W&B enabled:
+Use repo-relative placeholders instead of personal absolute paths:
 
 ```bash
-cd ~/space-world-models
+AUTOPS_ROOT=/path/to/autops-agentic-framework
+SWM_ROOT=/path/to/space-world-models
+DATASET="$AUTOPS_ROOT/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz"
+```
+
+Train LeWM with AUTOPS action dimension 7:
+
+```bash
+cd "$SWM_ROOT"
 WANDB_MODE=online \
 WANDB_PROJECT=space-world-models \
-WANDB_RUN_NAME=eventsat-autops-action11-lewm-full \
+WANDB_RUN_NAME=eventsat-autops-action7-lewm-full \
 .venv/bin/python -m swm_eventsat.experiments.train_world_model \
   --config-name train_autops
 ```
@@ -84,40 +97,41 @@ WANDB_RUN_NAME=eventsat-autops-action11-lewm-full \
 Local smoke training:
 
 ```bash
-cd ~/space-world-models
+cd "$SWM_ROOT"
 .venv/bin/python -m swm_eventsat.experiments.train_world_model \
-  data.path=/home/clemente/autops-agentic-framework/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz \
-  model.action_encoder.input_dim=11 \
-  model.action_encoder.smoothed_dim=11 \
+  data.path="$DATASET" \
+  model.action_encoder.input_dim=7 \
+  model.action_encoder.smoothed_dim=7 \
   trainer.max_epochs=1 \
   wandb.enabled=false
 ```
 
-Probe smoke check, before real frozen LeWM latents are available:
+Probe smoke check before real frozen LeWM latents are available:
 
 ```bash
-cd ~/space-world-models
+cd "$SWM_ROOT"
 .venv/bin/python -m swm_eventsat.experiments.train_autops_probes \
-  --dataset /home/clemente/autops-agentic-framework/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz \
+  --dataset "$DATASET" \
   --out outputs/eventsat_autops_probe_smoke.npz
 ```
 
-After the LeWM checkpoint is trained, export latents, train latent probes, then package the planner artifact:
+After the LeWM checkpoint is trained, export latents, train latent probes, then
+package the planner artifact:
 
 ```bash
-cd ~/space-world-models
+cd "$SWM_ROOT"
 .venv/bin/python -m swm_eventsat.experiments.export_autops_latents \
-  --dataset /home/clemente/autops-agentic-framework/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz \
+  --dataset "$DATASET" \
   --checkpoint /path/to/lewm.ckpt \
   --out outputs/eventsat_autops_latents.npz
 
 .venv/bin/python -m swm_eventsat.experiments.train_autops_probes \
-  --dataset /home/clemente/autops-agentic-framework/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz \
+  --dataset "$DATASET" \
   --latents outputs/eventsat_autops_latents.npz \
   --out outputs/eventsat_autops_probe_latent.npz
 
 .venv/bin/python -m swm_eventsat.experiments.write_planner_artifact \
-  --dataset /home/clemente/autops-agentic-framework/data/world_model/eventsat_autops_v1/eventsat_world_model_v1.npz \
+  --dataset "$DATASET" \
   --checkpoint /path/to/lewm.ckpt \
   --probe outputs/eventsat_autops_probe_latent.npz \
   --out outputs/eventsat_autops_lewm/planner_artifact.json
@@ -130,7 +144,7 @@ World-model configs:
 - `configs/experiments/world_model/eventsat_sas_ao_lewm-cem.yaml`
 - `configs/experiments/world_model/eventsat_sas_ao_dreamerv3.yaml`
 
-Once real artifacts exist:
+Once real artifacts exist and the config paths point at them:
 
 ```bash
 uv run --extra rl autops run configs/experiments/world_model/eventsat_sas_ao_lewm-cem.yaml
@@ -140,9 +154,9 @@ uv run python scripts/refresh_board.py
 
 ## Still Needed
 
-- Real LeWM PlannerArtifact load path and artifact validation in AUTOPS.
+- Real LeWM `PlannerArtifact` load path and artifact validation in AUTOPS.
 - DreamerV3 policy artifact load path once training/export exists.
 - Final mission-mode weights for science/safe/downlink utility.
-- Full-scale traces from representative symbolic, LLM/HLLM, stress, and later learned-controller rollouts.
+- Full-scale traces from representative symbolic, LLM/HLLM, stress, and learned-controller rollouts.
 - Paired-seed final evaluation and board refresh.
 - Jetson Orin Nano latency, memory, and rollout-throughput benchmark values.
