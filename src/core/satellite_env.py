@@ -7,7 +7,7 @@ at the base level.
 
 Specific task types, rewards, and constraints depend on the chosen operational
 scenario and live in the scenario-owned packages such as ``src/eventsat`` and
-``src/flamingo``.
+``src/ssa``.
 """
 
 from __future__ import annotations

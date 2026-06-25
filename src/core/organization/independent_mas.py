@@ -19,7 +19,7 @@ overlap. ``collect_actions`` merges the per-satellite actions verbatim — it do
 **not** deconflict — so those collisions reach the environment as wasted
 duplicate observations. A coordinated organisation (SAS / CentralizedMAS that
 plans over the full constellation) avoids this; IndependentMAS does not. This is
-the duplicate/waste behaviour Flamingo-lite is built to measure.
+the duplicate/waste behaviour SSA is built to measure.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ class IndependentMAS(AgentOrganization):
 
         ``MultiEventsat`` uses the default ``sat_i`` ids. Other scenarios can set
         ``agent_organization_config.satellite_prefix`` (for example
-        ``"flamingo"`` or ``"sat"``) or an explicit ``satellite_ids`` list.
+        ``"sat"``) or an explicit ``satellite_ids`` list.
         """
         idx = self._agent_index(agent_id)
         explicit = self.config.get("satellite_ids")

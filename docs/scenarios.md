@@ -1,12 +1,12 @@
 # Operational Scenarios
 
-**Status:** EventSat implemented (benchmark scenario); Flamingo-lite and BaseMultiSat implemented as lightweight multi-satellite scenarios.
+**Status:** EventSat implemented (benchmark scenario); MultiEventsat implemented as the EventSat-compatible multi-satellite reference; SSA implemented as the constellation-scale organisation scenario.
 
 ---
 
 ## Overview
 
-EventSat is the implemented benchmark scenario. Flamingo-lite exercises the organization axis for SSA scheduling, and BaseMultiSat is a reference multi-satellite RL scenario built from independent EventSat-class satellites. Each scenario builds on the environment abstraction in `src/core/satellite_env.py`.
+EventSat is the single-satellite benchmark scenario. MultiEventsat preserves the EventSat per-satellite contract at constellation scale for RLlib and organisation plumbing. SSA adds resident-space-object (RSO) observation, inter-satellite sharing, and delivered-to-ground collective utility so the organisation axis is exercised on a real constellation task. Each scenario builds on the environment abstraction in `src/core/satellite_env.py`.
 
 The scenario choice does **not** affect the cognitive architecture comparison methodology — the same morphological matrix dimensions are evaluated across all scenarios.
 
@@ -129,88 +129,86 @@ The EventSat baseline runs with `autonomous_hybrid` (agent has full real-time st
 
 ---
 
-## Scenario 2: Multi-satellite (future)
-
-**Status:** planned, not implemented | **Scale:** small constellation (~12 satellites)
-
-### Description
-
-A future multi-satellite scenario (e.g. a small constellation such as Vyoma's Flamingo — AUTOPS project partners — or similar). This is where the **organisation** component opens up: comparing agent-organisation variants (centralised vs. hierarchical vs. distributed). Out of scope for the current EventSat benchmark; recorded here so the scenario specs have a home.
-
-The current lightweight implementation is Flamingo-lite: a small SSA scheduling scenario that runs the five literature organization configs (`sas`, `cmas`, `imas`, `dmas`, `hmas`) at N = 3 and supports N = 6 / N = 12 scale sweeps. The original planning note is archived at [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md).
-
-### Mission Domain
-
-Space Situational Awareness (SSA): tracking resident space objects (RSOs), coverage optimization across the constellation, data fusion.
-
-### Tasks
-
-- Distributed observation scheduling: which satellite tracks which RSO.
-- Coverage optimization: maximizing revisit frequency across the RSO catalog.
-- Inter-satellite data fusion and coordination.
-- Handoff management when an RSO moves between satellite coverage zones.
-
-### Constraints
-
-- Inter-satellite link (ISL) availability and bandwidth.
-- Individual sensor FOV and pointing constraints.
-- Revisit time requirements per RSO priority class.
-- Per-satellite power and downlink budgets.
-- Communication latency between satellites.
-
-### Metrics Emphasis
-
-- Utility: target coverage rate and detection probability.
-- Robustness: performance under satellite failures or link drops.
-- Operator load: coordination complexity vs. autonomy benefit.
-- Scale & complexity: how metrics evolve from 3 → 6 → 12 satellites.
-- Explainability: multi-agent decisions are harder to trace.
-
-### Data Sources
-
-AUTOPS project collaboration with Vyoma — high confidence in obtaining useful modeling data.
-
-### Implementation
-
-**File:** `src/flamingo/env.py`
-**Config:** `configs/scenarios/flamingo.yaml`
-**Historical planning note:** [`archive/docs/flamingo_mvp.md`](../archive/docs/flamingo_mvp.md)
-
----
-
-## BaseMultiSat Reference Scenario
+## Scenario 2: MultiEventsat Reference
 
 **Status:** implemented | **Scale:** configurable N satellites | **Primary use:** multi-agent RL / RLlib bridge validation
 
-BaseMultiSat composes N independent EventSat-class satellites (`sat_0` ...
-`sat_{N-1}`), each with its own EventSat dynamics and launch lottery. It reuses
-EventSat resources, metadata, rewards, and the 25D RL observation contract, but
-returns rewards per satellite so a multi-agent bridge can route each
-`sat_agent_i` reward to its own `sat_i`.
+MultiEventsat composes N EventSat-class satellites (`sat_0` ... `sat_{N-1}`) inside one integrated environment. Each satellite keeps the EventSat power, data-pipeline, anomaly, reward, and 25D RL observation contract, while the environment exposes per-satellite `SatelliteState` and reward dictionaries for the multi-agent bridge.
 
 ### Implementation
 
-**Environment:** `src/eventsat/basemultisat_env.py`
-**Scenario config:** `configs/scenarios/basemultisat.yaml`
-**Example experiment:** `configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml`
-**Reward blend:** `BaseMultiSatRewardFunction` in `src/eventsat/rewards.py`
+**Environment:** `src/eventsat/multieventsat_env.py`
+**Scenario config:** `configs/scenarios/multieventsat.yaml`
+**Example experiment:** `configs/experiments/multieventsat_imas_sda_subm_le_ah.yaml`
+**Reward blend:** `MultiEventsatRewardFunction` in `src/eventsat/rewards.py`
 **RLlib bridge:** `src/rl/rllib_env.py`
 
 ### Design Notes
 
-- Satellites are physically decoupled in v1: no shared downlink budget, no ISLs,
-  and independent per-satellite EventSat sub-environments.
-- `IndependentMAS` maps `sat_agent_i` to `sat_i` and scopes each observation to
-  that satellite only.
-- `BaseMultiSatRewardFunction` can mix local reward with a team term via
-  `local_weight`, `team_weight`, and `team_reducer` (`mean`, `sum`, or `min`).
-- The scenario is additive: EventSat single-satellite behavior is unchanged.
+- Satellites share one integrated environment step and expose `sat_i` ids, but each satellite retains EventSat-compatible telemetry and local reward fields.
+- `IndependentMAS` maps `sat_agent_i` to `sat_i` and scopes each observation to that satellite only.
+- The reward function can mix local reward with a team term via `local_weight`, `team_weight`, and `team_reducer` (`mean`, `sum`, or `min`).
+- This reference scenario is deliberately minimal: no RSO catalog, no ISL, and no ground archive. Those live in SSA.
+
+---
+
+## Scenario 3: SSA Constellation
+
+**Status:** implemented | **Scale:** N = 3 and N = 5 committed AO slice | **Primary use:** organisation axis and M-10 scale efficiency
+
+SSA is "EventSat at constellation scale + inter-satellite links + collective RSO observation-sharing + the organisation axis." It subclasses `MultiEventsatEnv`, keeps the EventSat physical backbone per satellite, and adds a fixed RSO catalog, anti-nadir optical access, ISL knowledge sharing, onboard best-estimate state, and a ground archive that defines delivered mission utility.
+
+### Tasks
+
+- Select one of eight modes per satellite: the seven EventSat modes plus `isl_share`.
+- Detect every RSO inside the anti-nadir +/-5 degree FOV during `payload_observe`; actions do not carry `target_id`.
+- Maintain a fixed N x M binary detection matrix for onboard knowledge.
+- Keep the single best onboard estimate per object while archiving every downlinked record on the ground.
+- Share estimates over feasible ISLs by OR-merging the matrix and retaining the higher-quality estimate.
+- Maximise delivered-to-ground RSO coverage under Collective-Negative mission utility.
+
+### Physics And Data
+
+- RSO catalogs are generated from seeded randomized SSO orbital elements or supplied as fixed positions for cheap smoke runs.
+- Optical range follows the AUTOPS-RL optic payload equation `D_max = a*d/(2.44*lambda)`: 52.7 km for a = 1 m, d = 0.09 m, lambda = 700 nm.
+- ISL feasibility ports the AUTOPS-RL UHF/QPSK link budget: free-space loss -> received power -> SNR -> ideal rate -> BER -> effective rate.
+- Propagation uses `src/orbital/propagator.py` / Orekit when available, with deterministic fallback for tests.
+
+### Metrics
+
+SSA keeps the EventSat metrics and adds:
+
+- `ssa_onboard_coverage` and `ssa_delivered_coverage`.
+- `duplicate_observation_rate` for wasted repeated detections.
+- `mean_revisit_steps` over observed objects.
+- `isl_connectivity` for successful ISL shares / attempts.
+- M-10 `eta_scale = (utility / N) / baseline_utility_n1`, where SSA utility is delivered RSO coverage.
+
+### Organisation And Matrix
+
+SSA uses naming `ssa_<org>_<paradigm>_<rep>_n<N>` and AH names both cores onboard-first: `ssa_<org>_ah_<onboard>_<ground>_n<N>`.
+
+The committed in-scope generator is `scripts/generate_ssa_configs.py`, which emits the AO backbone:
+
+- `{ao_symb, ao_rl}` x `{sas, cmas, dmas, imas, hmas}` x `N in {3,5}` = 20 configs.
+- RL configs are `rl_mock: true` for run-time smoke checks; PPO training remains owner-gated.
+- Ground paradigms AG/CG are valid for SSA only with SAS or CMAS. Live LLM ground cells, world-model cells, and N > 5 are owner-gated.
+
+### Implementation
+
+**Environment:** `src/ssa/env.py`
+**Targets / optical access:** `src/ssa/targets.py`
+**ISL link budget:** `src/orbital/isl.py`
+**Scenario config:** `configs/scenarios/ssa.yaml`
+**Config generator:** `scripts/generate_ssa_configs.py`
+**Symbolic representation:** `src/ssa/symbolic.py` registered as `rule_based_ssa`
+**Rewards / metrics:** `src/ssa/rewards.py`, `src/ssa/metrics.py`
 
 ---
 
 ## Implementation Steps (per scenario)
 
-1. Define the environment subclass in the scenario-owned package (`src/eventsat/`, `src/flamingo/`, or a new scenario package).
+1. Define the environment subclass in the scenario-owned package (`src/eventsat/`, `src/ssa/`, or a new scenario package).
 2. Define scenario-specific task types and constraints.
 3. Define the reward function (maps to utility metric).
 4. Define the resource model.

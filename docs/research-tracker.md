@@ -11,7 +11,7 @@ material.
 | Thread | AUTOPS owns | External handoff |
 |---|---|---|
 | EventSat O-benchmark | Simulator, 32-cell architecture matrix, configs, metrics, board. | None; this repo is canonical. |
-| Flamingo scaling | Scenario simulator, scaling configs, board scripts. | Future multi-agent extensions. |
+| SSA scaling | Scenario simulator, AO configs, ISL/coverage metrics. | Active multi-agent extension. |
 | World-model scheduling | EventSat trace export, AUTOPS evaluation configs, metrics, board cells. | `space-world-models` owns LeWM/Dreamer training, probes, CEM planner artifacts, Jetson export. |
 
 ## Current State

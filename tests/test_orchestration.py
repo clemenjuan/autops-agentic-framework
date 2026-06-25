@@ -342,7 +342,7 @@ class TestOrganizationInstantiation:
             max_steps=2,
             output_dir=str(tmp_path),
             agent_organization=org,
-            environment={"scenario": "flamingo", "constellation_size": 3},
+            environment={"scenario": "ssa", "constellation_size": 3},
         )
         runner = ExperimentRunner(config=cfg)
         organization = runner._create_organization()

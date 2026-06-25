@@ -17,7 +17,7 @@ Step-by-step guide for implementing new components in the experimental framework
 
 ## Decision Procedure Policy
 
-The current EventSat and Flamingo benchmarks hold the decision driver fixed to SDA. Do not add new files under `src/core/decision_procedure/` unless the benchmark design itself changes. Agentic behaviour belongs in the representation layer (`agentic_eventsat` / scheduler variants), not in a separate ReAct-style loop.
+The current EventSat and SSA benchmarks hold the decision driver fixed to SDA. Do not add new files under `src/core/decision_procedure/` unless the benchmark design itself changes. Agentic behaviour belongs in the representation layer (`agentic_eventsat` / scheduler variants), not in a separate ReAct-style loop.
 
 ## Adding a New Representation
 
@@ -28,7 +28,7 @@ wired via `behaviour_config`, not separate classes. See [`morphological_matrix.m
 
 ### Steps
 
-1. **Create the module** in the owning scenario package, e.g. `src/eventsat/<repr_name>.py` or `src/flamingo/<repr_name>.py`.
+1. **Create the module** in the owning scenario package, e.g. `src/eventsat/<repr_name>.py` or `src/ssa/<repr_name>.py`.
 
 2. **Subclass `Representation`** from `src/core/representation.py`.
 

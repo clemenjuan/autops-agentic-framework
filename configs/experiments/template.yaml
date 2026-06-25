@@ -80,10 +80,10 @@ operations_paradigm_config:
 # ─── Environment Configuration ──────────────────────────────────────
 
 environment:
-  constellation_size: 1    # 1 (EventSat) | 3-12 (Flamingo) | 50-500 (Space Data Centers)
+  constellation_size: 1    # 1 (EventSat) | 3-5 (SSA) | 50-500 (Space Data Centers)
   timestep_seconds: 60
   max_steps: 1440          # 24 hours at 1-minute timesteps
-  scenario: "eventsat"     # eventsat | flamingo | space_data_centers
+  scenario: "eventsat"     # eventsat | multieventsat | ssa | space_data_centers
   scenario_config: {}
 
 # ─── Memory Configuration (fixed across all experiments) ────────────

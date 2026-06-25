@@ -158,7 +158,7 @@ class ExperimentConfig(BaseModel):
         if value != "sda":
             raise ValueError(
                 "decision_procedure must be 'sda'. OODA/ReAct loop implementations "
-                "were retired because the current EventSat/Flamingo benchmarks keep "
+                "were retired because the current EventSat/SSA benchmarks keep "
                 "the decision driver fixed."
             )
         return value

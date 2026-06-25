@@ -52,44 +52,54 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   - Latency: `ExperimentRunner` accumulates manager + local agent latencies as the total step latency (sequential execution, both contribute to decision overhead).
 - **Scope**: the MAS organisations (cmas/imas/dmas/hmas) belong to the **future multi-satellite scenario** and are not exercised by the EventSat benchmark (morphological_matrix.md §1). The code below is the single-satellite wiring kept for that future work; no EventSat configs use it.
 
-### DecentralizedMAS — Implemented (Flamingo N≥3)
+### DecentralizedMAS — Implemented (SSA N>=3)
 
 - **File**: `src/core/organization/decentralized_mas.py`
-- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(aᵢ, aⱼ) : ∀i,j, i≠j}, Ω = consensus, complexity O(dnk).
-- **Structure**: One peer agent per satellite, no manager. All-to-all exchange: every peer shares what it sees, so each ends up with the same global information.
-- **Flamingo design decisions**:
-  - `distribute_observation`: every peer receives the full observation (the decentralized counterpart of SAS's global view), plus the other peers' previous-step proposals as `messages` (the all-to-all channel C).
-  - `collect_actions`: peers running the shared deterministic protocol on identical information converge on the same deconflicted plan; the **consensus** (plurality, ties by agent index) is returned. So DMAS deconflicts like SAS/CMAS and — unlike IMAS — wastes nothing.
-  - `get_metrics`: surfaces the coordination cost — `coordination_messages = n·(n-1)` per round (6 at N=3) and `consensus_rounds`. The runner threads this into the Flamingo metrics, so the cost side of the axis is measured.
-  - **Outcome vs cost**: with the capable global `rule_based_flamingo`, DMAS matches SAS/CMAS mission utility (validated: utility 660, duplicate rate 0 under the contended scenario) while paying a strictly higher message cost. A decentralized org only loses *outcome* when consensus fails (Kim et al. 17.2× error amplification), which a single deterministic round does not trigger.
-- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_dmas_ag_symb.yaml`), all-to-all topology. Ring/mesh/visibility-limited topology ablations are future work. Degenerate at N=1.
+- **Paper basis**: Kim et al. (2025) [FVFQ73RF] Decentralized MAS — all-to-all peer exchange, C = {(a_i, a_j) : for all i,j, i!=j}, Omega = consensus, complexity O(dnk).
+- **Structure**: One peer agent per satellite, no manager. All-to-all exchange gives every peer the same global information, so deterministic peers converge on the same deconflicted SSA plan.
+- **SSA design decisions**:
+  - `distribute_observation`: every peer receives the full constellation observation and previous peer proposals as messages.
+  - `collect_actions`: plurality consensus returns the deconflicted action dict; ties break by agent order.
+  - `get_metrics`: surfaces coordination cost via `coordination_messages = n*(n-1)` and `consensus_rounds`.
+- **Status**: Runnable on SSA AO symbolic configs (`ssa_dmas_ao_symb_n3.yaml`, `ssa_dmas_ao_symb_n5.yaml`). Ring/mesh/visibility-limited topology ablations remain future work. Degenerate at N=1.
 
-### IndependentMAS — Implemented (Flamingo N>=3, BaseMultiSat N>=2)
+### IndependentMAS — Implemented (SSA N>=3, MultiEventsat N>=2)
 
 - **File**: `src/core/organization/independent_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Independent MAS — C = empty set, no inter-agent coordination.
-- **Structure**: A = {sat_agent_0 ... sat_agent_{n-1}}, one agent per satellite; C = empty; Omega = independent (no consensus, no manager).
-- **Mapping**: `satellite_for_agent("sat_agent_i")` defaults to `sat_i` for BaseMultiSat/RLlib and accepts `agent_organization_config.satellite_prefix` or explicit `satellite_ids` for scenario-specific ids such as `flamingo_i`.
-- **Flamingo design decisions**:
-  - `distribute_observation`: each agent receives a local view containing only its satellite state and only that satellite's visible tasks.
-  - `collect_actions`: per-satellite actions are merged verbatim, without deconfliction, so duplicate RSO choices reach the environment as duplicate observations.
-  - Contention is supplied by `configs/scenarios/flamingo.yaml` (`satellite_phase_shift: 0`). Under that scenario SAS/CMAS keep duplicate rate at 0 while IMAS wastes attempts and loses utility/coverage.
-- **BaseMultiSat design decisions**:
-  - One `sat_agent_i` controls one `sat_i` EventSat-class sub-environment.
+- **Structure**: A = {sat_agent_0 ... sat_agent_{n-1}}, one agent per satellite; C = empty; Omega = independent.
+- **Mapping**: `satellite_for_agent("sat_agent_i")` defaults to `sat_i` for MultiEventsat/RLlib and accepts `agent_organization_config.satellite_prefix` or explicit `satellite_ids`.
+- **SSA design decisions**:
+  - `distribute_observation`: each agent receives only its satellite state and visible RSO tasks.
+  - `collect_actions`: per-satellite actions are merged verbatim; there is no deconfliction, so repeated RSO observations reach the SSA environment as duplicates.
+  - This is the organisation-axis contrast: SAS/CMAS/DMAS see global scope and avoid duplicates; IMAS acts locally and wastes attempts on contested catalogs.
+- **MultiEventsat design decisions**:
+  - One `sat_agent_i` controls one `sat_i` EventSat-class satellite.
   - The mapping is used by the RLlib bridge to bind observations, decoded actions, and per-satellite rewards to the same satellite.
-- **Status**: Runnable for Flamingo (`configs/experiments/flamingo_imas_ag_symb.yaml`) and BaseMultiSat (`configs/experiments/basemultisat_imas_sda_subm_le_ah.yaml`). Degenerate at N=1.
+- **Status**: Runnable for SSA (`ssa_imas_ao_symb_n3.yaml`, `ssa_imas_ao_symb_n5.yaml`) and MultiEventsat (`configs/experiments/multieventsat_imas_sda_subm_le_ah.yaml`). Degenerate at N=1.
 
-### HybridMAS — Implemented (Flamingo N≥3)
+### HybridMAS — Implemented (SSA N>=3)
 
 - **File**: `src/core/organization/hybrid_mas.py`
 - **Paper basis**: Kim et al. (2025) [FVFQ73RF] Hybrid MAS — heterogeneous mixed topology combining star + all-to-all + independent sub-topologies.
-- **Structure**: the constellation is partitioned into clusters; each cluster has a head agent (`cluster_agent_i`). Coordination happens *within* a cluster, none *across* clusters — C = heterogeneous, Ω = hybrid.
-- **Flamingo design decisions**:
-  - `distribute_observation`: each cluster head receives a view of only its own cluster's satellites and their visible tasks; running `rule_based_flamingo` on it deconflicts that cluster (a mini-SAS).
-  - `collect_actions`: per-cluster assignments are merged **without cross-cluster deconfliction**, so satellites in different clusters can still collide on the same RSO.
-  - **Tunable midpoint**: `num_clusters` (default 2) spans the whole organisation axis — `1` ≡ SAS (one cluster sees all → 0 duplicates), `n` ≡ IMAS (singletons → maximal duplicates), in between partial coordination. `get_metrics` reports the localised cost `coordination_messages = Σ c_i·(c_i-1)` (= `n·(n-1)` at one cluster, `0` at singletons). Explicit `clusters` partitions are also accepted.
-  - Validated at N=3 (default 2 clusters): utility 607 ± 78, duplicate rate 0.376, coordination 2 — strictly between SAS/CMAS/DMAS (716 ± 87, dup 0) and IMAS (404 ± 57, dup 0.667).
-- **Status**: Runnable at N≥3 (`configs/experiments/flamingo_hmas_ag_symb.yaml`). Visibility-/capability-based clustering is future work.
+- **Structure**: the constellation is partitioned into clusters; each cluster has a head agent (`cluster_agent_i`). Coordination happens within a cluster, none across clusters — C = heterogeneous, Omega = hybrid.
+- **SSA design decisions**:
+  - `distribute_observation`: each cluster head receives only its cluster's satellites and visible RSO tasks.
+  - `collect_actions`: per-cluster assignments are merged without cross-cluster deconfliction, so different clusters can still collide on the same RSO.
+  - `num_clusters` (default 2) spans the organisation axis: `1` behaves like SAS, `n` behaves like IMAS, and intermediate values produce partial coordination. `get_metrics` reports `coordination_messages = sum(c_i*(c_i-1))`.
+- **Status**: Runnable on SSA AO symbolic configs (`ssa_hmas_ao_symb_n3.yaml`, `ssa_hmas_ao_symb_n5.yaml`). Visibility-/capability-based clustering remains future work.
+
+### SSA Scenario Components — Implemented
+
+- **Files**: `src/ssa/env.py`, `src/ssa/targets.py`, `src/ssa/rewards.py`, `src/ssa/metrics.py`, `src/ssa/symbolic.py`, `src/orbital/isl.py`.
+- **Paper/source basis**: AUTOPS-RL / Oliver et al. SSA source mission [ACMHUJ8C]; Kim et al. organisation axis [FVFQ73RF]; Pachler et al. link-budget / communications grounding [7PTYIMJL]; BSK-RL simulation-pattern precedent.
+- **Design decisions**:
+  - `SSAEnvironment` subclasses `MultiEventsatEnv` and adds an RSO catalog, anti-nadir +/-5 deg optical access, `isl_share`, an N x M binary detection matrix, per-object best estimates, and a ground archive.
+  - Detection actions carry no `target_id`; the environment resolves all visible RSOs in the FOV.
+  - ISL merge is an OR over binary knowledge plus higher-quality best-estimate retention.
+  - M-01 utility is delivered RSO coverage, not onboard-only observation; M-10 `eta_scale` is live through `SSAMetricsCollector`.
+  - `rule_based_ssa` ports the source rule-policy resource thresholds and EventSat pipeline priorities, while deconflicting only when the observation scope contains multiple satellites.
+- **Configs**: `configs/scenarios/ssa.yaml` and the generated AO slice from `scripts/generate_ssa_configs.py`.
 
 ---
 
@@ -239,7 +249,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **reason()**: Returns top mode probabilities as structured explanation steps
 - **update()**: Backward-compatible hook; PPO training is offline via `RLLibPPOTrainer`
 - **Orthogonality**: Works with the fixed SDA decision driver and all configured ops paradigms
-- **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml` or the BaseMultiSat config for multi-agent PPO
+- **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml` or the MultiEventsat config for multi-agent PPO
 - **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (single-agent EventSat smoke wrapper)
 - **Supporting modules**: `src/core/behaviour/rllib_training_pipeline.py`, `src/rl/rllib_env.py`, `src/rl/space_adapters.py`, `src/rl/policy_mapping.py`, `src/rl/models/autops_actor_critic.py`
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
@@ -705,9 +715,9 @@ for the framing.
 | --- | --- | --- | --- | --- |
 | SingleAgentSystem (SAS) | `src/core/organization/single_agent_system.py` | **L4** Orchestration | Kim et al. 2025 | Single cognitive locus — analogue of single-agent loops (e.g.\ Claude Code) |
 | CentralizedMAS | `src/core/organization/centralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Role-specialized analogue of MetaGPT / ChatDev orchestrators |
-| IndependentMAS (IMAS) | `src/core/organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on Flamingo N≥3 |
-| DecentralizedMAS (DMAS) | `src/core/organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on Flamingo N≥3 |
-| HybridMAS (HMAS) | `src/core/organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on Flamingo N≥3 |
+| IndependentMAS (IMAS) | `src/core/organization/independent_mas.py` | **L4** Orchestration | Kim et al. 2025 | Per-satellite agents, C = ∅; runnable on SSA N>=3 |
+| DecentralizedMAS (DMAS) | `src/core/organization/decentralized_mas.py` | **L4** Orchestration | Kim et al. 2025 | Peer all-to-all consensus, C = full; runnable on SSA N>=3 |
+| HybridMAS (HMAS) | `src/core/organization/hybrid_mas.py` | **L4** Orchestration | Kim et al. 2025 | Clustered (coordinate within, independent across); tunable SAS↔IMAS midpoint; runnable on SSA N>=3 |
 | SDA loop | `src/core/decision_procedure/` (SDA) | **L1** Reasoning | classical control loop | Baseline reactive scaffolding |
 | Rule-Based / Schedule-Based EventSat | `src/eventsat/symbolic.py`, `src/eventsat/schedule_symbolic.py` | **L1** (reasoning interface only) | hand-designed (Brooks 1991 reactive) | **No L0 substrate** — pure symbolic |
 | Conventional Schedule EventSat | `src/eventsat/conventional.py` | **L1** | Sellmaier et al. 2022 | Human-realistic ground baseline; no L0 |
@@ -721,7 +731,7 @@ for the framing.
 | PromptOptimizer | `src/core/behaviour/prompt_optimizer.py` | **L1** (self-improvement) | DSPy / TextGrad family | Sibling of Bhati L1 self-critique |
 | WritableCoALA | `behaviour_config.mechanism = "writable_coala"` | **L1** (online learning) | Sumers et al. 2024 | Online memory write — closest match to Bhati's "memory files" |
 | Scenario actions/tools | `src/eventsat/agentic_tools.py` and scenario action dictionaries | **L2** Agent–Computer Interface | (no external paper basis) | YAML-serializable, stateless action definitions exposed to the cognitive layer |
-| Satellite environment | `src/core/satellite_env.py`, `src/eventsat/`, `src/flamingo/`, `src/orbital/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
+| Satellite environment | `src/core/satellite_env.py`, `src/eventsat/`, `src/ssa/`, `src/orbital/` | **L3** Tools & Environment | Orekit; mission constraints | Analogue of filesystem + test runners; deterministic physics layer |
 | Autonomous Hybrid | `src/core/operations/autonomous_hybrid.py` | **L5** Governance & Safety | Rossi et al. 2023 | Onboard FDIR; no ground gate; closest to "auto" autonomy level |
 | Autonomous Ground | `src/core/operations/autonomous_ground.py` | **L5** Governance & Safety | Sellmaier et al. 2022 | Ground-pass gating — analogue of human approval at high-impact actions |
 | Conventional Ground | `src/core/operations/conventional_ground.py` | **L5** Governance & Safety | ECSS standards | Human-realistic ground operator; analogue of traditional SDLC supervision |

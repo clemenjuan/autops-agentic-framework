@@ -181,7 +181,7 @@ class TestCentralizedMAS:
 
 
 # ======================================================================
-# DecentralizedMAS — Flamingo organisation implementation
+# DecentralizedMAS — SSA organisation implementation
 # ======================================================================
 
 
@@ -205,7 +205,7 @@ class TestDecentralizedMAS:
         org = DecentralizedMAS(config={})
         org.initialize(constellation_size=3)
         # Deterministic peers propose the same global plan -> unanimous consensus.
-        plan = {"flamingo_0": {"target_id": "rso_0"}, "flamingo_1": {"target_id": "rso_1"}}
+        plan = {"sat_0": {"target_id": "rso_0"}, "sat_1": {"target_id": "rso_1"}}
         actions = {
             aid: AgentAction(agent_id=aid, action=dict(plan))
             for aid in org.get_agents()
@@ -220,8 +220,8 @@ class TestDecentralizedMAS:
     def test_collect_plurality_breaks_disagreement(self) -> None:
         org = DecentralizedMAS(config={})
         org.initialize(constellation_size=3)
-        majority = {"flamingo_0": {"target_id": "rso_0"}}
-        minority = {"flamingo_0": {"target_id": "rso_9"}}
+        majority = {"sat_0": {"target_id": "rso_0"}}
+        minority = {"sat_0": {"target_id": "rso_9"}}
         actions = {
             "sat_agent_0": AgentAction(agent_id="sat_agent_0", action=dict(majority)),
             "sat_agent_1": AgentAction(agent_id="sat_agent_1", action=dict(majority)),
@@ -248,40 +248,40 @@ class TestIndependentMAS:
         assert org.satellite_for_agent("sat_agent_2") == "sat_2"
 
     def test_satellite_for_agent_allows_scenario_prefix(self) -> None:
-        org = IndependentMAS(config={"satellite_prefix": "flamingo"})
+        org = IndependentMAS(config={"satellite_prefix": "demo"})
         org.initialize(constellation_size=2)
-        assert org.satellite_for_agent("sat_agent_1") == "flamingo_1"
+        assert org.satellite_for_agent("sat_agent_1") == "demo_1"
 
     def test_distribute_gives_each_agent_only_its_own_satellite(self) -> None:
         env_obs = _make_obs(
-            ["flamingo_0", "flamingo_1"],
+            ["sat_0", "sat_1"],
             tasks=[
-                {"satellite_id": "flamingo_0", "target_id": "rso_0", "priority": 3.0},
-                {"satellite_id": "flamingo_1", "target_id": "rso_1", "priority": 2.0},
+                {"satellite_id": "sat_0", "target_id": "rso_0", "priority": 3.0},
+                {"satellite_id": "sat_1", "target_id": "rso_1", "priority": 2.0},
             ],
         )
 
-        org = IndependentMAS(config={"satellite_prefix": "flamingo"})
+        org = IndependentMAS(config={"satellite_prefix": "demo"})
         org.initialize(constellation_size=2)
         result = org.distribute_observation(env_obs)
 
         local0 = result["sat_agent_0"].local_state["full_observation"]
-        assert list(local0.constellation_state.satellites.keys()) == ["flamingo_0"]
+        assert list(local0.constellation_state.satellites.keys()) == ["sat_0"]
         assert [t["target_id"] for t in local0.tasks] == ["rso_0"]
-        assert result["sat_agent_0"].metadata["satellite_id"] == "flamingo_0"
+        assert result["sat_agent_0"].metadata["satellite_id"] == "sat_0"
 
         local1 = result["sat_agent_1"].local_state["full_observation"]
-        assert list(local1.constellation_state.satellites.keys()) == ["flamingo_1"]
+        assert list(local1.constellation_state.satellites.keys()) == ["sat_1"]
         assert [t["target_id"] for t in local1.tasks] == ["rso_1"]
         assert result["sat_agent_1"].messages == []
 
     def test_distribute_falls_back_to_observation_order_for_unknown_prefix(self) -> None:
         org = IndependentMAS(config={})
         org.initialize(constellation_size=2)
-        result = org.distribute_observation(_make_obs(["flamingo_0", "flamingo_1"]))
+        result = org.distribute_observation(_make_obs(["demo_0", "demo_1"]))
         view = result["sat_agent_0"].local_state["full_observation"].constellation_state.satellites
-        assert set(view) == {"flamingo_0"}
-        assert result["sat_agent_0"].metadata["satellite_id"] == "flamingo_0"
+        assert set(view) == {"demo_0"}
+        assert result["sat_agent_0"].metadata["satellite_id"] == "demo_0"
 
     def test_collect_merges_without_deconfliction(self) -> None:
         org = IndependentMAS(config={})
@@ -328,26 +328,26 @@ class TestHybridMAS:
                 timestep=0,
                 epoch_seconds=0.0,
                 satellites={
-                    f"flamingo_{i}": SatelliteState(satellite_id=f"flamingo_{i}")
+                    f"sat_{i}": SatelliteState(satellite_id=f"sat_{i}")
                     for i in range(3)
                 },
             ),
             tasks=[
-                {"satellite_id": f"flamingo_{i}", "target_id": f"rso_{i}", "priority": 1.0}
+                {"satellite_id": f"sat_{i}", "target_id": f"rso_{i}", "priority": 1.0}
                 for i in range(3)
             ],
         )
         org = HybridMAS(config={"num_clusters": 2})
         org.initialize(constellation_size=3)
         result = org.distribute_observation(env_obs)
-        # Cluster 0 = {flamingo_0, flamingo_1}, cluster 1 = {flamingo_2}.
+        # Cluster 0 = {sat_0, sat_1}, cluster 1 = {sat_2}.
         head0 = result["cluster_agent_0"].local_state["full_observation"]
         assert set(head0.constellation_state.satellites.keys()) == {
-            "flamingo_0",
-            "flamingo_1",
+            "sat_0",
+            "sat_1",
         }
         head1 = result["cluster_agent_1"].local_state["full_observation"]
-        assert set(head1.constellation_state.satellites.keys()) == {"flamingo_2"}
+        assert set(head1.constellation_state.satellites.keys()) == {"sat_2"}
 
     def test_collect_merges_clusters_and_reports_localised_cost(self) -> None:
         org = HybridMAS(config={"num_clusters": 2})
@@ -355,16 +355,16 @@ class TestHybridMAS:
         actions = {
             "cluster_agent_0": AgentAction(
                 agent_id="cluster_agent_0",
-                action={"flamingo_0": {"target_id": "rso_0"},
-                        "flamingo_1": {"target_id": "rso_1"}},
+                action={"sat_0": {"target_id": "rso_0"},
+                        "sat_1": {"target_id": "rso_1"}},
             ),
             "cluster_agent_1": AgentAction(
                 agent_id="cluster_agent_1",
-                action={"flamingo_2": {"target_id": "rso_0"}},
+                action={"sat_2": {"target_id": "rso_0"}},
             ),
         }
         merged = org.collect_actions(actions)
-        assert set(merged.keys()) == {"flamingo_0", "flamingo_1", "flamingo_2"}
+        assert set(merged.keys()) == {"sat_0", "sat_1", "sat_2"}
         # Localised cost: clusters of size 2 and 1 -> 2*1 + 1*0 = 2 messages.
         assert org.get_metrics()["coordination_messages"] == 2.0
 

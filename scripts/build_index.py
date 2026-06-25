@@ -36,14 +36,6 @@ BOARDS = [
         "desc": "Per-episode telemetry traces (modes, battery, data pools, "
                 "decision rationales) for the measured EventSat runs.",
     },
-    {
-        "track": "Flamingo — multi-satellite organisation axis",
-        "file": "flamingo_board.html",
-        "title": "Organisation board",
-        "desc": "The five literature organisations (SAS / CMAS / IMAS / DMAS / "
-                "HMAS) under a contended SSA task: mission metrics, coordination "
-                "cost, and the M-10 scale-efficiency curves across N = 1…12.",
-    },
 ]
 
 

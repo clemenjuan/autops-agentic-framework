@@ -81,8 +81,8 @@ class AutonomousGround(OperationsParadigm):
         Between passes: consume the schedule step by step.
         """
         if ground_pass_active:
-            # Non-EventSat scenarios, such as Flamingo-lite, use native action
-            # dictionaries keyed by satellite id rather than EventSat mode
+            # Non-EventSat constellation scenarios, such as SSA, use native
+            # action dictionaries keyed by satellite id rather than EventSat mode
             # schedules. Keep the EventSat schedule path below untouched.
             if "eventsat_0" not in action:
                 return action

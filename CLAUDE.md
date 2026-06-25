@@ -75,7 +75,7 @@ uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml                 
 src/
   core/                # Runner, config, base interfaces, organisation, operations, memory, SDA, behaviour
   eventsat/            # EventSat env, metrics, representations, rewards, schedulers, trace export
-  flamingo/            # Flamingo-lite env, metrics, symbolic planner
+  ssa/                 # SSA env, targets, ISL sharing, symbolic planner, metrics
   orbital/             # Eclipse, ground access, link budget, optional Orekit wrapper
 configs/experiments/   # EventSat experiment configs + template (the 32-experiment matrix — morphological_matrix.md §4)
 configs/scenarios/     # Scenario parameter files

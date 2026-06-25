@@ -282,10 +282,6 @@ class ExperimentRunner:
             from src.ssa.env import SSAEnvironment
             return SSAEnvironment(config=env_cfg)
 
-        if scenario == "flamingo":
-            from src.flamingo.env import FlamingoEnvironment
-            return FlamingoEnvironment(config=env_cfg)
-
         logger.warning("Unknown scenario '%s', returning None.", scenario)
         return None
 
@@ -334,8 +330,8 @@ class ExperimentRunner:
             "hybrid_mas": HybridMAS,
         }
 
-        # All five Kim et al. (2025) organisations are implemented and runnable
-        # for the Flamingo organisation sweep (SAS / CMAS / IMAS / DMAS / HMAS).
+        # All five Kim et al. (2025) organisations are implemented; SSA is the
+        # constellation-scale scenario that exercises the organisation axis.
         org_cls = org_map.get(self.config.agent_organization)
         if org_cls is None:
             raise ValueError(
@@ -348,7 +344,6 @@ class ExperimentRunner:
                 "multieventsat": "sat",
                 "ssa": "sat",
                 "eventsat": "eventsat",
-                "flamingo": "flamingo",
             }
             prefix = prefixes.get(self.config.environment.scenario)
             if prefix is not None:
@@ -374,7 +369,6 @@ class ExperimentRunner:
         import src.eventsat.agentic_scheduler  # register the real agentic LLM ground planners (hllm-a/llm-a)
         import src.eventsat.world_model  # register LeWM-CEM and DreamerV3 baselines
         import src.ssa.symbolic  # register SSA symbolic planner
-        import src.flamingo.symbolic  # register Flamingo-lite symbolic planner
         behaviour_factory = BehaviourController(config=self.config.behaviour_config)
 
         def with_runtime_defaults(base_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -543,11 +537,6 @@ class ExperimentRunner:
             if self._environment is not None and hasattr(self._environment, "battery_capacity_wh"):
                 metrics_cfg["battery_capacity_wh"] = self._environment.battery_capacity_wh
             return SSAMetricsCollector(config=metrics_cfg)
-        if scenario == "flamingo":
-            from src.flamingo.metrics import FlamingoMetricsCollector
-            metrics_cfg = self.config.metrics.model_dump()
-            metrics_cfg["constellation_size"] = self.config.environment.constellation_size
-            return FlamingoMetricsCollector(config=metrics_cfg)
         logger.warning("No metrics collector for scenario '%s'.", scenario)
         return None
 

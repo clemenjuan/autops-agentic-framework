@@ -36,7 +36,7 @@ for the per-component mapping see
 │      src/core/experiment_runner.py                             │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L3  Tools & Environment                                                │
-│      src/core/satellite_env.py, src/eventsat/, src/flamingo/, src/orbital/              │
+│      src/core/satellite_env.py, src/eventsat/, src/ssa/, src/orbital/              │
 ├─────────────────────────────────────────────────────────────────────────┤
 │  L2  Agent–Computer Interface                                           │
 │      scenario action schemas and tools (for example src/eventsat/agentic_tools.py)                      │
@@ -143,8 +143,8 @@ Two computation backends are supported:
 |-----------|---------|
 | `src/core/satellite_env.py` | Shared satellite environment interfaces |
 | `src/orbital/` | Orbital mechanics (eclipse, ground access, optional Orekit) |
-| `src/eventsat/` | EventSat and BaseMultiSat environments, metrics, representations, trace export |
-| `src/flamingo/` | Flamingo environment, metrics, symbolic planner |
+| `src/eventsat/` | EventSat and MultiEventsat environments, metrics, representations, trace export |
+| `src/ssa/` | SSA constellation environment, RSO targets, rewards, metrics, symbolic planner |
 | `src/rl/` | RLlib `MultiAgentEnv` bridge, space adapters, policy-sharing helpers, actor-critic model |
 | `src/core/organization/` | Agent coordination patterns |
 | `src/core/decision_procedure/` | Decision-making temporal patterns |

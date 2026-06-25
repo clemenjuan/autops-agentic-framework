@@ -15,7 +15,7 @@ New contributors should start with [START_HERE.md](START_HERE.md).
 src/
   core/       orchestration, config loading, operations paradigms, memory, behaviour
   eventsat/   EventSat and MultiEventsat environments, representations, schedulers, metrics, rewards
-  flamingo/   Flamingo-lite multi-satellite scenario
+  ssa/        space-situational-awareness scenario, targets, symbolic policy, metrics
   rl/         RLlib bridge, space adapters, policy mapping, actor-critic model
   orbital/    eclipse, ground access, link budget, optional Orekit wrapper
 configs/
