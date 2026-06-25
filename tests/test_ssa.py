@@ -71,3 +71,157 @@ def test_target_two_body_propagation_returns_finite_position() -> None:
     assert len(position) == 3
     assert all(math.isfinite(value) for value in position)
     assert 6500.0 < vector_range_km([0.0, 0.0, 0.0], position) < 7600.0
+
+
+from src.ssa.env import SSAEnvironment, SSA_MODES
+from src.ssa.metrics import SSAMetricsCollector
+from src.ssa.rewards import SSARewardFunction
+
+
+def _ssa_env_config(*, n: int = 2, settling_s: float = 0.0) -> dict:
+    fixed_positions = {
+        "rso_0": [0.0, 0.0, 530.0],
+        "rso_1": [0.0, 1.0, 530.0],
+    }
+    return {
+        "constellation_size": n,
+        "step_duration_s": 60,
+        "max_steps": 20,
+        "satellite_positions_km": {
+            "sat_0": [0.0, 0.0, 500.0],
+            "sat_1": [100.0, 0.0, 500.0],
+        },
+        "scenario_params": {
+            "modes": {
+                "transition_overhead": {
+                    "settling_time_s": settling_s,
+                    "attitude_maneuver_modes": ["payload_observe", "communication"],
+                }
+            },
+            "payload": {"compression_time_factor": 1.0, "detection_time_s": 60.0},
+        },
+        "targets": {
+            "fixed_positions_km": fixed_positions,
+            "fov_half_angle_deg": 5.0,
+            "max_range_km": 52.7,
+        },
+        "ground_station": {"always_visible": True},
+        "reward_config": {"local_weight": 1.0, "team_weight": 0.0, "collective_weight": 1.0},
+    }
+
+
+def test_ssa_observe_updates_fixed_binary_detection_matrix() -> None:
+    env = SSAEnvironment(_ssa_env_config())
+    env.reset(seed=1)
+
+    result = env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+
+    assert env.detection_matrix == [[1, 1], [0, 0]]
+    assert result.info["ssa_onboard_coverage"] == pytest.approx(1.0)
+    assert result.info["ssa_delivered_coverage"] == 0.0
+    row = result.observation.constellation_state.satellites["sat_0"].metadata["ssa_detection_row"]
+    assert row == [1, 1]
+
+
+def test_one_hot_binary_action_selects_payload_observe_mode() -> None:
+    env = SSAEnvironment(_ssa_env_config())
+    env.reset(seed=1)
+    one_hot = [0] * len(SSA_MODES)
+    one_hot[SSA_MODES.index("payload_observe")] = 1
+
+    env.step({"sat_0": one_hot, "sat_1": {"mode": "charging"}})
+
+    assert env.detection_matrix[0] == [1, 1]
+
+
+def test_adcs_settling_blocks_observation_on_observe_entry() -> None:
+    env = SSAEnvironment(_ssa_env_config(settling_s=135.0))
+    env.reset(seed=1)
+
+    result = env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+
+    assert env.detection_matrix == [[0, 0], [0, 0]]
+    assert result.info["per_satellite"]["sat_0"]["in_transition"] is True
+
+
+def test_onboard_keeps_best_estimate_while_ground_archives_all_records() -> None:
+    env = SSAEnvironment(_ssa_env_config())
+    env.reset(seed=1)
+
+    env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+    env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+    env.step({"sat_0": {"mode": "communication"}, "sat_1": {"mode": "charging"}})
+
+    assert set(env.onboard_estimates["sat_0"]) == {"rso_0", "rso_1"}
+    assert len(env.onboard_estimates["sat_0"]) == 2
+    assert len(env.ground_archive["rso_0"]) == 2
+    assert len(env.ground_archive["rso_1"]) == 2
+
+
+def test_isl_merge_ors_matrix_and_keeps_higher_quality_estimate() -> None:
+    env = SSAEnvironment(_ssa_env_config())
+    env.reset(seed=1)
+    env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+
+    env.step({"sat_0": {"mode": "isl_share"}, "sat_1": {"mode": "charging"}})
+
+    assert env.detection_matrix == [[1, 1], [1, 1]]
+    assert set(env.onboard_estimates["sat_1"]) == {"rso_0", "rso_1"}
+    assert env.get_metrics()["isl_connectivity"] > 0.0
+
+
+def test_delivered_utility_credits_only_downlinked_objects() -> None:
+    env = SSAEnvironment(_ssa_env_config())
+    env.reset(seed=1)
+
+    observe = env.step({"sat_0": {"mode": "payload_observe"}, "sat_1": {"mode": "charging"}})
+    downlink = env.step({"sat_0": {"mode": "communication"}, "sat_1": {"mode": "charging"}})
+
+    assert observe.info["ssa_delivered_coverage"] == 0.0
+    assert downlink.info["ssa_delivered_coverage"] == pytest.approx(1.0)
+    assert downlink.rewards["sat_0"] > observe.rewards["sat_0"]
+
+
+def test_ssa_reward_collective_negative_uses_delivered_coverage() -> None:
+    rf = SSARewardFunction({"collective_weight": 1.0, "mission_scale": 2.0})
+
+    empty = rf.compute_rewards({"sat_0": 0.0}, {"_global": {"delivered_coverage": 0.0}})
+    delivered = rf.compute_rewards({"sat_0": 0.0}, {"_global": {"delivered_coverage": 1.0}})
+
+    assert empty["sat_0"] == pytest.approx(-2.0)
+    assert delivered["sat_0"] == pytest.approx(0.0)
+
+
+def test_ssa_metrics_adds_coverage_duplicate_connectivity_and_m10() -> None:
+    collector = SSAMetricsCollector({
+        "max_steps": 2,
+        "step_duration_s": 60,
+        "constellation_size": 2,
+        "baseline_utility_n1": 0.5,
+    })
+    for step, delivered in enumerate((0.0, 1.0)):
+        collector.record_step(
+            timestep=step,
+            wall_clock_seconds=0.01,
+            env_state=None,
+            actions={},
+            rewards={"sat_0": 1.0},
+            info={
+                "battery_soc": 0.8,
+                "prev_battery_soc": 0.81,
+                "ssa_onboard_coverage": 1.0,
+                "ssa_delivered_coverage": delivered,
+                "duplicate_observation_rate": 0.25,
+                "mean_revisit_steps": 3.0,
+                "isl_connectivity": 0.5,
+                "ssa_delivered_objects": delivered * 2,
+                "ssa_known_objects": 2,
+            },
+            decision_metrics={"inference_allowed": True, "has_rationale": True},
+        )
+
+    episode = collector.finalise_episode(0)
+
+    assert episode.aggregated["ssa_delivered_coverage"] == 1.0
+    assert episode.aggregated["duplicate_observation_rate"] == 0.25
+    assert "eta_scale" in episode.aggregated
