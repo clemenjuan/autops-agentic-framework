@@ -19,6 +19,12 @@ gen = importlib.util.module_from_spec(_spec)
 sys.modules["generate_experiment_configs"] = gen
 _spec.loader.exec_module(gen)
 
+_SSA_SCRIPT = _ROOT / "scripts" / "generate_ssa_configs.py"
+_ssa_spec = importlib.util.spec_from_file_location("generate_ssa_configs", _SSA_SCRIPT)
+ssa_gen = importlib.util.module_from_spec(_ssa_spec)
+sys.modules["generate_ssa_configs"] = ssa_gen
+_ssa_spec.loader.exec_module(ssa_gen)
+
 
 def _paradigm(eid: str) -> str:
     return eid.split("_")[2]
@@ -71,3 +77,37 @@ def test_disk_configs_match_generator() -> None:
     """Committed configs must equal the generator's output (no drift)."""
     disk = {p.stem for p in (_ROOT / "configs" / "experiments").glob("eventsat_sas_*.yaml")}
     assert disk == set(gen.build_matrix())
+
+
+def test_ssa_ao_matrix_counts() -> None:
+    m = ssa_gen.build_matrix()
+    assert len(m) == 20
+    assert Counter(e.split("_")[1] for e in m) == {
+        "sas": 4,
+        "cmas": 4,
+        "dmas": 4,
+        "imas": 4,
+        "hmas": 4,
+    }
+    assert Counter(e.split("_")[3] for e in m) == {"symb": 10, "rl": 10}
+    assert Counter(e.rsplit("_n", 1)[1] for e in m) == {"3": 10, "5": 10}
+
+
+def test_every_ssa_config_constructs_and_resolves() -> None:
+    for eid, cfg in ssa_gen.build_matrix().items():
+        ec = ExperimentConfig(**cfg)
+        assert ec.experiment_id == eid
+        assert ec.environment.scenario == "ssa"
+        assert ec.operations_paradigm == "autonomous_onboard"
+        assert ec.resolved_ground_planner_type is None
+        if eid.split("_")[3] == "symb":
+            assert ec.resolved_onboard_type == "rule_based_ssa"
+        else:
+            assert ec.resolved_onboard_type == "subsymbolic_eventsat"
+            assert ec.representation_config["rl_mock"] is True
+
+
+def test_ssa_disk_configs_match_generator() -> None:
+    """Committed SSA configs must equal the SSA generator's output (no drift)."""
+    disk = {p.stem for p in (_ROOT / "configs" / "experiments").glob("ssa_*.yaml")}
+    assert disk == set(ssa_gen.build_matrix())

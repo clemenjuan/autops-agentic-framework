@@ -1,12 +1,13 @@
-experiment_id: ssa_sas_ao_symb_n3
-description: SSA AO symb backbone config for SAS at N=3.
+experiment_id: ssa_hmas_ao_symb_n3
+description: SSA AO symb backbone config for HMAS at N=3.
 seed: 42
-agent_organization: sas
+agent_organization: hybrid_mas
 decision_procedure: sda
 representation: symbolic
 behaviour: hand_designed
 operations_paradigm: autonomous_onboard
-agent_organization_config: {}
+agent_organization_config:
+  num_clusters: 2
 decision_procedure_config:
   sense_encode: true
   decide_act: true

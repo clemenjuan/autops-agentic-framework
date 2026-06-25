@@ -1,33 +1,23 @@
-# SSA | IMAS | SDA | Symbolic | Hand-designed | Autonomous-Onboard
 experiment_id: ssa_imas_ao_symb_n3
-description: >
-  SSA N=3 symbolic autonomous-onboard smoke configuration for independent per-satellite agents.
-
+description: SSA AO symb backbone config for IMAS at N=3.
 seed: 42
-
 agent_organization: independent_mas
 decision_procedure: sda
 representation: symbolic
 behaviour: hand_designed
 operations_paradigm: autonomous_onboard
-
 agent_organization_config:
   satellite_prefix: sat
-
 decision_procedure_config:
   sense_encode: true
   decide_act: true
-
 representation_config:
   type: rule_based_ssa
-
 behaviour_config:
   mechanism: hand_designed
   mode: hand_designed
-
 operations_paradigm_config:
   default_mode: charging
-
 environment:
   constellation_size: 3
   timestep_seconds: 60
@@ -42,27 +32,23 @@ environment:
       collective_weight: 1.0
       mission_scale: 1.0
       collective_negative: true
-
 memory_config:
   history_depth: 100
-
 num_episodes: 1
 max_steps: 100
-
 metrics:
   enabled:
-    - utility
-    - latency
-    - resource_efficiency
-    - operator_load
-    - explainability
-    - scale_complexity
-    - ssa_coverage
-    - ssa_duplicates
-    - ssa_connectivity
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
+  - scale_complexity
+  - ssa_coverage
+  - ssa_duplicates
+  - ssa_connectivity
   collection_frequency: per_step
   baseline_utility_n1: 1.0
-
 output_dir: data/results/${experiment_id}
 save_checkpoints: false
 log_level: INFO

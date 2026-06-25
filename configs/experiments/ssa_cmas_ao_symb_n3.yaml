@@ -1,7 +1,7 @@
-experiment_id: ssa_sas_ao_symb_n3
-description: SSA AO symb backbone config for SAS at N=3.
+experiment_id: ssa_cmas_ao_symb_n3
+description: SSA AO symb backbone config for CMAS at N=3.
 seed: 42
-agent_organization: sas
+agent_organization: centralized_mas
 decision_procedure: sda
 representation: symbolic
 behaviour: hand_designed

@@ -1,12 +1,13 @@
-experiment_id: ssa_sas_ao_symb_n3
-description: SSA AO symb backbone config for SAS at N=3.
+experiment_id: ssa_imas_ao_symb_n5
+description: SSA AO symb backbone config for IMAS at N=5.
 seed: 42
-agent_organization: sas
+agent_organization: independent_mas
 decision_procedure: sda
 representation: symbolic
 behaviour: hand_designed
 operations_paradigm: autonomous_onboard
-agent_organization_config: {}
+agent_organization_config:
+  satellite_prefix: sat
 decision_procedure_config:
   sense_encode: true
   decide_act: true
@@ -18,7 +19,7 @@ behaviour_config:
 operations_paradigm_config:
   default_mode: charging
 environment:
-  constellation_size: 3
+  constellation_size: 5
   timestep_seconds: 60
   max_steps: 10080
   scenario: ssa

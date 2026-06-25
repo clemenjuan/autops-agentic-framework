@@ -1,24 +1,46 @@
-experiment_id: ssa_sas_ao_symb_n3
-description: SSA AO symb backbone config for SAS at N=3.
+experiment_id: ssa_hmas_ao_rl_n5
+description: SSA AO rl backbone config for HMAS at N=5.
 seed: 42
-agent_organization: sas
+agent_organization: hybrid_mas
 decision_procedure: sda
-representation: symbolic
-behaviour: hand_designed
+representation: rl
+behaviour: emergent
 operations_paradigm: autonomous_onboard
-agent_organization_config: {}
+agent_organization_config:
+  num_clusters: 2
 decision_procedure_config:
   sense_encode: true
   decide_act: true
 representation_config:
-  type: rule_based_ssa
+  type: subsymbolic_eventsat
+  rl_mock: true
+  deterministic: true
+  checkpoint_path: ''
+  satellite_id: sat_0
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
 behaviour_config:
-  mechanism: hand_designed
-  mode: hand_designed
+  mechanism: ppo
+  mode: emergent
+  rollout_fragment: 128
+  lr: 0.0001
+  gamma: 0.97
+  gae_lambda: 0.95
+  clip_ratio: 0.3
+  ppo_epochs: 30
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+  policy_sharing:
+    mode: shared_all
 operations_paradigm_config:
   default_mode: charging
 environment:
-  constellation_size: 3
+  constellation_size: 5
   timestep_seconds: 60
   max_steps: 10080
   scenario: ssa
