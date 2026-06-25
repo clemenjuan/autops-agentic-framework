@@ -50,14 +50,16 @@ class SSAMetricsCollector(EventSatMetricsCollector):
         if not step_metrics:
             return episode
         last = step_metrics[-1].metrics
-        utility = episode.aggregated.get("utility", 0.0)
+        delivered_coverage = float(last.get("ssa_delivered_coverage", 0.0))
+        utility = delivered_coverage
         if self._baseline_utility_n1 > 0.0 and self._constellation_size > 0:
             eta_scale = (utility / self._constellation_size) / self._baseline_utility_n1
         else:
             eta_scale = 0.0
         episode.aggregated.update({
+            "utility": utility,
             "ssa_onboard_coverage": float(last.get("ssa_onboard_coverage", 0.0)),
-            "ssa_delivered_coverage": float(last.get("ssa_delivered_coverage", 0.0)),
+            "ssa_delivered_coverage": delivered_coverage,
             "duplicate_observation_rate": float(last.get("duplicate_observation_rate", 0.0)),
             "mean_revisit_steps": float(last.get("mean_revisit_steps", 0.0)),
             "isl_connectivity": float(last.get("isl_connectivity", 0.0)),

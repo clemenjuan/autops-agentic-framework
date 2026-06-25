@@ -278,6 +278,10 @@ class ExperimentRunner:
             from src.eventsat.multieventsat_env import MultiEventsatEnv
             return MultiEventsatEnv(config=env_cfg)
 
+        if scenario == "ssa":
+            from src.ssa.env import SSAEnvironment
+            return SSAEnvironment(config=env_cfg)
+
         if scenario == "flamingo":
             from src.flamingo.env import FlamingoEnvironment
             return FlamingoEnvironment(config=env_cfg)
@@ -342,6 +346,7 @@ class ExperimentRunner:
         if self.config.agent_organization == "independent_mas":
             prefixes = {
                 "multieventsat": "sat",
+                "ssa": "sat",
                 "eventsat": "eventsat",
                 "flamingo": "flamingo",
             }
@@ -368,6 +373,7 @@ class ExperimentRunner:
         import src.eventsat.llm_scheduler  # register the real single-shot LLM ground planners (hllm-s/llm-s)
         import src.eventsat.agentic_scheduler  # register the real agentic LLM ground planners (hllm-a/llm-a)
         import src.eventsat.world_model  # register LeWM-CEM and DreamerV3 baselines
+        import src.ssa.symbolic  # register SSA symbolic planner
         import src.flamingo.symbolic  # register Flamingo-lite symbolic planner
         behaviour_factory = BehaviourController(config=self.config.behaviour_config)
 
@@ -398,7 +404,13 @@ class ExperimentRunner:
 
         if (
             self._organization is not None
-            and self.config.environment.scenario == "multieventsat"
+            and (
+                self.config.environment.scenario == "multieventsat"
+                or (
+                    self.config.environment.scenario == "ssa"
+                    and self.config.agent_organization == "independent_mas"
+                )
+            )
         ):
             from src.core.organization.base import validate_agent_satellite_mapping
 
@@ -522,6 +534,15 @@ class ExperimentRunner:
             if self._environment is not None and hasattr(self._environment, "battery_capacity_wh"):
                 metrics_cfg["battery_capacity_wh"] = self._environment.battery_capacity_wh
             return EventSatMetricsCollector(config=metrics_cfg)
+        if scenario == "ssa":
+            from src.ssa.metrics import SSAMetricsCollector
+            metrics_cfg = self.config.metrics.model_dump()
+            metrics_cfg["constellation_size"] = self.config.environment.constellation_size
+            metrics_cfg["max_steps"] = self.config.max_steps
+            metrics_cfg["step_duration_s"] = self.config.environment.timestep_seconds
+            if self._environment is not None and hasattr(self._environment, "battery_capacity_wh"):
+                metrics_cfg["battery_capacity_wh"] = self._environment.battery_capacity_wh
+            return SSAMetricsCollector(config=metrics_cfg)
         if scenario == "flamingo":
             from src.flamingo.metrics import FlamingoMetricsCollector
             metrics_cfg = self.config.metrics.model_dump()
@@ -609,7 +630,7 @@ class ExperimentRunner:
 
         self._world_model_trace = None
         trace_dir = self.config.representation_config.get("world_model_trace_dir")
-        if trace_dir and self.config.environment.scenario == "eventsat":
+        if trace_dir and self.config.environment.scenario in {"eventsat", "ssa"}:
             from src.eventsat.trace import WorldModelTraceEpisode
 
             self._world_model_trace = WorldModelTraceEpisode(
@@ -775,9 +796,14 @@ class ExperimentRunner:
             # playback in process_action() handles the action.
             for agent_id in self._decision_loops:
                 fallback_mode = getattr(self, "_last_action_mode", "charging")
+                satellite_id = (
+                    self._organization.satellite_for_agent(agent_id)
+                    if self._organization is not None
+                    else "eventsat_0"
+                )
                 agent_actions[agent_id] = AgentAction(
                     agent_id=agent_id,
-                    action={"eventsat_0": {"mode": fallback_mode}},
+                    action={satellite_id: {"mode": fallback_mode}},
                 )
             decision_metrics.update({
                 "decision_latency_s": 0.0,

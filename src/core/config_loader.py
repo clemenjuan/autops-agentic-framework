@@ -89,6 +89,7 @@ class MetricsConfig(BaseModel):
             "mission_duration_days": 90.0,
         }
     )
+    baseline_utility_n1: float = Field(default=0.0, ge=0.0)
 
     @field_validator("collection_frequency")
     @classmethod
@@ -339,7 +340,12 @@ class ExperimentConfig(BaseModel):
     }
 
     @staticmethod
-    def _resolve_repr_type(representation: str, action_space: Optional[str], ops: str) -> str:
+    def _resolve_repr_type(
+        representation: str,
+        action_space: Optional[str],
+        ops: str,
+        scenario: str = "eventsat",
+    ) -> str:
         """Resolve the concrete representation class from benchmark coordinates.
 
         The class is determined by (substrate, action_space, operations_paradigm):
@@ -349,6 +355,8 @@ class ExperimentConfig(BaseModel):
         """
         _ONBOARD_OPS = ("autonomous_onboard", "autonomous_hybrid")
         if representation == "symbolic":
+            if scenario == "ssa" and ops in _ONBOARD_OPS:
+                return "rule_based_ssa"
             return {
                 "autonomous_onboard": "rule_based_eventsat",
                 "autonomous_hybrid": "rule_based_eventsat",
@@ -402,6 +410,7 @@ class ExperimentConfig(BaseModel):
             self.representation,
             self.representation_config.get("action_space"),
             self.operations_paradigm,
+            self.environment.scenario,
         )
 
     def _onboard_core(self) -> tuple[str, Optional[str]]:
@@ -432,7 +441,7 @@ class ExperimentConfig(BaseModel):
             return None
         substrate, action_space = self._onboard_core()
         if substrate == "symbolic":
-            return "rule_based_eventsat"
+            return "rule_based_ssa" if self.environment.scenario == "ssa" else "rule_based_eventsat"
         if substrate in ("subsymbolic", "rl"):
             return "subsymbolic_eventsat"
         if substrate == "hybrid-rl":
@@ -459,7 +468,7 @@ class ExperimentConfig(BaseModel):
             return None
         ground_ops = "autonomous_ground" if ops == "autonomous_hybrid" else ops
         substrate, action_space = self._ground_core()
-        return self._resolve_repr_type(substrate, action_space, ground_ops)
+        return self._resolve_repr_type(substrate, action_space, ground_ops, self.environment.scenario)
 
     @property
     def onboard_uses_jetson(self) -> bool:
@@ -546,6 +555,16 @@ class ExperimentConfig(BaseModel):
         # Resolve the concrete representation class (raises if hybrid lacks action_space).
         rep_type = self.resolved_representation_type
 
+        if (
+            self.environment.scenario == "ssa"
+            and ops in self._GROUND_PARADIGMS
+            and self.agent_organization not in {"sas", "centralized_mas"}
+        ):
+            raise ValueError(
+                "SSA ground paradigms (AG/CG) are only supported with SAS or CMAS "
+                "organizations; AO/AH onboard paradigms may use all five organizations."
+            )
+
         # When an explicit type override is given, it must agree with action_space.
         explicit_type = self.representation_config.get("type")
         if explicit_type and action_space is not None:
@@ -568,7 +587,7 @@ class ExperimentConfig(BaseModel):
         # only the RL/HRL scheduler entries are placeholder-marked.
         if (
             ops in self._GROUND_PARADIGMS
-            and self.environment.scenario == "eventsat"
+            and self.environment.scenario in {"eventsat", "ssa"}
             and rep_type
             and rep_type not in self._SCHEDULE_PRODUCING_TYPES
         ):

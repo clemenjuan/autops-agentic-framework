@@ -5,7 +5,14 @@ import math
 
 import pytest
 
+from src.core.config_loader import ExperimentConfig, apply_overrides, load_config
+from src.core.experiment_runner import ExperimentRunner
+from src.core.satellite_env import scope_observation
 from src.orbital.isl import effective_data_rate_bps, is_isl_feasible, vector_range_km
+from src.ssa.env import SSAEnvironment, SSA_MODES
+from src.ssa.metrics import SSAMetricsCollector
+from src.ssa.rewards import SSARewardFunction
+from src.ssa.symbolic import RuleBasedSSA
 from src.ssa.targets import (
     detect_targets_in_fov,
     diffraction_limited_range_km,
@@ -71,11 +78,6 @@ def test_target_two_body_propagation_returns_finite_position() -> None:
     assert len(position) == 3
     assert all(math.isfinite(value) for value in position)
     assert 6500.0 < vector_range_km([0.0, 0.0, 0.0], position) < 7600.0
-
-
-from src.ssa.env import SSAEnvironment, SSA_MODES
-from src.ssa.metrics import SSAMetricsCollector
-from src.ssa.rewards import SSARewardFunction
 
 
 def _ssa_env_config(*, n: int = 2, settling_s: float = 0.0) -> dict:
@@ -222,6 +224,81 @@ def test_ssa_metrics_adds_coverage_duplicate_connectivity_and_m10() -> None:
 
     episode = collector.finalise_episode(0)
 
+    assert episode.aggregated["utility"] == 1.0
     assert episode.aggregated["ssa_delivered_coverage"] == 1.0
     assert episode.aggregated["duplicate_observation_rate"] == 0.25
-    assert "eta_scale" in episode.aggregated
+    assert episode.aggregated["eta_scale"] == pytest.approx(1.0)
+
+
+def test_rule_based_ssa_deconflicts_full_scope_but_local_scope_observes() -> None:
+    env = SSAEnvironment({
+        **_ssa_env_config(n=2),
+        "satellite_positions_km": {
+            "sat_0": [0.0, 0.0, 500.0],
+            "sat_1": [0.4, 0.0, 500.0],
+        },
+        "targets": {
+            "fixed_positions_km": {"rso_0": [0.0, 0.0, 530.0]},
+            "fov_half_angle_deg": 5.0,
+            "max_range_km": 52.7,
+        },
+    })
+    observation = env.reset(seed=1)
+    central = RuleBasedSSA({})
+
+    central_action = central.select_action(type("Context", (), {"state": central.encode_observation(observation)}))
+
+    assert central_action["sat_0"]["mode"] == "payload_observe"
+    assert central_action["sat_1"]["mode"] != "payload_observe"
+
+    step_result = env.step(central_action)
+    local = RuleBasedSSA({"satellite_id": "sat_1"})
+    scoped = scope_observation(step_result.observation, ["sat_1"])
+    local_state = local.encode_observation(scoped)
+
+    assert local.select_action(type("Context", (), {"state": local_state}))["sat_1"]["mode"] == "payload_observe"
+
+
+def test_ssa_symbolic_runner_sas_deconflicts_imas_duplicates(tmp_path) -> None:
+    sas_cfg = apply_overrides(
+        load_config("configs/experiments/ssa_sas_ao_symb_n3.yaml"),
+        episodes=1,
+        steps=8,
+        output_dir=str(tmp_path / "sas"),
+    )
+    imas_cfg = apply_overrides(
+        load_config("configs/experiments/ssa_imas_ao_symb_n3.yaml"),
+        episodes=1,
+        steps=8,
+        output_dir=str(tmp_path / "imas"),
+    )
+
+    sas = ExperimentRunner(config=sas_cfg).run()
+    imas = ExperimentRunner(config=imas_cfg).run()
+
+    sas_dupes = sas["experiment_statistics"].mean["duplicate_observation_rate"]
+    imas_dupes = imas["experiment_statistics"].mean["duplicate_observation_rate"]
+    assert sas_dupes == 0.0
+    assert imas_dupes > 0.0
+
+
+def test_ssa_ground_paradigms_reject_distributed_organizations() -> None:
+    with pytest.raises(ValueError, match="SSA ground paradigms"):
+        ExperimentConfig(
+            experiment_id="ssa_invalid_ground_imas",
+            agent_organization="independent_mas",
+            decision_procedure="sda",
+            representation="symbolic",
+            behaviour="hand_designed",
+            operations_paradigm="autonomous_ground",
+            behaviour_config={"mode": "hand_designed"},
+            environment={
+                "constellation_size": 3,
+                "timestep_seconds": 60,
+                "max_steps": 10,
+                "scenario": "ssa",
+                "scenario_config": {"scenario_file": "configs/scenarios/ssa.yaml"},
+            },
+            num_episodes=1,
+            max_steps=10,
+        )

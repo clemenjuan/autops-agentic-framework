@@ -1,0 +1,165 @@
+# SSA Scenario Definition
+# =======================
+# EventSat at constellation scale with anti-nadir RSO detection, inter-satellite
+# observation sharing, and organisation-sensitive duplicate observations.
+# The EventSat physical backbone is retained per satellite; SSA-specific target,
+# ISL, and archive settings are consumed by src.ssa.env.SSAEnvironment.
+
+scenario_name: ssa
+scenario_version: "1.0"
+description: >
+  Space-situational-awareness constellation scenario: Multi-EventSat dynamics
+  plus anti-nadir RSO observations, ISL sharing, and delivered-to-ground RSO
+  utility.
+
+orbit:
+  type: SSO
+  altitude_km: 400
+  inclination_deg: 97.4
+  eccentricity: 0.001
+  raan_deg: 0.0
+  arg_perigee_deg: 0.0
+  orbital_period_s: 5554
+  eclipse_fraction: 0.36
+  propagator: j2
+  launch_lottery: true
+
+power:
+  solar_panels:
+    config: "2x6U + 2x3U body-mounted"
+    generation_peak_w: 24.0
+    panel_efficiency_factor: 0.70
+  battery:
+    count: 2
+    capacity_wh: 84.0
+    initial_soc: 0.8
+    min_soc: 0.2
+    max_soc: 1.0
+    charge_efficiency: 0.9
+  consumption:
+    charging:        {sun_w: 4.72,  eclipse_w: 4.32}
+    communication:   {sun_w: 33.65, eclipse_w: 33.24}
+    payload_observe: {sun_w: 17.94, eclipse_w: 17.55}
+    payload_compress: {sun_w: 12.77, eclipse_w: 12.37}
+    payload_detect:  {sun_w: 12.77, eclipse_w: 12.37}
+    payload_send:    {sun_w: 12.77, eclipse_w: 12.37}
+    safe:            {sun_w: 9.58,  eclipse_w: 9.58}
+    detumbling:      {sun_w: 2.66,  eclipse_w: 2.33}
+
+communications:
+  sband:
+    downlink_rate_kbps: 128
+    uplink_rate_kbps: 128
+  ground_station:
+    name: "Ottobrunn"
+    latitude_deg: 48.0483
+    longitude_deg: 11.6567
+    min_elevation_deg: 10.0
+  passes:
+    min_per_day: 2
+    max_per_day: 3
+    min_duration_s: 22
+    max_duration_s: 422
+    avg_data_per_day_mb: 12.0
+    daily_downlink_budget_mb: 27.0
+
+storage:
+  obc_capacity_mb: 4096
+  jetson_capacity_mb: 249036.8
+  observation_size_mb: 9.41
+  compression_ratio: 5.11
+  jetson_to_obc_rate_kbps: 50
+
+payload:
+  observation_duration_s: 60
+  compression_time_factor: 2.0
+  detection_time_s: 300
+  calibration_duration_s: 120
+
+modes:
+  available:
+    - charging
+    - communication
+    - payload_observe
+    - payload_compress
+    - payload_detect
+    - payload_send
+    - isl_share
+    - safe
+  default: charging
+  constraints:
+    communication:
+      requires_ground_pass: true
+      requires_fine_pointing: true
+    payload_observe:
+      requires_eclipse: false
+      min_battery_soc: 0.4
+    payload_compress: {min_battery_soc: 0.3}
+    payload_detect:   {min_battery_soc: 0.3}
+    payload_send:     {min_battery_soc: 0.3}
+    isl_share:        {min_battery_soc: 0.3}
+  transition_overhead:
+    settling_time_s: 135.0
+    attitude_maneuver_modes:
+      - payload_observe
+      - communication
+
+rewards:
+  reward_scale: 0.01
+  resource_penalty_factor: 1.0
+  battery_low_threshold: 0.3
+  storage_high_threshold: 0.8
+  standby_penalty: 0.05
+  safe_penalty: 0.3
+  observe_reward: 1.0
+  compress_reward: 0.5
+  failed_action_penalty: 0.1
+  comm_reward_factor: 1.0
+  comm_reward_cap: 5.0
+  mission_scale: 1.0
+
+objectives:
+  total_observation_hours: 2.0
+  min_downlinked_data_mb: 221
+  mission_duration_days: 90
+  observations_per_day_target: 4
+
+ssa:
+  collective_negative: true
+
+targets:
+  count: 3
+  seed: 42
+  altitude_range_km: [600.0, 900.0]
+  eccentricity_max: 0.001
+  inclination_range_deg: [97.0, 99.0]
+  object_size_m: 1.0
+  fov_half_angle_deg: 5.0
+  max_range_km: 52.7
+  prefer_orekit: false
+  fixed_positions_km:
+    rso_0: [0.0, 0.0, 530.0]
+    rso_1: [0.5, 0.0, 530.0]
+    rso_2: [0.0, 0.5, 530.0]
+
+satellite_positions_km:
+  sat_0: [0.0, 0.0, 500.0]
+  sat_1: [0.4, 0.0, 500.0]
+  sat_2: [0.0, 0.4, 500.0]
+  sat_3: [0.4, 0.4, 500.0]
+  sat_4: [-0.4, 0.0, 500.0]
+
+isl:
+  frequency_hz: 437000000.0
+  transmit_power_w: 1.0
+  tx_gain_db: 2.15
+  rx_gain_db: 2.15
+  bandwidth_hz: 12500.0
+  noise_figure_db: 3.0
+  implementation_loss_db: 2.0
+  sensitivity_dbw: -132.0
+  max_ber: 0.001
+
+ground_station:
+  name: "Ottobrunn"
+  always_visible: true

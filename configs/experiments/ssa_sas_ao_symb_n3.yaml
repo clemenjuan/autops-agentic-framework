@@ -1,0 +1,67 @@
+# SSA | SAS | SDA | Symbolic | Hand-designed | Autonomous-Onboard
+experiment_id: ssa_sas_ao_symb_n3
+description: >
+  SSA N=3 symbolic autonomous-onboard smoke configuration for a single central constellation agent.
+
+seed: 42
+
+agent_organization: sas
+decision_procedure: sda
+representation: symbolic
+behaviour: hand_designed
+operations_paradigm: autonomous_onboard
+
+agent_organization_config: {}
+
+decision_procedure_config:
+  sense_encode: true
+  decide_act: true
+
+representation_config:
+  type: rule_based_ssa
+
+behaviour_config:
+  mechanism: hand_designed
+  mode: hand_designed
+
+operations_paradigm_config:
+  default_mode: charging
+
+environment:
+  constellation_size: 3
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: ssa
+  scenario_config:
+    scenario_file: configs/scenarios/ssa.yaml
+    reward_config:
+      local_weight: 0.7
+      team_weight: 0.3
+      team_reducer: mean
+      collective_weight: 1.0
+      mission_scale: 1.0
+      collective_negative: true
+
+memory_config:
+  history_depth: 100
+
+num_episodes: 1
+max_steps: 100
+
+metrics:
+  enabled:
+    - utility
+    - latency
+    - resource_efficiency
+    - operator_load
+    - explainability
+    - scale_complexity
+    - ssa_coverage
+    - ssa_duplicates
+    - ssa_connectivity
+  collection_frequency: per_step
+  baseline_utility_n1: 1.0
+
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

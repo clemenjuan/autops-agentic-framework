@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from pathlib import Path
 from typing import Any, Dict, Mapping, Sequence
+
+import yaml
 
 from src.core.satellite_env import (
     ConstellationState,
@@ -38,13 +41,27 @@ class SSAEnvironment(MultiEventsatEnv):
     """Multi-EventSat plus RSO detection, ISL sharing, and ground archive."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
-        self.ssa_config = dict(config.get("ssa", {}))
-        self.targets_config = dict(config.get("targets", {}))
-        self.isl_config_block = dict(config.get("isl", {}))
-        self.ground_config = dict(config.get("ground_station", {}))
+        scenario_defaults = self._load_ssa_scenario_defaults(config)
+        self.ssa_config = {**dict(scenario_defaults.get("ssa", {})), **dict(config.get("ssa", {}))}
+        self.targets_config = {
+            **dict(scenario_defaults.get("targets", {})),
+            **dict(config.get("targets", {})),
+        }
+        self.isl_config_block = {
+            **dict(scenario_defaults.get("isl", {})),
+            **dict(config.get("isl", {})),
+        }
+        self.ground_config = {
+            **dict(scenario_defaults.get("ground_station", {})),
+            **dict(config.get("ground_station", {})),
+        }
+        satellite_positions = {
+            **dict(scenario_defaults.get("satellite_positions_km", {})),
+            **dict(config.get("satellite_positions_km", {})),
+        }
         self._configured_sat_positions = {
             str(k): tuple(float(x) for x in v)
-            for k, v in dict(config.get("satellite_positions_km", {})).items()
+            for k, v in satellite_positions.items()
         }
         super().__init__(config)
 
@@ -85,6 +102,19 @@ class SSAEnvironment(MultiEventsatEnv):
         self.isl_successes = 0
         self.last_step_detections: dict[str, list[str]] = {}
         self.last_step_downlinked_records = 0
+
+
+    @staticmethod
+    def _load_ssa_scenario_defaults(config: Mapping[str, Any]) -> dict[str, Any]:
+        scenario_path = config.get("scenario_config") or config.get("scenario_file")
+        if not scenario_path:
+            return {}
+        path = Path(str(scenario_path))
+        if not path.exists():
+            return {}
+        with path.open("r", encoding="utf-8") as handle:
+            scenario = yaml.safe_load(handle) or {}
+        return scenario if isinstance(scenario, dict) else {}
 
     def reset(self, seed: int | None = None) -> EnvironmentObservation:
         obs = super().reset(seed=seed)
