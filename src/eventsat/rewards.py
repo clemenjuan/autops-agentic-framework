@@ -181,8 +181,8 @@ class EventSatRewardFunction:
         return self.reward_scale * (r_resource + r_action + r_mission)
 
 
-class BaseMultiSatRewardFunction:
-    """Per-satellite reward for the ``basemultisat`` constellation scenario.
+class MultiEventsatRewardFunction:
+    """Per-satellite reward for the ``multieventsat`` constellation scenario.
 
     Single locus of reward freedom for multi-agent scenarios. Its contract
     returns a dict keyed by satellite_id, so a future scenario-specific reward

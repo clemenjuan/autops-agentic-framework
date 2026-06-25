@@ -194,14 +194,14 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
                 self.config.operations_paradigm != "autonomous_hybrid"
             )
             return EventSatEnvironment(config=env_cfg)
-        if scenario == "basemultisat":
-            from src.eventsat.basemultisat_env import BaseMultiSatEnvironment
+        if scenario == "multieventsat":
+            from src.eventsat.multieventsat_env import MultiEventsatEnv
 
             env_cfg["anomaly_requires_ground_pass"] = (
                 self.config.operations_paradigm != "autonomous_hybrid"
             )
             env_cfg["constellation_size"] = self.config.environment.constellation_size
-            return BaseMultiSatEnvironment(config=env_cfg)
+            return MultiEventsatEnv(config=env_cfg)
         raise ValueError(f"No RLlib environment registered for scenario '{scenario}'")
 
     def _create_organization(self) -> Any:

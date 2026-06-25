@@ -274,9 +274,9 @@ class ExperimentRunner:
             # (see initialise()); the env default holds until then.
             return EventSatEnvironment(config=env_cfg)
 
-        if scenario == "basemultisat":
-            from src.eventsat.basemultisat_env import BaseMultiSatEnvironment
-            return BaseMultiSatEnvironment(config=env_cfg)
+        if scenario == "multieventsat":
+            from src.eventsat.multieventsat_env import MultiEventsatEnv
+            return MultiEventsatEnv(config=env_cfg)
 
         if scenario == "flamingo":
             from src.flamingo.env import FlamingoEnvironment
@@ -341,7 +341,7 @@ class ExperimentRunner:
         org_config = dict(self.config.agent_organization_config)
         if self.config.agent_organization == "independent_mas":
             prefixes = {
-                "basemultisat": "sat",
+                "multieventsat": "sat",
                 "eventsat": "eventsat",
                 "flamingo": "flamingo",
             }
@@ -398,7 +398,7 @@ class ExperimentRunner:
 
         if (
             self._organization is not None
-            and self.config.environment.scenario == "basemultisat"
+            and self.config.environment.scenario == "multieventsat"
         ):
             from src.core.organization.base import validate_agent_satellite_mapping
 
@@ -512,8 +512,8 @@ class ExperimentRunner:
     def _create_metrics_collector(self) -> Any:
         """Factory for the metrics collector."""
         scenario = self.config.environment.scenario
-        if scenario in ("eventsat", "basemultisat"):
-            # BaseMultiSat exposes EventSat-compatible aggregate telemetry.
+        if scenario in ("eventsat", "multieventsat"):
+            # MultiEventsat exposes EventSat-compatible aggregate telemetry.
             from src.eventsat.metrics import EventSatMetricsCollector
             metrics_cfg = self.config.metrics.model_dump()
             # Pass environment parameters needed for energy/utility computation

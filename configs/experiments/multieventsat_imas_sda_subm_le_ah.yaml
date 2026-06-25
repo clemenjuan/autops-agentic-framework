@@ -1,12 +1,12 @@
-# BaseMultiSat | Independent MAS | SDA | RL | Emergent | Autonomous-Hybrid
+# MultiEventsat | Independent MAS | SDA | RL | Emergent | Autonomous-Hybrid
 # ============================================================================
-# Base multi-satellite RL configuration: N independent EventSat-class satellites
+# Multi-EventSat RL configuration: N independent EventSat-class satellites
 # with one PPO-controlled agent per satellite (Independent MAS, Kim et al. 2025)
 # and shared policy weights through the RLlib backend.
 
-experiment_id: basemultisat_imas_sda_subm_le_ah
+experiment_id: multieventsat_imas_sda_subm_le_ah
 description: >
-  Base multi-satellite constellation with Independent MAS organization (one PPO
+  Multi-EventSat constellation with Independent MAS organization (one PPO
   agent per satellite), SDA decision procedure, RL representation, emergent PPO
   behaviour, and autonomous-hybrid operations.
 
@@ -27,7 +27,7 @@ decision_procedure_config:
 
 representation_config:
   type: subsymbolic_eventsat
-  rl_mock: false
+  rl_mock: true
   deterministic: true
   checkpoint_path: ""
   orbital_period_steps: 94
@@ -56,9 +56,9 @@ environment:
   constellation_size: 3
   timestep_seconds: 60
   max_steps: 10080
-  scenario: basemultisat
+  scenario: multieventsat
   scenario_config:
-    scenario_file: configs/scenarios/basemultisat.yaml
+    scenario_file: configs/scenarios/multieventsat.yaml
     reward_config:
       local_weight: 0.7
       team_weight: 0.3

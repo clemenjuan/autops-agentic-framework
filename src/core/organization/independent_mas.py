@@ -48,9 +48,9 @@ class IndependentMAS(AgentOrganization):
     def satellite_for_agent(self, agent_id: str) -> str:
         """Map ``sat_agent_i`` to the satellite it controls.
 
-        ``BaseMultiSat`` uses the default ``sat_i`` ids. Other scenarios can set
+        ``MultiEventsat`` uses the default ``sat_i`` ids. Other scenarios can set
         ``agent_organization_config.satellite_prefix`` (for example
-        ``"flamingo"``) or an explicit ``satellite_ids`` list.
+        ``"flamingo"`` or ``"sat"``) or an explicit ``satellite_ids`` list.
         """
         idx = self._agent_index(agent_id)
         explicit = self.config.get("satellite_ids")

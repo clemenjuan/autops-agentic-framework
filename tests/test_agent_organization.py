@@ -241,7 +241,7 @@ class TestIndependentMAS:
         org.initialize(constellation_size=3)
         assert org.get_agents() == ["sat_agent_0", "sat_agent_1", "sat_agent_2"]
 
-    def test_satellite_for_agent_maps_base_multisat_default(self) -> None:
+    def test_satellite_for_agent_maps_multieventsat_default(self) -> None:
         org = IndependentMAS(config={})
         org.initialize(constellation_size=3)
         assert org.satellite_for_agent("sat_agent_0") == "sat_0"

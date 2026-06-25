@@ -1,8 +1,7 @@
 """
-BaseMultiSat — a base multi-satellite constellation scenario.
+MultiEventsat — a Multi-EventSat constellation scenario.
 
-A deliberately *base* (reference) multi-satellite environment, inspired by
-EventSat. It composes N independent per-satellite EventSat dynamics — each
+An integrated constellation environment that owns N per-satellite EventSat dynamics — each
 satellite is a full EventSat with its own launch lottery (independent orbital
 context), power/data pipeline and reward — and exposes them through the
 standard multi-satellite contract:
@@ -13,15 +12,14 @@ standard multi-satellite contract:
     ``autops_actor_critic_v1`` model be reused unchanged.
   * ``StepResult.rewards`` keyed **per satellite** (``{"sat_0": r0, ...}``), so
     the RLlib bridge maps each agent to its own satellite's reward. The
-    collective/shared reward term is owned by :class:`BaseMultiSatRewardFunction`
+    collective/shared reward term is owned by :class:`MultiEventsatRewardFunction`
     (see ``src/eventsat/rewards.py``) — a future scenario-specific reward
     class is a drop-in replacement, no changes to this env or the bridge.
 
-Design choice (v1): satellites are fully independent (no shared ground-station
-budget / no inter-satellite links). Coordination pressure, if wanted, enters
-through the reward's team term, not through shared physical resources. This
-keeps the base scenario simple to validate; a shared-resource variant can be
-added later without touching the contract.
+Design choice (v1): EventSat resources remain per satellite, while the
+constellation is stepped and observed as a single environment. Coordination
+pressure can enter through the reward team term; subclasses such as SSA can add
+shared resources and information flow without changing the bridge contract.
 
 References: Kim et al. (2025) [FVFQ73RF] Independent MAS topology;
 Juan Oliver et al. (EUCASS 2025) reward modelling (Individual → Collective).
@@ -32,7 +30,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from src.eventsat.rewards import BaseMultiSatRewardFunction
+from src.eventsat.rewards import MultiEventsatRewardFunction
 from src.core.satellite_env import (
     ConstellationState,
     EnvironmentObservation,
@@ -45,8 +43,8 @@ from src.eventsat.env import EventSatEnvironment
 logger = logging.getLogger(__name__)
 
 
-class BaseMultiSatEnvironment(SatelliteEnvironment):
-    """N-satellite constellation built from independent EventSat dynamics."""
+class MultiEventsatEnv(SatelliteEnvironment):
+    """N-satellite constellation built from EventSat-class dynamics."""
 
     def __init__(self, config: Dict[str, Any]) -> None:
         super().__init__(config)
@@ -64,7 +62,7 @@ class BaseMultiSatEnvironment(SatelliteEnvironment):
 
         # Collective reward blend (local + team). Individual per-satellite
         # rewards are produced by the sub-environments themselves.
-        self.reward_fn = BaseMultiSatRewardFunction(config.get("reward_config", {}))
+        self.reward_fn = MultiEventsatRewardFunction(config.get("reward_config", {}))
 
         # Constants read by the RL space adapter via getattr(env, name).
         # Identical across sub-envs (same scenario); take them from a prototype.
@@ -116,7 +114,7 @@ class BaseMultiSatEnvironment(SatelliteEnvironment):
 
         Extensive quantities are summed across satellites, intensive ones are
         averaged, and boolean flags are OR-ed. This lets the existing
-        ``EventSatMetricsCollector`` consume ``basemultisat`` steps unchanged.
+        ``EventSatMetricsCollector`` consume ``multieventsat`` steps unchanged.
         """
         infos = list(per_satellite_info.values())
         if not infos:

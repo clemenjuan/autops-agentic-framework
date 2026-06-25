@@ -1,11 +1,11 @@
-"""Tests for the BaseMultiSat constellation scenario and its RL integration."""
+"""Tests for the MultiEventsat constellation scenario and its RL integration."""
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from src.eventsat.rewards import BaseMultiSatRewardFunction
-from src.eventsat.basemultisat_env import BaseMultiSatEnvironment
+from src.eventsat.rewards import MultiEventsatRewardFunction
+from src.eventsat.multieventsat_env import MultiEventsatEnv
 
 
 def _env_config(n: int = 3, max_steps: int = 5) -> dict:
@@ -13,24 +13,24 @@ def _env_config(n: int = 3, max_steps: int = 5) -> dict:
         "constellation_size": n,
         "step_duration_s": 60,
         "max_steps": max_steps,
-        "scenario_file": "configs/scenarios/basemultisat.yaml",
+        "scenario_file": "configs/scenarios/multieventsat.yaml",
         "reward_config": {"local_weight": 0.7, "team_weight": 0.3, "team_reducer": "mean"},
     }
 
 
-class TestBaseMultiSatRewardFunction:
+class TestMultiEventsatRewardFunction:
     def test_pure_individual_when_team_weight_zero(self) -> None:
-        rf = BaseMultiSatRewardFunction({"local_weight": 1.0, "team_weight": 0.0})
+        rf = MultiEventsatRewardFunction({"local_weight": 1.0, "team_weight": 0.0})
         out = rf.compute_rewards({"sat_0": 1.0, "sat_1": 3.0})
         assert out == {"sat_0": 1.0, "sat_1": 3.0}
 
     def test_local_weight_scales_individual(self) -> None:
-        rf = BaseMultiSatRewardFunction({"local_weight": 0.5, "team_weight": 0.0})
+        rf = MultiEventsatRewardFunction({"local_weight": 0.5, "team_weight": 0.0})
         out = rf.compute_rewards({"sat_0": 2.0, "sat_1": 4.0})
         assert out == {"sat_0": 1.0, "sat_1": 2.0}
 
     def test_mixed_local_team_mean(self) -> None:
-        rf = BaseMultiSatRewardFunction(
+        rf = MultiEventsatRewardFunction(
             {"local_weight": 0.5, "team_weight": 0.5, "team_reducer": "mean"}
         )
         out = rf.compute_rewards({"sat_0": 1.0, "sat_1": 3.0})  # team mean = 2.0
@@ -39,28 +39,28 @@ class TestBaseMultiSatRewardFunction:
 
     def test_team_reducers(self) -> None:
         for reducer, expected_team in (("sum", 4.0), ("min", 1.0), ("mean", 2.0)):
-            rf = BaseMultiSatRewardFunction(
+            rf = MultiEventsatRewardFunction(
                 {"local_weight": 0.0, "team_weight": 1.0, "team_reducer": reducer}
             )
             out = rf.compute_rewards({"sat_0": 1.0, "sat_1": 3.0})
             assert out["sat_0"] == pytest.approx(expected_team)
 
 
-class TestBaseMultiSatEnvironment:
+class TestMultiEventsatEnv:
     def test_observation_exposes_all_satellites(self) -> None:
-        env = BaseMultiSatEnvironment(_env_config(n=3))
+        env = MultiEventsatEnv(_env_config(n=3))
         obs = env.reset(seed=1)
         assert set(obs.constellation_state.satellites) == {"sat_0", "sat_1", "sat_2"}
 
     def test_step_returns_per_satellite_reward_dict(self) -> None:
-        env = BaseMultiSatEnvironment(_env_config(n=3))
+        env = MultiEventsatEnv(_env_config(n=3))
         env.reset(seed=1)
         result = env.step({sid: {"mode": "charging"} for sid in ("sat_0", "sat_1", "sat_2")})
         assert set(result.rewards) == {"sat_0", "sat_1", "sat_2"}
         assert all(isinstance(v, float) for v in result.rewards.values())
 
     def test_episode_terminates_at_max_steps(self) -> None:
-        env = BaseMultiSatEnvironment(_env_config(n=2, max_steps=3))
+        env = MultiEventsatEnv(_env_config(n=2, max_steps=3))
         env.reset(seed=0)
         for _ in range(3):
             result = env.step({"sat_0": {"mode": "charging"}, "sat_1": {"mode": "charging"}})
@@ -70,7 +70,7 @@ class TestBaseMultiSatEnvironment:
         # Independent per-satellite launch lotteries give distinct ground-pass
         # schedules, so the satellites are genuinely decoupled even under an
         # identical action stream.
-        env = BaseMultiSatEnvironment(_env_config(n=3, max_steps=200))
+        env = MultiEventsatEnv(_env_config(n=3, max_steps=200))
         env.reset(seed=7)
         diverged = False
         for _ in range(200):
@@ -85,7 +85,7 @@ class TestBaseMultiSatEnvironment:
 
     def test_reproducible_given_seed(self) -> None:
         def run() -> list:
-            env = BaseMultiSatEnvironment(_env_config(n=2, max_steps=4))
+            env = MultiEventsatEnv(_env_config(n=2, max_steps=4))
             env.reset(seed=123)
             rewards = []
             for _ in range(4):
@@ -96,10 +96,10 @@ class TestBaseMultiSatEnvironment:
         assert run() == run()
 
 
-class TestBaseMultiSatRLLibIntegration:
+class TestMultiEventsatRLLibIntegration:
     def _config(self, n: int = 3, max_steps: int = 5) -> dict:
         return {
-            "experiment_id": "basemultisat_test",
+            "experiment_id": "multieventsat_test",
             "seed": 0,
             "agent_organization": "independent_mas",
             "decision_procedure": "sda",
@@ -116,9 +116,9 @@ class TestBaseMultiSatRLLibIntegration:
                 "constellation_size": n,
                 "timestep_seconds": 60,
                 "max_steps": max_steps,
-                "scenario": "basemultisat",
+                "scenario": "multieventsat",
                 "scenario_config": {
-                    "scenario_file": "configs/scenarios/basemultisat.yaml",
+                    "scenario_file": "configs/scenarios/multieventsat.yaml",
                     "reward_config": {"local_weight": 0.7, "team_weight": 0.3, "team_reducer": "mean"},
                 },
             },
@@ -178,7 +178,7 @@ class TestBaseMultiSatRLLibIntegration:
         assert distinct_seen, "per-agent rewards should differ across satellites"
 
 
-class TestBaseMultiSatRayPolicySpecs:
+class TestMultiEventsatRayPolicySpecs:
     """RLlib training-wiring checks for the N-agent case.
 
     These exercise the parts that need the real Ray/RLlib stack (the env as a
@@ -189,7 +189,7 @@ class TestBaseMultiSatRayPolicySpecs:
 
     def _config(self, n: int = 3) -> dict:
         return {
-            "experiment_id": "basemultisat_ray_test",
+            "experiment_id": "multieventsat_ray_test",
             "seed": 0,
             "agent_organization": "independent_mas",
             "decision_procedure": "sda",
@@ -206,9 +206,9 @@ class TestBaseMultiSatRayPolicySpecs:
                 "constellation_size": n,
                 "timestep_seconds": 60,
                 "max_steps": 5,
-                "scenario": "basemultisat",
+                "scenario": "multieventsat",
                 "scenario_config": {
-                    "scenario_file": "configs/scenarios/basemultisat.yaml",
+                    "scenario_file": "configs/scenarios/multieventsat.yaml",
                     "reward_config": {"local_weight": 0.7, "team_weight": 0.3, "team_reducer": "mean"},
                 },
             },
@@ -274,18 +274,18 @@ class TestBaseMultiSatRayPolicySpecs:
             assert map_fn(agent_id) in specs
 
 
-class TestBaseMultiSatExperimentRunner:
+class TestMultiEventsatExperimentRunner:
     """End-to-end evaluation of the multi-satellite scenario via ExperimentRunner.
 
     Uses ``rl_mock`` (RandomPolicy) so it runs without Ray/torch: it exercises
     the full ``autops run`` evaluation path — per-agent satellite-aware
     representations, the multi-agent step loop, and the (reused) EventSat
-    metrics collector consuming basemultisat's aggregated info.
+    metrics collector consuming multieventsat's aggregated info.
     """
 
     def _config(self, n: int = 3, episodes: int = 2, steps: int = 15) -> dict:
         return {
-            "experiment_id": "basemultisat_eval_test",
+            "experiment_id": "multieventsat_eval_test",
             "seed": 1,
             "agent_organization": "independent_mas",
             "decision_procedure": "sda",
@@ -302,15 +302,15 @@ class TestBaseMultiSatExperimentRunner:
                 "constellation_size": n,
                 "timestep_seconds": 60,
                 "max_steps": steps,
-                "scenario": "basemultisat",
+                "scenario": "multieventsat",
                 "scenario_config": {
-                    "scenario_file": "configs/scenarios/basemultisat.yaml",
+                    "scenario_file": "configs/scenarios/multieventsat.yaml",
                     "reward_config": {"local_weight": 0.7, "team_weight": 0.3},
                 },
             },
             "num_episodes": episodes,
             "max_steps": steps,
-            "output_dir": "data/results/basemultisat_eval_test",
+            "output_dir": "data/results/multieventsat_eval_test",
         }
 
     def _run(self, **kwargs):

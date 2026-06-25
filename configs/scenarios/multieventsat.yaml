@@ -1,6 +1,6 @@
-# BaseMultiSat Scenario Definition
+# MultiEventsat Scenario Definition
 # ================================
-# A base (reference) multi-satellite constellation scenario, inspired by
+# A Multi-EventSat constellation scenario, inspired by
 # EventSat. Each satellite runs full EventSat dynamics (power, 3-pool data
 # pipeline, comms, anomalies) with an INDEPENDENT launch lottery, so the
 # constellation has distinct eclipse/pass geometry per satellite.
@@ -10,10 +10,10 @@
 # The physics intentionally reuses the EventSat 6U CubeSat model so the RL
 # observation/action contract (25D / MultiDiscrete([7,2,2])) is shared.
 
-scenario_name: basemultisat
+scenario_name: multieventsat
 scenario_version: "1.0"
 description: >
-  Base multi-satellite constellation: N independent EventSat-class 6U CubeSats
+  Multi-EventSat constellation: N independent EventSat-class 6U CubeSats
   in SSO, each with its own launch lottery. Satellites are fully decoupled in
   v1 (no shared ground-station budget, no inter-satellite links); coordination
   pressure, if desired, is introduced through the reward team term.
