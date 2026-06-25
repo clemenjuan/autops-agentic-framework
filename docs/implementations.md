@@ -295,7 +295,7 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
 - **Registered as**: `agentic_eventsat`
 - **Substrate / action space**: Hybrid (LLM agent + symbolic tools + grounding constraints), **agentic** action space (tool-call loop + structured memory). Same substrate as `llm_eventsat`; differs only in action space.
 - **Supporting modules**:
-  - `src/eventsat/agentic_tools.py` — 6 domain tools (pure functions on state/memory)
+  - `src/eventsat/agentic_tools.py` — agentic tools + derived-telemetry helpers (pure functions on state/memory)
   - `src/eventsat/agentic_prompts.py` — system prompt, planning/reflect/reasoning templates
 - **Paper basis**:
   - Sumers et al. (2024), "Cognitive Architectures for Language Agents" [CoALA] —
@@ -316,16 +316,24 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
      If even that yields no valid mode, the episode **fails** (substrate-integrity
      invariant — agentic sibling of `ec1b83b`; no symbolic substitution).
   5. GROUND: Same symbolic safety constraints as llm_eventsat.
-- **Max LLM calls per decision**: `max_agentic_steps` (default **5**, configurable in YAML)
-  + at most 1 forced-decide call. Raised from 3 on 2026-06-12 (`6866ab5`): the first
-  live 122B run rode the 3-call budget to exhaustion on 66 % of steps without deciding.
-- **Domain tools** (6):
-  - `check_battery`: SoC, charging rate, feasible modes.
-  - `check_ground_pass`: Pass active, time to next, remaining duration, OBC data.
-  - `check_data_pipeline`: Pipeline status, bottleneck identification.
+- **Max LLM calls per decision**: `max_agentic_steps` (default **3**, configurable in YAML)
+  + at most 1 forced-decide call (worst case ~4 LLM calls). History: raised 3→5 on
+  2026-06-12 (`6866ab5`) because the first live 122B run rode the budget to exhaustion
+  on 66 % of steps; lowered back to 3 once the **echo tools were folded into the prompt**
+  (below), which removed the round-trips the model was spending re-reading received state.
+  The lower budget bounds per-decision latency so a fresh-telemetry decision does not
+  overrun the contact window.
+- **Agentic tools** (the *external actions* the model is offered — CoALA §3): only
+  **what-if / lookup** actions that cannot be answered from the prompt alone:
   - `check_constraints`: Pre-validate proposed mode against hard/soft constraints.
-  - `recall_history`: Query episodic memory (recent modes, battery trend).
   - `evaluate_plan`: Heuristic utility and risk assessment for proposed mode.
+  - `recall_history`: Query episodic memory (recent modes, battery trend) — per-step
+    core only; the ground scheduler has no memory and excludes it (`SCHEDULE_TOOL_NAMES`).
+- **Folded-in telemetry** (NOT tools — surfaced directly in the planning prompt, since
+  spending an LLM round-trip to re-read received state just inflates latency): the former
+  `check_battery` / `check_ground_pass` / `check_data_pipeline` tools are now pure helpers
+  that compute the feasible-mode list and pipeline bottleneck written into the prompt's
+  `DERIVED` block (and reused by `reason()`).
 - **CoALA memory mapping** (FixedMemory not modified):
   - Working: `DecisionContext.state` + tool results accumulated in-loop.
   - Episodic: `FixedMemory.history` + `task_history` (via `recall_history` tool).
@@ -405,8 +413,13 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   models (and the mock client) emit.
 - **Metrics**: LLM client metrics + `llm_schedule_entries` (inherited) +
   `agentic_total_tool_calls`, `agentic_avg_steps_per_decision`, per-tool histogram.
-- **`max_agentic_steps`**: CoALA loop budget per schedule decision (default **5**,
-  configurable in YAML), matching the per-step agentic core.
+- **`max_agentic_steps`**: CoALA loop budget per schedule decision (default **3**,
+  configurable in YAML), matching the per-step agentic core. Lowered from 5 once the
+  echo tools were folded into the planning prompt (see the per-step core's *Agentic
+  tools* / *Folded-in telemetry* notes); it advertises only `SCHEDULE_TOOL_NAMES`
+  (`check_constraints`, `evaluate_plan`) — `recall_history` is dropped (the ground
+  planner has no memory). This bounds per-pass decision latency so a schedule produced
+  on fresh telemetry does not overrun the contact window.
 - **Decisive prompt — bounding runaway reasoning (2026-06-23)**: qwen3.6:35b is a
   *thinking* model, and the original open-ended `AGENTIC_SCHEDULE_SYSTEM_PROMPT`
   ("you may call tools multiple times … verify assumptions rather than guessing") drove
@@ -417,14 +430,26 @@ Full taxonomy: Kim et al. (2025) [FVFQ73RF] "Towards a Science of Scaling Agent 
   tried and rejected: it stops the spiral but makes the model emit **malformed JSON**
   (the thinking phase is what gets the structure right) — every cell then tripped the
   integrity violation. The fix keeps the known-good config (think on, streaming) and
-  instead makes the prompt **decisive**: it now instructs *"1-2 tool calls is usually
-  enough; keep INTERNAL reasoning concise (a few sentences); do not simulate many
-  scenarios — think briefly, then act."* This bounds the internal deliberation while
-  **preserving genuine tool use** (the agentic action space). Verified live (think on,
-  streaming): the PLAN call terminates in **8-33 s** with valid schedule JSON and
-  `tool_call` still emitted, `done_reason=stop` — vs >300 s runaway before. The
+  instead makes the prompt **decisive**: it now tells the model it already has the full
+  fresh telemetry (incl. the derived feasible modes + pipeline bottleneck), that the
+  tools only *validate / score a candidate* (one such check is usually enough), and to
+  *keep INTERNAL reasoning concise — think briefly, then act.* This bounds the internal
+  deliberation while **preserving genuine tool use** (the agentic action space). Verified
+  live (think on, streaming): the PLAN call terminates in **8-33 s** with valid schedule
+  JSON and `tool_call` still emitted, `done_reason=stop` — vs >300 s runaway before. The
   `llm-s`↔`llm-a` contrast remains the action space (one call vs the tool-using loop),
   not the inference config.
+- **Tool trim + lower budget — bounding per-decision latency (2026-06-25)**: a second
+  lever on top of the decisive prompt. The original 6-tool set was *tool-hungry* — three
+  tools (`check_battery`, `check_ground_pass`, `check_data_pipeline`) just re-surfaced
+  state the planner already receives, so the model spent LLM round-trips re-reading it.
+  Those are now **folded into the planning prompt** (feasible modes + bottleneck in the
+  `DERIVED` block) and the loop advertises only the genuine **what-if** tools. With fewer
+  reasons to loop, the budget was lowered **5→3** (worst case ~4 LLM calls/decision). The
+  operational motivation: at each contact the planner acts on *fresh telemetry*, and a
+  multi-minute decision risks missing the very overpass it was triggered for — the
+  opposite of what autonomy is for. The `hllm-a`↔`llm-a` contrast (symbolic safety shield
+  on/off) and the agentic-vs-single-shot action-space contrast are both unaffected.
 - **Papers**: Sumers et al. (2024) [CoALA] — tool use, action decomposition;
   Yao et al. (2023) — bounded agent loop with forced answer extraction;
   Rodriguez-Fernandez et al. (2024) — schedule-prompt design for sat ops.

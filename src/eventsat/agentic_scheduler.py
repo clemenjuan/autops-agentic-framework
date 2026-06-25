@@ -44,6 +44,7 @@ Registered as "agentic_scheduler_eventsat" (hllm-a) and
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.core.behaviour.controller import register
@@ -54,7 +55,11 @@ from src.eventsat.agentic_prompts import (
     format_schedule_planning_prompt,
     format_schedule_tool_result_prompt,
 )
-from src.eventsat.agentic_tools import execute_tool, get_tool_schemas
+from src.eventsat.agentic_tools import (
+    SCHEDULE_TOOL_NAMES,
+    execute_tool,
+    get_tool_schemas,
+)
 from src.eventsat.llm_scheduler import LLMSchedulerEventSat
 
 if TYPE_CHECKING:
@@ -80,23 +85,31 @@ class AgenticSchedulerEventSat(LLMSchedulerEventSat):
     # operational blocks in a critical state). llm-a overrides this to False.
     _symbolic_grounding: bool = True
 
-    # CoALA loop budget per schedule decision. Matches the per-step agentic core's
-    # default (DecisionContext 2026-06-12): models want 3-4 tool calls before
-    # committing; 5 leaves headroom plus a forced terminal Decide.
-    DEFAULT_MAX_STEPS: int = 5
+    # CoALA loop budget per schedule decision. Matches the per-step core's
+    # default: with the echo tools folded into the planning prompt and only the
+    # what-if tools advertised (SCHEDULE_TOOL_NAMES), one verify call is usually
+    # enough, so 3 bounds per-pass decision latency (worst case ~4 LLM calls
+    # incl. the forced Decide) — fast enough not to miss the contact window.
+    DEFAULT_MAX_STEPS: int = 3
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
         super().__init__(config)  # builds _client, safety model, pass-flow state
         cfg = config or {}
         self._max_agentic_steps: int = cfg.get("max_agentic_steps", self.DEFAULT_MAX_STEPS)
         self._system_prompt: str = AGENTIC_SCHEDULE_SYSTEM_PROMPT
-        self._tool_schemas = get_tool_schemas()
+        self._tool_schemas = get_tool_schemas(tool_names=SCHEDULE_TOOL_NAMES)
         # Agentic metrics
         self._total_tool_calls: int = 0
         self._total_agentic_steps: int = 0
         self._total_decisions: int = 0
         self._tool_call_histogram: Dict[str, int] = {}
         self._last_raw_responses: List[str] = []
+        # Per-decision wall-clock latency (fresh telemetry → emitted schedule).
+        # The operational figure of merit: the plan must be ready inside the
+        # contact window. Cache hits replay at ~0 s (M-07), so meaningful only on
+        # fresh states — i.e. a fresh experiment run.
+        self._total_decision_latency_s: float = 0.0
+        self._max_decision_latency_s: float = 0.0
 
     # ------------------------------------------------------------------
     # Schedule generation — agentic loop (overrides the single-shot call)
@@ -146,6 +159,7 @@ class AgenticSchedulerEventSat(LLMSchedulerEventSat):
         The ground planner reasons on fresh telemetry only (no episodic memory, like
         the single-shot scheduler); ``recall_history`` degrades gracefully on ``None``.
         """
+        decision_t0 = time.perf_counter()
         accumulated_context: List[Dict[str, Any]] = []
         raw_responses: List[str] = []
         remaining_budget = self._max_agentic_steps
@@ -239,6 +253,9 @@ class AgenticSchedulerEventSat(LLMSchedulerEventSat):
         # Metrics + rationale (validation/grounding happen in the caller)
         self._total_agentic_steps += steps_taken
         self._total_decisions += 1
+        decision_latency = time.perf_counter() - decision_t0
+        self._total_decision_latency_s += decision_latency
+        self._max_decision_latency_s = max(self._max_decision_latency_s, decision_latency)
         self._last_raw_responses = raw_responses
         self._last_rationale = (
             f"Agentic schedule [{self._summarize_chain(accumulated_context)}]: "
@@ -292,6 +309,13 @@ class AgenticSchedulerEventSat(LLMSchedulerEventSat):
             if self._total_decisions > 0 else 0.0
         )
         m["agentic_avg_steps_per_decision"] = round(avg_steps, 2)
+        mean_latency = (
+            self._total_decision_latency_s / self._total_decisions
+            if self._total_decisions > 0 else 0.0
+        )
+        m["agentic_mean_decision_latency_s"] = round(mean_latency, 3)
+        m["agentic_max_decision_latency_s"] = round(self._max_decision_latency_s, 3)
+        m["agentic_total_decision_latency_s"] = round(self._total_decision_latency_s, 3)
         for tool_name, count in self._tool_call_histogram.items():
             m[f"agentic_tool_{tool_name}"] = float(count)
         return m

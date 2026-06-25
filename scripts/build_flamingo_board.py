@@ -170,7 +170,8 @@ def _scale_series(data: dict[str, dict]) -> dict:
                 "m10": 1.0, "m10_std": 0.0, "episodes": anchor_rec.get("n", 0)})
         points.sort(key=lambda p: p["N"])
 
-    return {"anchor": anchor, "labels": ORG_LABELS,
+    anchor_std = _stdev((anchor_rec.get("per_ep") or {}).get("utility", []) or [])
+    return {"anchor": anchor, "anchor_std": anchor_std, "labels": ORG_LABELS,
             "series": {ORG_LABELS[o]: pts for o, pts in series.items()}}
 
 
@@ -248,7 +249,9 @@ TEMPLATE = r"""<!DOCTYPE html>
  <div class="caption">M-10 = (U(N)/N) / U(1) — does per-satellite productivity hold as the constellation grows?
  The RSO catalog scales with N (count = 2N) and seeds are paired, so this isolates coordination cost rather than
  target scarcity. The dashed line is ideal linear scaling. Coordinated organisations (SAS/CMAS/DMAS) stay flat;
- an uncoordinated one (IMAS) collapses as duplicate observations grow with N. Source runs:
+ an uncoordinated one (IMAS) collapses as duplicate observations grow with N. The N = 1 point is a single shared
+ lone-satellite anchor (every organisation degenerates to one agent on one satellite) — drawn as a separate diamond
+ on the utility plot and as the common 1.0 origin on the M-10 plot, not a per-organisation measurement. Source runs:
  <code>flamingo_&lt;org&gt;_ag_symb_n&lt;N&gt;</code>.</div>
  <div class="twocol">
   <div id="m10Plot" class="plot"></div>
@@ -353,8 +356,9 @@ if (measured.length){
 const SCALE = P.scale || {series:{}, anchor:null};
 const scaleOrgs = Object.keys(SCALE.series);
 const ORG_COLORS = {SAS:"#0065BD", CMAS:"#1e8449", DMAS:"#7d3c98", HMAS:"#9a6200", IMAS:"#a13026"};
-const scaleLine = (key, stdKey) => scaleOrgs.map(org=>{
-  const pts = SCALE.series[org];
+const scaleLine = (key, stdKey, opts) => scaleOrgs.map(org=>{
+  let pts = SCALE.series[org];
+  if (opts && opts.skipN1) pts = pts.filter(p=>p.N!==1);
   return {type:"scatter", mode:"lines+markers", name:org,
     x:pts.map(p=>p.N), y:pts.map(p=>p[key]),
     error_y:{type:"data", array:pts.map(p=>p[stdKey]||0), visible:true, thickness:1, width:3},
@@ -368,7 +372,16 @@ if (scaleOrgs.length && SCALE.anchor){
   Plotly.newPlot("m10Plot", m10Traces, baseLayout("constellation size N", "M-10 = (U(N)/N)/U(1)", {
     legend:{orientation:"h", y:1.16}, xaxis:{title:"constellation size N", tickvals:Ns, gridcolor:"#eee"}
   }), {displayModeBar:false});
-  Plotly.newPlot("scaleUtilPlot", scaleLine("utility","utility_std"),
+  // The N=1 point is one shared lone-satellite anchor (every organisation
+  // degenerates to a single agent on a single satellite), not a per-org run, so
+  // on the absolute-utility plot draw it once as a separate marker and let each
+  // org line start at N=3 instead of borrowing the anchor as its origin.
+  const utilTraces = scaleLine("utility","utility_std",{skipN1:true});
+  utilTraces.push({type:"scatter", mode:"markers", name:"lone-sat anchor U(1)",
+    x:[1], y:[SCALE.anchor],
+    error_y:{type:"data", array:[SCALE.anchor_std||0], visible:true, thickness:1, width:3},
+    marker:{color:"#111", size:10, symbol:"diamond"}});
+  Plotly.newPlot("scaleUtilPlot", utilTraces,
     baseLayout("constellation size N", "total utility U(N)", {
     legend:{orientation:"h", y:1.16}, xaxis:{title:"constellation size N", tickvals:Ns, gridcolor:"#eee"}
   }), {displayModeBar:false});

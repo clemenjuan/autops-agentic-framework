@@ -47,4 +47,4 @@ ground:
     llm_temperature: 0.0
     llm_mock: false
     llm_cache_dir: data/llm_cache
-    max_agentic_steps: 5
+    max_agentic_steps: 3

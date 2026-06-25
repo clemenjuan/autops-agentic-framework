@@ -17,7 +17,12 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
-from src.eventsat.agentic_tools import get_tool_schemas
+from src.eventsat.agentic_tools import (
+    SCHEDULE_TOOL_NAMES,
+    _get_feasible_modes,
+    _get_pipeline_bottleneck,
+    get_tool_schemas,
+)
 from src.eventsat.llm_prompts import DEFAULT_STORAGE_CAPACITY_MB
 
 
@@ -25,9 +30,13 @@ from src.eventsat.llm_prompts import DEFAULT_STORAGE_CAPACITY_MB
 # System prompt
 # ======================================================================
 
-def _build_tool_descriptions() -> str:
-    """Build formatted tool descriptions for system prompt."""
-    schemas = get_tool_schemas()
+def _build_tool_descriptions(tool_names: list[str] | None = None) -> str:
+    """Build formatted tool descriptions for system prompt.
+
+    ``tool_names`` restricts the advertised tools to a subset (the ground
+    scheduler advertises only the what-if tools — see ``SCHEDULE_TOOL_NAMES``).
+    """
+    schemas = get_tool_schemas(tool_names=tool_names)
     lines = []
     for schema in schemas:
         params = ", ".join(
@@ -67,13 +76,17 @@ CONSTRAINTS:
 
 REASONING PROTOCOL:
 You make decisions using a Plan-Tool-Reflect-Decide cycle:
-1. PLAN: Analyze the situation and decide which tool(s) to use.
-2. TOOL: Request a tool call to gather information.
+1. PLAN: Analyze the situation and decide whether a tool would change your choice.
+2. TOOL: Request a tool call only to validate or score a specific candidate mode.
 3. REFLECT: Incorporate tool results and refine your reasoning.
-4. DECIDE: When you have enough information, select a mode.
+4. DECIDE: As soon as you have enough information, select a mode.
 
-You may call tools multiple times before deciding. Use tools to verify \
-assumptions rather than guessing.
+The current telemetry — including the feasible modes and the pipeline \
+bottleneck — is given to you directly each step, so you do NOT need a tool to \
+read state you already have. The tools only VALIDATE (check_constraints) or \
+SCORE (evaluate_plan) a specific candidate mode, or recall recent history \
+(recall_history). Check at most one candidate, keep your internal reasoning to \
+a few sentences, then DECIDE. Think briefly, then act.
 
 AVAILABLE TOOLS:
 """ + _build_tool_descriptions() + """
@@ -141,6 +154,10 @@ def format_planning_prompt(
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
         f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
         f"  Daily downlink budget: {budget_mb:.0f} MB",
+        "",
+        "DERIVED (computed from the telemetry above — no tool needed):",
+        f"  Feasible modes now: {', '.join(_get_feasible_modes(state))}",
+        f"  Pipeline bottleneck: {_get_pipeline_bottleneck(state)}",
     ]
 
     # Loop enrichments
@@ -164,8 +181,8 @@ def format_planning_prompt(
 
     lines.append("")
     lines.append(
-        "Analyze the state above. Use tools to check battery, pass windows, "
-        "pipeline status, or constraints before deciding on a mode. "
+        "You have the full current state above. Decide the mode now, or first "
+        "validate/score one candidate with a tool if it would change your choice. "
         "Respond with JSON."
     )
 
@@ -402,13 +419,15 @@ REASONING PROTOCOL (Plan-Tool-Reflect-Decide):
 3. REFLECT: Incorporate tool results and refine the plan.
 4. DECIDE: When you have enough information, emit the whole-pass schedule.
 
-Use tools to verify key assumptions (battery, pipeline, constraints) — 1-2 calls is \
-usually enough. Keep your INTERNAL reasoning CONCISE: a few sentences. Do NOT simulate \
-many scenarios or deliberate at length internally — think briefly, then act. Emit the \
-JSON object as soon as you have what you need.
+You already receive the full fresh telemetry below — including the feasible modes and \
+the pipeline bottleneck — so you do NOT need a tool to read state you already have. The \
+tools only VALIDATE (check_constraints) or SCORE (evaluate_plan) a specific candidate \
+mode; one such check is usually enough. Keep your INTERNAL reasoning CONCISE: a few \
+sentences. Do NOT simulate many scenarios or deliberate at length internally — think \
+briefly, then act. Emit the JSON object as soon as you have what you need.
 
 AVAILABLE TOOLS:
-""" + _build_tool_descriptions() + """
+""" + _build_tool_descriptions(SCHEDULE_TOOL_NAMES) + """
 
 OUTPUT FORMAT:
 At each step, respond with a JSON object.
@@ -472,6 +491,11 @@ def format_schedule_planning_prompt(
         f"  Jetson compressed: {jetson_comp:.2f} MB ({undetected} undetected obs)",
         f"  OBC ready for downlink: {obc_mb:.2f} / {cap_mb:.0f} MB",
         cap_line,
+        "",
+        "DERIVED (computed from the telemetry above — no tool needed):",
+        f"  Feasible schedulable modes now: "
+        f"{', '.join(m for m in _get_feasible_modes(state) if m != 'communication')}",
+        f"  Pipeline bottleneck: {_get_pipeline_bottleneck(state)}",
     ]
 
     if enrichments:
@@ -484,9 +508,9 @@ def format_schedule_planning_prompt(
 
     lines.append("")
     lines.append(
-        f"Use tools to check battery, pipeline, or constraints before committing. "
-        f"Then emit a schedule whose segment durations sum to about {gap_steps} steps "
-        f"(no communication). Respond with JSON."
+        f"You have the full fresh telemetry above. Emit a schedule whose segment "
+        f"durations sum to about {gap_steps} steps (no communication) — optionally "
+        f"validating/scoring one candidate segment with a tool first. Respond with JSON."
     )
     return "\n".join(lines)
 

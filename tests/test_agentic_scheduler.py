@@ -147,7 +147,7 @@ def test_llm_a_does_not_apply_safety_shield() -> None:
 def test_extract_schedule_accepts_nested_and_flat() -> None:
     nested = {"decision": {"schedule": [["charging", 5]], "rationale": "r"}}
     flat = {"schedule": [["charging", 5]], "rationale": "r"}
-    plan = {"plan": "thinking", "tool_call": {"name": "check_battery", "args": {}}}
+    plan = {"plan": "thinking", "tool_call": {"name": "check_constraints", "args": {}}}
     assert AgenticSchedulerEventSat._extract_schedule(nested)[0] == [["charging", 5]]
     assert AgenticSchedulerEventSat._extract_schedule(flat)[0] == [["charging", 5]]
     assert AgenticSchedulerEventSat._extract_schedule(plan)[0] is None

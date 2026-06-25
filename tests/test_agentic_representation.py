@@ -298,11 +298,11 @@ class TestEvaluatePlan(unittest.TestCase):
 class TestToolRegistry(unittest.TestCase):
     """Test tool registry completeness."""
 
-    def test_all_six_tools_registered(self):
-        expected = {
-            "check_battery", "check_ground_pass", "check_data_pipeline",
-            "check_constraints", "recall_history", "evaluate_plan",
-        }
+    def test_agentic_tools_registered(self):
+        # Only the what-if / memory tools are agentic tools. The echo tools
+        # (check_battery / check_ground_pass / check_data_pipeline) are folded
+        # into the planning prompt and are no longer registered.
+        expected = {"check_constraints", "recall_history", "evaluate_plan"}
         self.assertEqual(set(TOOL_REGISTRY.keys()), expected)
 
     def test_execute_unknown_tool(self):
@@ -311,8 +311,10 @@ class TestToolRegistry(unittest.TestCase):
         self.assertIn("available", result)
 
     def test_execute_known_tool(self):
-        result = execute_tool("check_battery", {}, _make_state())
-        self.assertIn("soc", result)
+        result = execute_tool(
+            "check_constraints", {"proposed_mode": "charging"}, _make_state()
+        )
+        self.assertIn("feasible", result)
 
 
 # ======================================================================
@@ -607,11 +609,11 @@ class TestAgenticLoopWithPatchedLLM(unittest.TestCase):
         repr_obj = AgenticEventSat({"llm_mock": False, "llm_provider": "auto"})
 
         plan_response = json.dumps({
-            "plan": "Need to check battery before deciding.",
-            "tool_call": {"name": "check_battery", "args": {}},
+            "plan": "Validate observe before deciding.",
+            "tool_call": {"name": "check_constraints", "args": {"proposed_mode": "payload_observe"}},
         })
         reflect_response = json.dumps({
-            "reflection": "Battery is good. Observe.",
+            "reflection": "Observe is feasible.",
             "decision": {"mode": "payload_observe", "rationale": "SoC sufficient for observation."},
         })
 
@@ -639,12 +641,12 @@ class TestAgenticLoopWithPatchedLLM(unittest.TestCase):
         })
 
         plan_response = json.dumps({
-            "plan": "Check battery.",
-            "tool_call": {"name": "check_battery", "args": {}},
+            "plan": "Validate charging.",
+            "tool_call": {"name": "check_constraints", "args": {"proposed_mode": "charging"}},
         })
         reflect_response = json.dumps({
             "reflection": "Need more info.",
-            "tool_call": {"name": "check_data_pipeline", "args": {}},
+            "tool_call": {"name": "evaluate_plan", "args": {"proposed_mode": "charging"}},
         })
         forced_response = json.dumps({
             "decision": {"mode": "charging", "rationale": "Battery first."},
@@ -676,7 +678,7 @@ class TestAgenticLoopWithPatchedLLM(unittest.TestCase):
 
         tool_only = json.dumps({
             "reflection": "Still exploring.",
-            "tool_call": {"name": "check_battery", "args": {}},
+            "tool_call": {"name": "check_constraints", "args": {"proposed_mode": "charging"}},
         })
 
         with patch.object(repr_obj._client, "generate", return_value=tool_only):

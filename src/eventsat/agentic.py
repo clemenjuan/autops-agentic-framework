@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -128,10 +129,14 @@ class AgenticEventSat(Representation):
     no-pass→no-comms).
     """
 
-    # 5 tool/reflect calls before the forced Decide step (user decision
-    # 2026-06-12): at 3 the first live 122B run rode the budget to exhaustion
-    # on 66 % of steps — the model wants 3-4 tool calls before committing.
-    DEFAULT_MAX_STEPS: int = 5
+    # Plan/reflect calls before the forced Decide step. Was 5 to absorb the
+    # tool-hungry early runs (the model rode the budget to exhaustion when the
+    # tool set re-surfaced state already in the prompt). With the echo tools
+    # folded into the planning prompt and only the what-if tools left
+    # (check_constraints / evaluate_plan / recall_history), one verify call is
+    # usually enough, so 3 bounds the per-decision latency (worst case ~4 LLM
+    # calls incl. the forced Decide) without starving genuine tool use.
+    DEFAULT_MAX_STEPS: int = 3
     _TRAINED_PROMPTS_DIR: str = "data/trained_prompts"
 
     def __init__(self, config: Dict[str, Any] | None = None) -> None:
@@ -171,6 +176,12 @@ class AgenticEventSat(Representation):
         self._total_agentic_steps: int = 0
         self._total_decisions: int = 0
         self._tool_call_histogram: Dict[str, int] = {}
+        # Per-decision wall-clock latency (telemetry → committed mode). The
+        # operational figure of merit: a decision must land inside the contact
+        # window. Cache hits replay at ~0 s (M-07), so only meaningful on fresh
+        # states — i.e. a fresh experiment run.
+        self._total_decision_latency_s: float = 0.0
+        self._max_decision_latency_s: float = 0.0
 
     # ------------------------------------------------------------------
     # Mechanism resolution helpers
@@ -387,6 +398,15 @@ class AgenticEventSat(Representation):
         )
         metrics["agentic_avg_steps_per_decision"] = round(avg_steps, 2)
 
+        # Per-decision wall-clock latency (telemetry → committed mode)
+        mean_latency = (
+            self._total_decision_latency_s / self._total_decisions
+            if self._total_decisions > 0 else 0.0
+        )
+        metrics["agentic_mean_decision_latency_s"] = round(mean_latency, 3)
+        metrics["agentic_max_decision_latency_s"] = round(self._max_decision_latency_s, 3)
+        metrics["agentic_total_decision_latency_s"] = round(self._total_decision_latency_s, 3)
+
         # Per-tool histogram
         for tool_name, count in self._tool_call_histogram.items():
             metrics[f"agentic_tool_{tool_name}"] = float(count)
@@ -407,6 +427,7 @@ class AgenticEventSat(Representation):
         memory: Any,
     ) -> Dict[str, Any]:
         """Execute the Plan-Tool-Reflect-Decide cycle."""
+        decision_t0 = time.perf_counter()
         accumulated_context: List[Dict[str, Any]] = []
         raw_responses: List[str] = []
         remaining_budget = self._max_agentic_steps
@@ -562,6 +583,9 @@ class AgenticEventSat(Representation):
         # Update metrics
         self._total_agentic_steps += steps_taken
         self._total_decisions += 1
+        decision_latency = time.perf_counter() - decision_t0
+        self._total_decision_latency_s += decision_latency
+        self._max_decision_latency_s = max(self._max_decision_latency_s, decision_latency)
 
         return {"eventsat_0": {"mode": mode}}
 

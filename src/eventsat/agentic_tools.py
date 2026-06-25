@@ -116,14 +116,30 @@ def _get_feasible_modes(state: Dict[str, Any]) -> List[str]:
 
 
 # ======================================================================
-# Tool implementations
+# Derived-telemetry helpers (NOT agentic tools)
+#
+# These summarise telemetry the planner already receives each step. They are
+# FOLDED into the planning prompt (feasible modes, pipeline bottleneck) and
+# reused by AgenticEventSat.reason(); they are NOT registered as agentic tools.
+# Spending an LLM round-trip to re-read state the prompt already contains just
+# inflates decision latency — the planner has the numbers, so the derivations
+# go in the prompt, not behind a tool call. See
+# agentic_prompts.format_planning_prompt / format_schedule_planning_prompt.
 # ======================================================================
 
-@_register_tool(
-    name="check_battery",
-    description="Assess battery state of charge, charging conditions, and which modes are feasible.",
-    parameters={"state": "Current satellite state dict"},
-)
+def _get_pipeline_bottleneck(state: Dict[str, Any]) -> str:
+    """Identify the current data-pipeline bottleneck from received telemetry."""
+    if state.get("uncompressed_observations", 0) > 0:
+        return "compression_needed"
+    if state.get("undetected_observations", 0) > 0:
+        return "detection_needed"
+    if state.get("jetson_compressed_mb", 0.0) > 0:
+        return "send_to_obc_needed"
+    if state.get("obc_data_mb", 0.0) > 0:
+        return "downlink_needed"
+    return "none"
+
+
 def check_battery(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """Battery assessment with mode feasibility analysis."""
     soc = state.get("battery_soc", 0.5)
@@ -147,11 +163,6 @@ def check_battery(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     }
 
 
-@_register_tool(
-    name="check_ground_pass",
-    description="Check ground station pass status: active, time to next pass, remaining duration, and data ready for downlink.",
-    parameters={"state": "Current satellite state dict"},
-)
 def check_ground_pass(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """Ground pass window assessment."""
     active = state.get("ground_pass_active", False)
@@ -184,11 +195,6 @@ def check_ground_pass(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     return result
 
 
-@_register_tool(
-    name="check_data_pipeline",
-    description="Check data pipeline status: Jetson raw/compressed, OBC data, uncompressed/undetected counts, and identify bottleneck.",
-    parameters={"state": "Current satellite state dict"},
-)
 def check_data_pipeline(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     """Data pipeline status with bottleneck identification."""
     jetson_raw = state.get("jetson_raw_mb", 0.0)
@@ -199,17 +205,7 @@ def check_data_pipeline(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
     compression_progress = state.get("compression_progress", 0)
     daily_budget = state.get("daily_downlink_budget_mb", 27.0)
 
-    # Identify bottleneck
-    if uncompressed > 0:
-        bottleneck = "compression_needed"
-    elif undetected > 0:
-        bottleneck = "detection_needed"
-    elif jetson_compressed > 0:
-        bottleneck = "send_to_obc_needed"
-    elif obc_data > 0:
-        bottleneck = "downlink_needed"
-    else:
-        bottleneck = "none"
+    bottleneck = _get_pipeline_bottleneck(state)
 
     # Build summary
     parts = []
@@ -236,6 +232,16 @@ def check_data_pipeline(state: Dict[str, Any], **kwargs) -> Dict[str, Any]:
         "pipeline_summary": "; ".join(parts),
     }
 
+
+# ======================================================================
+# Agentic tools (external actions advertised to the model — CoALA §3)
+#
+# What-if / lookup actions the planner CANNOT answer from the prompt alone:
+# validate a candidate mode against the constraints (check_constraints), score
+# it (evaluate_plan), or query episodic memory (recall_history — per-step core
+# only; the ground scheduler has no memory, so it advertises only the first two
+# via SCHEDULE_TOOL_NAMES below).
+# ======================================================================
 
 @_register_tool(
     name="check_constraints",
@@ -541,14 +547,30 @@ def execute_tool(
     return tool_def.func(state=state, memory=memory, **args)
 
 
-def get_tool_schemas(include_writable: bool = False) -> List[Dict[str, Any]]:
+# Tool subset advertised to the ground scheduler (hllm-a / llm-a). It plans on
+# fresh telemetry with no episodic memory, so recall_history (memory=None →
+# empty) is excluded; only the what-if tools remain. The per-step core keeps the
+# full registry (recall_history is live there).
+SCHEDULE_TOOL_NAMES: List[str] = ["check_constraints", "evaluate_plan"]
+
+
+def get_tool_schemas(
+    include_writable: bool = False,
+    tool_names: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """Return list of tool schemas for prompt embedding.
 
     Args:
         include_writable: If True, include writable-memory tools (only valid
             when behaviour_config.mechanism == "writable_coala").
+        tool_names: If given, restrict to these registry tools, in order (used
+            by the ground scheduler to drop memory-dependent tools).
     """
-    schemas = [t.to_schema() for t in TOOL_REGISTRY.values()]
+    if tool_names is None:
+        items = list(TOOL_REGISTRY.values())
+    else:
+        items = [TOOL_REGISTRY[n] for n in tool_names if n in TOOL_REGISTRY]
+    schemas = [t.to_schema() for t in items]
     if include_writable:
         schemas.extend(t.to_schema() for t in _WRITABLE_TOOL_REGISTRY.values())
     return schemas
