@@ -189,6 +189,20 @@ def create_tle_propagator(tle_line1: str, tle_line2: str) -> Any:
     return TLEPropagator.selectExtrapolator(tle)
 
 
+def propagate_position_km(propagator_obj: Any, epoch: datetime) -> Tuple[float, float, float]:
+    """Propagate an Orekit propagator and return ECI position in km."""
+    if not OREKIT_AVAILABLE:
+        raise RuntimeError("Orekit is not available.")
+
+    pv = propagator_obj.propagate(_datetime_to_absolute(epoch)).getPVCoordinates()
+    position = pv.getPosition()
+    return (
+        position.getX() / 1000.0,
+        position.getY() / 1000.0,
+        position.getZ() / 1000.0,
+    )
+
+
 def get_sun():
     """Return Orekit Sun body."""
     return CelestialBodyFactory.getSun()
