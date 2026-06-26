@@ -619,7 +619,15 @@ class ExperimentRunner:
 
         self._world_model_trace = None
         trace_dir = self.config.representation_config.get("world_model_trace_dir")
-        if trace_dir and self.config.environment.scenario in {"eventsat", "ssa"}:
+        scenario = self.config.environment.scenario
+        if trace_dir and scenario == "ssa":
+            from src.ssa.trace import ConstellationTraceEpisode
+
+            self._world_model_trace = ConstellationTraceEpisode(
+                episode_id=episode_id,
+                seed=self.config.seed + episode_id,
+            )
+        elif trace_dir and scenario == "eventsat":
             from src.eventsat.trace import WorldModelTraceEpisode
 
             self._world_model_trace = WorldModelTraceEpisode(

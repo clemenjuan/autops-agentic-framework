@@ -51,8 +51,8 @@ STATE_NAMES = (
 )
 
 
-def state_vector_from_observation(observation: Any) -> np.ndarray:
-    encoded = eventsat_observation_to_vector(observation)
+def state_vector_from_observation(observation: Any, sat_id: str = "eventsat_0") -> np.ndarray:
+    encoded = eventsat_observation_to_vector(observation, sat_id)
     raw = encoded.raw
     mode = str(raw.get("current_mode", "charging"))
     return np.asarray(

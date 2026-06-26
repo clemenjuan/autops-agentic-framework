@@ -123,18 +123,24 @@ def action_from_mode(mode: str) -> np.ndarray:
     return out
 
 
-def eventsat_observation_to_vector(observation: Any) -> EncodedEventSatState:
+def eventsat_observation_to_vector(
+    observation: Any, sat_id: str = "eventsat_0"
+) -> EncodedEventSatState:
     """Convert an AUTOPS EventSat observation into the canonical 25D vector.
 
     This mirrors ``src.eventsat.gymnasium_wrapper.EventSatGymnasium`` without
     importing gymnasium, so the world-model exporter works in the base AUTOPS env.
+
+    ``sat_id`` selects which satellite to encode; it defaults to the single-sat
+    EventSat key so existing callers are unaffected. Constellation exporters
+    (SSA) pass each ``sat_0..sat_{N-1}`` id in turn.
     """
     vec = np.zeros(25, dtype=np.float32)
     raw: Dict[str, Any] = {}
     if not hasattr(observation, "constellation_state"):
         return EncodedEventSatState(vec, raw)
 
-    sat = observation.constellation_state.satellites.get("eventsat_0")
+    sat = observation.constellation_state.satellites.get(sat_id)
     if sat is None:
         return EncodedEventSatState(vec, raw)
 
