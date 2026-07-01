@@ -95,6 +95,12 @@ class EventSatEnvironment(SatelliteEnvironment):
         # per-episode by the runner via `onboard_compute_active`.
         self.onboard_compute_w = pwr.get("onboard_compute_w", 7.0)
         self.onboard_compute_active = False
+        # Per-step gate: an onboard receding-horizon planner (e.g. LeWM-CEM) wakes the
+        # Jetson only to (re)plan, then sleeps it while executing the cached schedule. The
+        # representation signals this via ``jetson_planned`` in its action dict; when absent
+        # (symbolic/ground/continuous planners) it defaults True so the Jetson load applies
+        # every step, preserving existing behaviour.
+        self._jetson_active_this_step = False
         # Modes whose consumption already includes the working Jetson (no overhead added).
         self.jetson_active_modes = set(pwr.get("jetson_active_modes", [
             "payload_observe", "payload_compress", "payload_detect", "payload_send",
@@ -265,8 +271,13 @@ class EventSatEnvironment(SatelliteEnvironment):
         sat_action = actions.get("eventsat_0", {})
         if isinstance(sat_action, dict):
             requested_mode = sat_action.get("mode", "charging")
+            jetson_planned = bool(sat_action.get("jetson_planned", True))
         else:
             requested_mode = "charging"
+            jetson_planned = True
+        # The Jetson idle load is billed only on steps the onboard planner actually ran
+        # inference; held/sleep steps of a receding-horizon schedule pay nothing extra.
+        self._jetson_active_this_step = self.onboard_compute_active and jetson_planned
         resolved_mode = self._resolve_mode(requested_mode)
         forced = resolved_mode != requested_mode
 
@@ -498,7 +509,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         consumption_w = self.consumption.get(mode, {}).get(phase, 5.0)
         # A Jetson-based onboard core keeps the Jetson powered (+~7W), added to modes
         # where it would otherwise be off; the Jetson-compute modes already include it.
-        if self.onboard_compute_active and mode not in self.jetson_active_modes:
+        if self._jetson_active_this_step and mode not in self.jetson_active_modes:
             consumption_w += self.onboard_compute_w
         generation_w = self.solar_generation_w if in_sun else 0.0
         net_power_w = generation_w - consumption_w

@@ -475,6 +475,19 @@ class _WorldModelPlanner:
         self.iters = int(config.get("cem_iterations", 4))
         self.alpha = float(config.get("cem_alpha", 0.7))
         self.reserve_soc = float(config.get("reserve_soc", 0.50))
+        # Shaped-score reach + power-discipline weights (latent path only). These extend the
+        # 12-min terminal-latent utility with an env-keyed downlink co-rollout so the planner
+        # actually operates ground passes and keeps battery above reserve.
+        self.downlink_reward = float(config.get("downlink_reward", 1.0))
+        self.battery_penalty = float(config.get("battery_penalty", 4.0))
+        self.pass_stage_reward = float(config.get("pass_stage_reward", 0.15))
+        self.comms_soc_floor = float(config.get("comms_soc_floor", 0.25))
+        # Receding-horizon plan-and-hold: wake the Jetson to run CEM, then execute the cached
+        # schedule open-loop for the next (plan_hold-1) steps with the Jetson asleep. This cuts
+        # the onboard compute duty cycle to 1/plan_hold so charging can close the power budget.
+        # plan_hold=1 preserves the original per-step re-planning behaviour.
+        self.plan_hold = max(1, int(config.get("plan_hold", 1)))
+        self._plan_queue: list[int] = []
         self.rng = np.random.default_rng(int(config.get("seed", 0)))
         self.previous_solution: Optional[np.ndarray] = None
         self.mode_weight_name = str(config.get("mission_mode", "science"))
@@ -515,16 +528,49 @@ class _WorldModelPlanner:
             "artifact_fallback": 1.0 if self.artifact and self.latent_backend is None and self.external_backend is None else 0.0,
             "planner_rollouts_per_s": 0.0,
             "planner_latency_s": 0.0,
+            "jetson_planned": 1.0,
+            "plan_hold": float(self.plan_hold),
         }
 
     def seed(self, seed: int) -> None:
         self.rng = np.random.default_rng(seed)
+        self._plan_queue = []
         if self.external_backend is not None:
             self.external_backend.seed(seed)
 
     def select(self, state: Dict[str, Any]) -> tuple[str, Dict[str, float]]:
         start = time.perf_counter()
         self._append_history(state)
+
+        # Jetson asleep: execute the next action from the held schedule with only a cheap,
+        # OBC-level safety clamp (arithmetic mask, no torch inference). No CEM this step.
+        if self._plan_queue:
+            mode_idx = int(self._plan_queue.pop(0))
+            mask = self._first_action_mask(state)
+            comm_idx = MODE_TO_IDX["communication"]
+            if mask[comm_idx]:
+                # Downlink reflex: a live ground pass with staged data always warrants
+                # communicating. This is an OBC-level reaction to ground contact (no Jetson
+                # inference), so it captures passes the held schedule did not align comms to.
+                mode_idx = comm_idx
+            elif not mask[mode_idx]:
+                mode_idx = (
+                    MODE_TO_IDX["charging"] if mask[MODE_TO_IDX["charging"]] else MODE_TO_IDX["safe"]
+                )
+            mode = MODE_LIST[mode_idx]
+            elapsed = time.perf_counter() - start
+            self._last_action = action_from_mode(mode)
+            if self._action_history:
+                self._action_history[-1] = self._last_action
+            self._last_metrics.update(
+                {
+                    "planner_latency_s": elapsed,
+                    "planner_rollouts_per_s": 0.0,
+                    "jetson_planned": 0.0,
+                }
+            )
+            return mode, dict(self._last_metrics)
+
         horizon = max(1, self.horizon)
         samples = max(1, self.samples)
         probs = self._initial_probs(horizon)
@@ -543,6 +589,7 @@ class _WorldModelPlanner:
             elapsed = time.perf_counter() - start
             mode = str(response["mode"])
             self.previous_solution = np.asarray(response.get("best_sequence", []), dtype=np.int64)
+            self._cache_plan_tail(self.previous_solution)
             self._last_action = action_from_mode(mode)
             if self._action_history:
                 self._action_history[-1] = self._last_action
@@ -555,6 +602,7 @@ class _WorldModelPlanner:
                     "planner_rollouts_per_s": rollouts / elapsed if elapsed > 0 else 0.0,
                     "artifact_loaded": 1.0,
                     "artifact_fallback": 0.0,
+                    "jetson_planned": 1.0,
                 }
             )
             return mode, dict(self._last_metrics)
@@ -595,6 +643,7 @@ class _WorldModelPlanner:
                 "cem_iterations": float(self.iters),
                 "planner_latency_s": elapsed,
                 "planner_rollouts_per_s": rollouts / elapsed if elapsed > 0 else 0.0,
+                "jetson_planned": 1.0,
             }
         )
         if best_seq is None:
@@ -604,7 +653,19 @@ class _WorldModelPlanner:
         if self._action_history:
             self._action_history[-1] = self._last_action
         self.previous_solution = best_seq
+        self._cache_plan_tail(best_seq)
         return selected_mode, dict(self._last_metrics)
+
+    def _cache_plan_tail(self, best_seq: Optional[np.ndarray]) -> None:
+        """Queue the schedule steps to execute open-loop (Jetson asleep) before re-planning.
+
+        The first action of ``best_seq`` is executed now; the next ``plan_hold-1`` are held.
+        """
+        self._plan_queue = []
+        if self.plan_hold <= 1 or best_seq is None:
+            return
+        tail = np.asarray(best_seq, dtype=np.int64).reshape(-1)[1 : self.plan_hold]
+        self._plan_queue = [int(a) for a in tail]
 
     def get_metrics(self) -> Dict[str, float]:
         return dict(self._last_metrics)
@@ -710,8 +771,6 @@ class _WorldModelPlanner:
         if health != "nominal" or soc <= 0.22:
             mask[MODE_TO_IDX["safe"]] = True
             return mask
-        if soc < self.reserve_soc:
-            return mask
 
         obc = _float(state.get("obc_data_mb"), 0.0)
         raw = _float(state.get("jetson_raw_mb"), 0.0)
@@ -719,16 +778,31 @@ class _WorldModelPlanner:
         cap = max(1.0, _float(state.get("storage_capacity_mb"), 4096.0))
         stored = obc + raw + comp
 
-        mask[MODE_TO_IDX["communication"]] = bool(state.get("ground_pass_active", False)) and obc > 0.01
-        mask[MODE_TO_IDX["payload_observe"]] = soc >= 0.40 and stored < 0.80 * cap
-        mask[MODE_TO_IDX["payload_compress"]] = soc >= 0.30 and _float(state.get("uncompressed_observations"), 0.0) > 0
-        mask[MODE_TO_IDX["payload_detect"]] = soc >= 0.30 and _float(state.get("undetected_observations"), 0.0) > 0
-        mask[MODE_TO_IDX["payload_send"]] = soc >= 0.30 and comp > 0.01 and obc < 0.98 * cap
+        # Communication is mission-critical and low-power: allow it whenever a ground pass is
+        # active and there is staged data, even below the reserve floor (down to comms_soc_floor).
+        # This is the fix for passes arriving after SOC has dipped below reserve.
+        mask[MODE_TO_IDX["communication"]] = (
+            bool(state.get("ground_pass_active", False)) and obc > 0.01 and soc >= self.comms_soc_floor
+        )
+
+        # Below reserve, forbid every battery-draining payload mode so SOC can recover on
+        # charging; only charging (and comms during a pass) remain available.
+        if soc < self.reserve_soc:
+            return mask
+
+        mask[MODE_TO_IDX["payload_observe"]] = stored < 0.80 * cap
+        mask[MODE_TO_IDX["payload_compress"]] = _float(state.get("uncompressed_observations"), 0.0) > 0
+        mask[MODE_TO_IDX["payload_detect"]] = _float(state.get("undetected_observations"), 0.0) > 0
+        mask[MODE_TO_IDX["payload_send"]] = comp > 0.01 and obc < 0.98 * cap
         return mask
 
     def _score_sequences(self, state: Dict[str, Any], seq: np.ndarray) -> np.ndarray:
         if self.latent_backend is not None:
-            return self.latent_backend.score_sequences(self._history(), seq, self.mode_weights)
+            # LeWM terminal-latent attribute utility (contract unchanged: W is (8,192), linear)
+            # plus an env-keyed shaping term that supplies downlink-timing reach and battery
+            # discipline the 12-min terminal latent + linear probe cannot express.
+            latent = self.latent_backend.score_sequences(self._history(), seq, self.mode_weights)
+            return latent + self._shaping_scores(state, seq)
         scores = np.zeros(seq.shape[0], dtype=np.float64)
         for i, row in enumerate(seq):
             final, penalty = self._rollout_surrogate(state, row)
@@ -736,6 +810,52 @@ class _WorldModelPlanner:
             utility = sum(self.mode_weights.get(k, 0.0) * attrs.get(k, 0.0) for k in self.mode_weights)
             scores[i] = utility - penalty
         return scores
+
+    def _shaping_scores(self, state: Dict[str, Any], seq: np.ndarray) -> np.ndarray:
+        """Env-keyed reach + power-discipline shaping added to the latent utility.
+
+        For each candidate mode sequence, run the deterministic AUTOPS-native resource model
+        (the same dynamics as the surrogate backend) forward over the horizon and reward the
+        actual MB downlinked during ground passes, reward keeping data staged when the next
+        pass is near, and penalise any trajectory that dips below ``reserve_soc``. Pass timing
+        comes from the environment schedule (``time_to_next_pass``/``ground_pass_active``),
+        not the linear probe, whose communication_opportunity signal barely decodes (R^2~0.68).
+        """
+        n = int(seq.shape[0])
+        out = np.zeros(n, dtype=np.float64)
+        reserve = self.reserve_soc
+        period = max(1.0, _float(state.get("orbital_period_steps"), 94.0))
+        for i in range(n):
+            sim = dict(state)
+            start_down = _float(sim.get("data_downlinked_mb"), 0.0)
+            batt_pen = 0.0
+            forced_pen = 0.0
+            for mode_idx in seq[i]:
+                mode = MODE_LIST[int(mode_idx)]
+                resolved, forced = self._resolve_surrogate(sim, mode)
+                if forced:
+                    forced_pen += 0.02
+                self._advance_orbit(sim)
+                self._advance_power(sim, resolved)
+                self._advance_pipeline(sim, resolved)
+                sim["current_mode"] = resolved
+                soc = _float(sim.get("battery_soc"), 0.5)
+                if soc < reserve:
+                    batt_pen += (reserve - soc)
+            downlinked = max(0.0, _float(sim.get("data_downlinked_mb"), 0.0) - start_down)
+            # Reach beyond the horizon: reward ending with staged data when the next pass is
+            # imminent, so the planner keeps obc primed instead of dumping/idling before a pass.
+            obc = _float(sim.get("obc_data_mb"), 0.0)
+            ttp = _float(sim.get("time_to_next_pass"), period)
+            proximity = max(0.0, 1.0 - ttp / period)
+            stage_bonus = self.pass_stage_reward * min(obc, 10.0) / 10.0 * proximity
+            out[i] = (
+                self.downlink_reward * downlinked
+                - self.battery_penalty * batt_pen
+                - forced_pen
+                + stage_bonus
+            )
+        return out
 
     def _rollout_surrogate(self, state: Dict[str, Any], row: Iterable[int]) -> tuple[Dict[str, Any], float]:
         sim = dict(state)
@@ -890,11 +1010,13 @@ class _WorldModelEventSatBase(Representation):
         state = context.state or {}
         mode, metrics = self._planner.select(state)
         self._last_metrics = metrics
+        jetson_planned = metrics.get("jetson_planned", 1.0) >= 0.5
         self._last_rationale = (
             f"{self.planner_name}: selected {mode} using "
-            f"{self._planner.backend} backend, mission_mode={self._planner.mode_weight_name}."
+            f"{self._planner.backend} backend, mission_mode={self._planner.mode_weight_name}, "
+            f"jetson_planned={jetson_planned}."
         )
-        return {"eventsat_0": {"mode": mode}}
+        return {"eventsat_0": {"mode": mode, "jetson_planned": jetson_planned}}
 
     def get_rationale(self) -> Optional[str]:
         return self._last_rationale

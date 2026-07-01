@@ -1,5 +1,6 @@
-experiment_id: eventsat_sas_ao_lewm-cem
-description: "EventSat - SAS - AO - LeWM-CEM world-model baseline.
+experiment_id: eventsat_sas_ao_lewm-cem-h6
+description: "EventSat - SAS - AO - LeWM-CEM (plan_hold=6). Re-plans every 6 min instead of
+  12 for tighter pass alignment at 2x Jetson duty.
 "
 seed: 42
 agent_organization: sas
@@ -44,11 +45,7 @@ representation_config:
   cem_iterations: 4
   cem_alpha: 0.7
   reserve_soc: 0.50
-  # Receding-horizon plan-and-hold: the Jetson runs CEM once, then executes the cached
-  # 12-step schedule open-loop (Jetson asleep) before re-planning. Cuts the onboard compute
-  # duty cycle to 1/12 so charging closes the power budget, and gives the schedule H*60 s of
-  # reach. A live ground pass with staged data triggers an OBC-level downlink reflex.
-  plan_hold: 12
+  plan_hold: 6
   mission_mode: science
   mission_weights: {}
   planner_artifact: /home/clemente/space-world-models/outputs/eventsat_autops_lewm/planner_artifact.json
