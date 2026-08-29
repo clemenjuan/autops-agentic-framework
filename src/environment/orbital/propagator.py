@@ -303,7 +303,6 @@ class _PropagatorContext:
     atmosphere: Any   # Orekit HarrisPriester atmosphere, for density
 
 _ctx: Optional[_PropagatorContext] = None
-_unconfigured_warned = False
 
 
 def configure(orbit: "OrbitConfig") -> None:
@@ -311,8 +310,10 @@ def configure(orbit: "OrbitConfig") -> None:
     """
     global _ctx
     if not OREKIT_AVAILABLE:
-        logger.warning("configure() called but Orekit is unavailable; environment stays zero.")
-        return
+        raise RuntimeError(
+            f"Orekit unavailable; the propagator cannot be configured. "
+            f"Load error: {_orekit_load_error}"
+        )
 
     epoch_date = _datetime_to_absolute(orbit.epoch)
     frame = _get_eci_frame()
@@ -372,27 +373,17 @@ def configure(orbit: "OrbitConfig") -> None:
     )
 
 
-def _zero_environment() -> EnvironmentData:
-    return EnvironmentData(
-        r_eci=np.zeros(3), v_eci=np.zeros(3),
-        b_field_eci=np.zeros(3), sun_vector_eci=np.zeros(3),
-        eclipse=False, atmospheric_density=0.0,
-    )
-
-
 def get_environment(t: float) -> EnvironmentData:
     """Orbital + environmental data at time t [s] since the simulation epoch.
     """
-    global _unconfigured_warned
 
     if _ctx is None:
-        if OREKIT_AVAILABLE and not _unconfigured_warned:
-            logger.warning(
-                "get_environment() called before configure(); returning zero "
-                "environment. Pass an orbit to run() (or call propagator.configure)."
-            )
-            _unconfigured_warned = True
-        return _zero_environment()
+        raise RuntimeError(
+            "get_environment() called before configure(). There is no neutral "
+            "default environment: zero field, zero density and zero Sun vector "
+            "produce a run that completes and looks successful while modelling "
+            "no physics at all."
+        )
 
     target = _ctx.epoch.shiftedBy(float(t))
     state = _ctx.propagator.propagate(target)

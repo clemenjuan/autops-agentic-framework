@@ -164,10 +164,10 @@ def run(
     actuators: ActuatorSuite,
     satellite: SatelliteConfig,
     sim: SimulationConfig,
+    orbit: OrbitConfig,
     start_step: int,
     end_step: int,
     setpoint: Optional[Setpoint] = None,
-    orbit: Optional[OrbitConfig] = None
 ) -> List[SatState]:
     """Run the closed-loop simulation over a range of steps.
 
@@ -181,19 +181,29 @@ def run(
             ``end_step - start_step`` steps.
         setpoint: Target for the controller; defaults to holding identity
             attitude at zero rate.
-        orbit: Orbit definition; when given, configures the propagator.
+        orbit: Orbit definition; configures the propagator. Required, there is
+            no neutral default, and an unconfigured propagator yields a
+            physics-free run that completes without error.
 
     Returns:
         The state history: the initial state followed by the state after each
         step (length ``end_step - start_step + 1``).
     """
-    if orbit is not None:
-        configure(orbit)
+    
+    configure(orbit)
     if setpoint is None:
         setpoint = initial_setpoint()
 
     sim = sim.resolved()
     rng = np.random.default_rng(sim.seed)
+
+    t0 = start_step * sim.step_s
+    env0 = get_environment(t0)
+    state = replace(
+        initial_state(t0, len(actuators.reaction_wheels)),
+        r_eci=env0.r_eci,
+        v_eci=env0.v_eci,
+    )
 
     logger.info(
         "Running ADCS simulation: steps %d..%d at %g s/step, seed %d",
@@ -202,8 +212,6 @@ def run(
         sim.step_s,
         sim.seed,
     )
-
-    state = initial_state(start_step * sim.step_s, len(actuators.reaction_wheels))
 
     sensor_state = initial_sensor_state(sensors, rng)
 

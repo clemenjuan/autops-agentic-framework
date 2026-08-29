@@ -436,3 +436,15 @@ def test_dcm_eci_to_body_convention() -> None:
     assert np.allclose(c @ np.array([0.0, 0.0, 1.0]), np.array([0.0, 0.0, 1.0]))
     assert np.allclose(c @ c.T, np.eye(3))
     assert np.isclose(np.linalg.det(c), 1.0)   # proper rotation, not a reflection
+
+
+def test_initial_state_has_real_orbit(history: List[SatState]) -> None:
+    """history[0] carries the propagator's orbit state, not zeros."""
+    assert np.linalg.norm(history[0].r_eci) == pytest.approx(ALT_RADIUS, rel=1e-3)
+    assert np.linalg.norm(history[0].v_eci) > 7000.0
+
+def test_get_environment_requires_configure(monkeypatch) -> None:
+    """No neutral default environment: an unconfigured propagator fails loudly."""
+    monkeypatch.setattr(P, "_ctx", None)
+    with pytest.raises(RuntimeError):
+        P.get_environment(0.0)
