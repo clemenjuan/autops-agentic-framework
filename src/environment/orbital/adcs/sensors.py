@@ -24,6 +24,7 @@ from src.environment.orbital.adcs.configs import (
 )
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.propagator import EnvironmentData
+from src.environment.orbital.adcs.dynamics import dcm_eci_to_body
 
 @dataclass
 class SensorState:
@@ -66,8 +67,25 @@ def read_magnetometer(
     state: SatState, env: EnvironmentData, config: MagnetometerConfig, rng: np.random.Generator
 ) -> np.ndarray:
     """Measured magnetic field for one magnetometer [T], shape (3,).
+
+    Measurement model, after Alonso & Shuster (2002)
+
+    Args:
+        state: True satellite state; supplies the attitude quaternion.
+        env: True environment; supplies the geomagnetic field in GCRF.
+        config: This magnetometer's mounting, noise, bias and range.
+        rng: Supplies the measurement noise.
+
+    Returns:
+        Measured field [T], shape (3,), sensor frame, clipped to the unit's
+        measurement range
     """
-    return np.zeros(3)
+    # True B field in sensor frame
+    B_sensor = config.body_to_sensor @ dcm_eci_to_body(state.q_eci_body) @ env.b_field_eci 
+    # Measured B field in sensor frame 
+    B_meas = B_sensor + config.bias + rng.normal(0, config.noise_std, 3) # Zero mean, because we have the bias term
+    B_meas = np.clip(B_meas, -config.measurement_range, config.measurement_range)
+    return B_meas
 
 
 def read_fine_sun_sensor(

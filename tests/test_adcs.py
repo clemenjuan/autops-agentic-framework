@@ -25,14 +25,15 @@ from src.environment.orbital.adcs.dynamics import (
     _residual_dipole_torque,
     _srp_torque,
     disturbance_torque,
+    dcm_eci_to_body,
 )
 from src.environment.orbital.adcs.estimator import initial_estimator_state
 from src.environment.orbital.adcs.eventsat import actuators, sim, orbit, satellite, sensors
 from src.environment.orbital.adcs.simulation import initial_state, run, step
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.adcs.actuators import apply_magnetorquer, apply_reaction_wheel
-from src.environment.orbital.adcs.configs import SimulationConfig
-from src.environment.orbital.adcs.sensors import initial_sensor_state
+from src.environment.orbital.adcs.configs import SimulationConfig, MagnetometerConfig
+from src.environment.orbital.adcs.sensors import initial_sensor_state, read_magnetometer
 
 requires_orekit = pytest.mark.skipif(
     not P.is_available(), reason="Orekit unavailable; skipping physics checks."
@@ -52,12 +53,12 @@ def history() -> List[SatState]:
 
 def test_eventsat_config_counts() -> None:
     """The EventSat suite has the expected instrument counts."""
-    assert len(sensors.magnetometers) == 2  # Might be 3
+    assert len(sensors.magnetometers) == 3 
     assert len(sensors.fine_sun_sensors) == 2
     assert len(sensors.star_trackers) == 0
     assert len(actuators.reaction_wheels) == 4
     assert len(actuators.magnetorquers) == 3
-    assert len(sensors.rate_gyros) == 2
+    assert len(sensors.rate_gyros) == 1
 
 
 def test_run_executes_end_to_end(history: List[SatState]) -> None:
@@ -285,3 +286,153 @@ def test_simulation_config_rejects_nonpositive_step() -> None:
         SimulationConfig(step_s=0.0)
     with pytest.raises(ValueError):
         SimulationConfig(step_s=-1.0)
+
+
+class TestMagnetometer:
+    """Physics invariants for the magnetometer measurement model."""
+
+    _R = np.array([ALT_RADIUS, 0.0, 0.0])
+    _B = np.array([2.0e-5, 1.0e-5, -3.0e-5])
+    _SUN = np.array([1.0, 0.0, 0.0])
+
+    def _env(self) -> P.EnvironmentData:
+        return _sample_env(self._R, np.zeros(3), self._B, self._SUN)
+
+    def _config(self, **kwargs) -> MagnetometerConfig:
+        """A zero-error magnetometer, overridable field by field."""
+        base = dict(
+            name="test",
+            body_to_sensor=np.eye(3),
+            noise_std=np.zeros(3),
+            bias=np.zeros(3),
+            update_rate_hz=5.0,
+            measurement_range=8e-4,
+        )
+        base.update(kwargs)
+        return MagnetometerConfig(**base)
+
+    def test_shape_and_dtype(self) -> None:
+        """Returns a (3,) float array."""
+        b = read_magnetometer(
+            _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3)),
+            self._env(),
+            self._config(),
+            np.random.default_rng(0),
+        )
+        assert b.shape == (3,)
+        assert b.dtype == np.float64
+
+    def test_noise_free_identity_mounting_is_truth(self) -> None:
+        """Zero noise, zero bias, identity attitude and mounting: measures B_eci."""
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        b = read_magnetometer(state, self._env(), self._config(), np.random.default_rng(0))
+        assert np.allclose(b, self._B)
+
+    def test_rotation_composition(self) -> None:
+        """The measurement is R_S @ C(q) @ B_eci, in that order.
+
+        Catches a reversed composition (C @ R_S). A transposed DCM would pass
+        here, since the expected value uses dcm_eci_to_body too - see
+        test_dcm_eci_to_body_convention for that.
+        """
+        q = np.array([0.98, 0.10, -0.05, 0.15])
+        q = q / np.linalg.norm(q)
+        r_s = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+        state = _sample_state(q, self._R, np.zeros(3))
+        b = read_magnetometer(
+            state, self._env(), self._config(body_to_sensor=r_s), np.random.default_rng(0)
+        )
+        assert np.allclose(b, r_s @ dcm_eci_to_body(q) @ self._B)
+
+    def test_mounting_preserves_magnitude(self) -> None:
+        """A rotated mounting sees the same physical field, expressed differently."""
+        q = np.array([1.0, 0.0, 0.0, 0.0])
+        theta = np.deg2rad(37.0)
+        r_s = np.array(
+            [
+                [np.cos(theta), -np.sin(theta), 0.0],
+                [np.sin(theta), np.cos(theta), 0.0],
+                [0.0, 0.0, 1.0],
+            ]
+        )
+        state = _sample_state(q, self._R, np.zeros(3))
+        env, rng = self._env(), np.random.default_rng(0)
+        straight = read_magnetometer(state, env, self._config(), rng)
+        rotated = read_magnetometer(state, env, self._config(body_to_sensor=r_s), rng)
+        assert np.isclose(np.linalg.norm(straight), np.linalg.norm(rotated))
+        assert not np.allclose(straight, rotated)
+
+    def test_bias_is_additive_in_sensor_frame(self) -> None:
+        """Bias adds after rotation, so it shifts the measurement by exactly b_0."""
+        bias = np.array([1e-7, -2e-7, 3e-7])
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        env = self._env()
+        clean = read_magnetometer(state, env, self._config(), np.random.default_rng(0))
+        biased = read_magnetometer(
+            state, env, self._config(bias=bias), np.random.default_rng(0)
+        )
+        assert np.allclose(biased - clean, bias)
+
+    def test_seeded_reproducibility(self) -> None:
+        """Identical seeds give identical noise; different seeds do not."""
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        env = self._env()
+        cfg = self._config(noise_std=np.full(3, 1e-8))
+        a = read_magnetometer(state, env, cfg, np.random.default_rng(42))
+        b = read_magnetometer(state, env, cfg, np.random.default_rng(42))
+        c = read_magnetometer(state, env, cfg, np.random.default_rng(43))
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    def test_noise_statistics(self) -> None:
+        """Over many samples the mean approaches truth and the spread noise_std.
+
+        This is the only test that would catch a sigma-convention error, e.g.
+        feeding a 3-sigma datasheet figure into a 1-sigma field.
+        """
+        sigma = np.array([1e-8, 2e-8, 3e-8])
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        env, cfg = self._env(), self._config(noise_std=sigma)
+        rng = np.random.default_rng(7)
+        samples = np.array([read_magnetometer(state, env, cfg, rng) for _ in range(20000)])
+        assert np.allclose(samples.mean(axis=0), self._B, atol=5.0 * sigma / np.sqrt(20000))
+        assert np.allclose(samples.std(axis=0), sigma, rtol=0.05)
+
+    def test_saturation_clips_to_range(self) -> None:
+        """A field beyond the measurement range comes back clipped, not wrapped."""
+        huge = np.array([2e-3, -5e-3, 1e-2])   # well beyond +/-800 uT
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        env = _sample_env(self._R, np.zeros(3), huge, self._SUN)
+        b = read_magnetometer(state, env, self._config(), np.random.default_rng(0))
+        assert np.allclose(b, np.array([8e-4, -8e-4, 8e-4]))
+
+    def test_eventsat_units_are_plausible(self) -> None:
+        """The three configured units read a LEO-plausible field.
+
+        Guards the 3-sigma conversion: at 50 nT/120 nT as 1-sigma the noise would be
+        three times larger, which this does not catch - see test_noise_statistics
+        - but a gross unit slip in measurement_range or noise_std would show here.
+        """
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
+        env, rng = self._env(), np.random.default_rng(0)
+        for cfg in sensors.magnetometers:
+            b = read_magnetometer(state, env, cfg, rng)
+            assert 1.0e-5 < np.linalg.norm(b) < 6.0e-5
+
+def test_dcm_eci_to_body_convention() -> None:
+    """C(q) satisfies v_body = C @ v_eci for a hand-computed rotation.
+
+    Pins the frame convention rather than assuming it: a 90 deg rotation about
+    ECI Z carries body X onto ECI +Y, so an inertially fixed [1,0,0] reads
+    [0,-1,0] in body coordinates. Every other test computes its expected value
+    with dcm_eci_to_body itself, so a transposed C would pass them all -
+    consistently, across dynamics, actuators and sensors.
+    """
+    s = np.sqrt(0.5)
+    q = np.array([s, 0.0, 0.0, s])          # 90 deg about ECI Z
+    c = dcm_eci_to_body(q)
+    assert np.allclose(c @ np.array([1.0, 0.0, 0.0]), np.array([0.0, -1.0, 0.0]))
+    assert np.allclose(c @ np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]))
+    assert np.allclose(c @ np.array([0.0, 0.0, 1.0]), np.array([0.0, 0.0, 1.0]))
+    assert np.allclose(c @ c.T, np.eye(3))
+    assert np.isclose(np.linalg.det(c), 1.0)   # proper rotation, not a reflection

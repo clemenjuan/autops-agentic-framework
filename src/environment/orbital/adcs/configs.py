@@ -28,12 +28,16 @@ class MagnetometerConfig:
         noise_std: Per-axis measurement noise standard deviation (1-sigma)
             [T], shape (3,).
         bias: Per-axis constant bias [T], shape (3,).
+        update_rate_hz: Rate at which the unit produces new measurements [Hz].
+        measurement_range: Per-axis saturation limit [T].
     """
 
     name: str
     body_to_sensor: np.ndarray
     noise_std: np.ndarray
     bias: np.ndarray
+    update_rate_hz: float
+    measurement_range: float
 
 
 @dataclass
@@ -191,6 +195,8 @@ class SensorSuite:
         fine_sun_sensors: Fine sun sensor configurations.
         coarse_sun_sensor: The single coarse sun sensor array.
         earth_horizon_sensor: The single earth horizon sensor.
+        star_trackers: Star Tracker configs.
+        rate_gyros: Rate Gyros configs.
     """
 
     magnetometers: List[MagnetometerConfig]

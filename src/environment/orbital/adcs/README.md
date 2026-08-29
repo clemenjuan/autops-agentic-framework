@@ -2,6 +2,17 @@
 
 A modular and configurable Attitude Determination and Control System (ADCS) simulation for the **EventSat 6U CubeSat**, designed as an RL training/evaluation environment and reconfigurable for other CubeSat missions.
 
+**Status Update 28.08.2026:** Magnetometer measurement model implemented in
+`sensors.py`: `B_meas = R_S·C(q)·B_eci + b₀ + n`, additive structure after
+Alonso & Shuster (2002), with per-axis Gaussian noise and saturation clipping.
+Models the *calibrated* sensor output, so scale-factor and non-orthogonality
+errors are excluded as removed on board. `MagnetometerConfig` gains
+`update_rate_hz` and `measurement_range`. `eventsat.py` now carries three
+magnetometers (deployable primary, deployable secondary, compact) — the
+CubeMag Deployable reports two live chips, not one. Noise corrected: the
+CubeMag PD quotes 50 nT at 3σ and `noise_std` is 1σ. Nine magnetometer tests
+added.
+
 **Status Update 26.08.2026:** Worked on `sensors.py`. Rate gyros are  to the sensors, placeholder values are filled in `eventsat.py`. New data class for gyro bias: `SensorState`, it will hold error states, that carry memory across steps. Seeding is added. Functions for initializing and propagating the sensor state were added: `initial_sensor_state` and `propagate_sensor_state`
 
 **Status Update 25.08.2026:** `actuators.py` is fully implemented, which includes the reaction wheel and the magnetorquers models.
@@ -96,14 +107,27 @@ Then:
 
 ```bash
 uv sync --extra dev --extra orbital
-uv run python -c "from src.environment.orbital.adcs.eventsat import sensors, actuators, satellite, orbit, sim; from src.environment.orbital.adcs.simulation import run; h = run(sensors, actuators, satellite, sim, start_step=0, end_step=10, orbit=orbit); print(len(h), h[0].t, h[-1].t)"
+uv run python -c "
+import numpy as np
+from src.environment.orbital.adcs.eventsat import sensors, orbit
+from src.environment.orbital.adcs.simulation import initial_state
+from src.environment.orbital.adcs.sensors import read_magnetometer
+from src.environment.orbital import propagator as P
+P.configure(orbit)
+env = P.get_environment(0.0)
+state = initial_state(0.0, 4)
+rng = np.random.default_rng(0)
+for m in sensors.magnetometers:
+    b = read_magnetometer(state, env, m, rng)
+    print(m.name, np.linalg.norm(b))
+"
 uv run pytest tests/test_adcs.py -v
 ```
 
 ## EventSat configuration
 
 **Sensors:**
-- **3 magnetometer readings:** deployable A, deployable B, compact
+- **3 magnetometer readings:** deployable primary, deployable secondary, compact
 - **2 fine sun sensors:** fss_a, fss_b
 - **1 coarse sun sensor array:** with 10 photodiodes
 - **1 earth horizon sensor**

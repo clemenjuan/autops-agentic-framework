@@ -32,19 +32,40 @@ from src.environment.orbital.adcs.configs import (
 # -----------------------------------------------------------------------------
 # Magnetometers: CubeMag Deployable (2 sensors) + CubeMag Compact
 # -----------------------------------------------------------------------------
-_magnetometers = [
+_MAG_NOISE_1SIGMA_DEPLOYABLE = 50e-9 / 3.0 # CubeMag PD, p.11
+_MAG_NOISE_1SIGMA_COMPACT = 120e-9 / 3.0 # CubeMag PD, p.11
+_MAG_UPDATE_RATE_HZ = 5.0 # CubeMag PD, p.11
+_MAG_MEASUREMENT_RANGE = 8e-4 # CubeMag PD, p.11
+_MAG_DEPLOYABLE_TO_SENSOR = np.eye(3)
+_MAG_COMPACT_TO_SENSOR = np.eye(3)
+_magnetometers = [ 
     MagnetometerConfig(
-        name="deployable",
-        body_to_sensor=np.eye(3),
-        noise_std=np.array([50e-9, 50e-9, 50e-9]),
-        bias=np.array([100e-9, 100e-9, 100e-9]),
+        name="deployable_primary",
+        body_to_sensor=_MAG_DEPLOYABLE_TO_SENSOR, # PLACEHOLDER
+        noise_std=np.full(3, _MAG_NOISE_1SIGMA_DEPLOYABLE), # CubeMag PD, p.11
+        bias=np.full(3, 100e-9), # PLACEHOLDER
+        update_rate_hz=_MAG_UPDATE_RATE_HZ,
+        measurement_range=_MAG_MEASUREMENT_RANGE,
+
     ),
-    #think about what would be the best way to add the second deployable sensor
+
+    MagnetometerConfig(
+        name="deployable_secondary",
+        body_to_sensor=_MAG_DEPLOYABLE_TO_SENSOR, # PLACEHOLDER
+        noise_std=np.full(3, _MAG_NOISE_1SIGMA_DEPLOYABLE), # CubeMag PD, p.11
+        bias=np.full(3, 200e-9), # PLACEHOLDER
+        update_rate_hz=_MAG_UPDATE_RATE_HZ,
+        measurement_range=_MAG_MEASUREMENT_RANGE,
+    
+    ),
+    
     MagnetometerConfig(
         name="compact",
-        body_to_sensor=np.eye(3),
-        noise_std=np.array([100e-9, 100e-9, 100e-9]),
-        bias=np.array([200e-9, 200e-9, 200e-9]),
+        body_to_sensor=_MAG_COMPACT_TO_SENSOR, # PLACEHOLDER
+        noise_std=np.full(3, _MAG_NOISE_1SIGMA_COMPACT), # CubeMag PD, p.11
+        bias=np.full(3, 300e-9), # PLACEHOLDER
+        update_rate_hz=_MAG_UPDATE_RATE_HZ,
+        measurement_range=_MAG_MEASUREMENT_RANGE,
     ),
 ]
 
@@ -112,6 +133,7 @@ _gyr0 = RateGyroConfig(
     max_rate=np.deg2rad(400.0),                            
 )
 
+# only used as back up, so it will not be included in the Sensor Suite
 _gyr1 = RateGyroConfig(
     name="GYR1",
     body_to_sensor=np.eye(3),                              
@@ -130,7 +152,7 @@ sensors = SensorSuite(
     fine_sun_sensors=_fine_sun_sensors,
     coarse_sun_sensor=_coarse_sun_sensor,
     earth_horizon_sensor=_earth_horizon_sensor,
-    star_trackers=[], rate_gyros=[_gyr0, _gyr1],
+    star_trackers=[], rate_gyros=[_gyr0],
 )
 
 
