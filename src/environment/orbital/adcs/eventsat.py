@@ -45,7 +45,7 @@ _magnetometers = [
         noise_std=np.full(3, _MAG_NOISE_1SIGMA_DEPLOYABLE), # CubeMag PD, p.11
         bias=np.full(3, 100e-9), # PLACEHOLDER
         update_rate_hz=_MAG_UPDATE_RATE_HZ,
-        measurement_range=_MAG_MEASUREMENT_RANGE,
+        max_field=_MAG_MEASUREMENT_RANGE,
 
     ),
 
@@ -55,7 +55,7 @@ _magnetometers = [
         noise_std=np.full(3, _MAG_NOISE_1SIGMA_DEPLOYABLE), # CubeMag PD, p.11
         bias=np.full(3, 200e-9), # PLACEHOLDER
         update_rate_hz=_MAG_UPDATE_RATE_HZ,
-        measurement_range=_MAG_MEASUREMENT_RANGE,
+        max_field=_MAG_MEASUREMENT_RANGE,
     
     ),
     
@@ -65,7 +65,7 @@ _magnetometers = [
         noise_std=np.full(3, _MAG_NOISE_1SIGMA_COMPACT), # CubeMag PD, p.11
         bias=np.full(3, 300e-9), # PLACEHOLDER
         update_rate_hz=_MAG_UPDATE_RATE_HZ,
-        measurement_range=_MAG_MEASUREMENT_RANGE,
+        max_field=_MAG_MEASUREMENT_RANGE,
     ),
 ]
 
@@ -129,7 +129,8 @@ _gyr0 = RateGyroConfig(
     body_to_sensor=np.eye(3),                              
     arw=np.deg2rad(0.15) / 60.0,                           
     rrw=np.deg2rad(10.0) / 3600.0 / np.sqrt(3600.0),       
-    bias_initial_std=np.deg2rad(0.5),                      
+    bias_initial_std=np.deg2rad(0.5), 
+    update_rate_hz=5.0,  # PLACEHOLDER                     
     max_rate=np.deg2rad(400.0),                            
 )
 
@@ -140,6 +141,7 @@ _gyr1 = RateGyroConfig(
     arw=np.deg2rad(0.30) / 60.0,
     rrw=np.deg2rad(20.0) / 3600.0 / np.sqrt(3600.0),
     bias_initial_std=np.deg2rad(1.0),
+    update_rate_hz=5.0,  # PLACEHOLDER
     max_rate=np.deg2rad(400.0),
 )
 
@@ -266,6 +268,7 @@ orbit = OrbitConfig(
 # Mission Config
 # -----------------------------------------------------------------------------
 # Will be later moved to a different file, maybe
+# 0.2 s = the 5 Hz flight control loop (CubeADCS ICD p.42; CubeMag PD p.11).
 sim = SimulationConfig( 
-    step_s = 1.0,   # just for now set to 1
+    step_s = 0.2,   
 )

@@ -116,7 +116,7 @@ def step(
         earth_horizon=read_earth_horizon(state, env, sensors.earth_horizon_sensor, rng),
         star_trackers=[read_star_tracker(state, env, st, rng) for st in sensors.star_trackers],
         gyros=[
-            read_rate_gyro(state, env, g, sensor_state.gyro_bias[i], rng)
+            read_rate_gyro(state, env, g, sensor_state.gyro_bias[i],dt, rng)
             for i, g in enumerate(sensors.rate_gyros)
         ],
     )

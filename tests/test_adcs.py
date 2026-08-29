@@ -32,8 +32,10 @@ from src.environment.orbital.adcs.eventsat import actuators, sim, orbit, satelli
 from src.environment.orbital.adcs.simulation import initial_state, run, step
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.adcs.actuators import apply_magnetorquer, apply_reaction_wheel
-from src.environment.orbital.adcs.configs import SimulationConfig, MagnetometerConfig
-from src.environment.orbital.adcs.sensors import initial_sensor_state, read_magnetometer
+from src.environment.orbital.adcs.configs import SimulationConfig, MagnetometerConfig, RateGyroConfig
+from src.environment.orbital.adcs.sensors import (
+    initial_sensor_state, propagate_sensor_state, read_magnetometer, read_rate_gyro,
+)
 
 requires_orekit = pytest.mark.skipif(
     not P.is_available(), reason="Orekit unavailable; skipping physics checks."
@@ -306,7 +308,7 @@ class TestMagnetometer:
             noise_std=np.zeros(3),
             bias=np.zeros(3),
             update_rate_hz=5.0,
-            measurement_range=8e-4,
+            max_field=8e-4,
         )
         base.update(kwargs)
         return MagnetometerConfig(**base)
@@ -411,7 +413,7 @@ class TestMagnetometer:
 
         Guards the 3-sigma conversion: at 50 nT/120 nT as 1-sigma the noise would be
         three times larger, which this does not catch - see test_noise_statistics
-        - but a gross unit slip in measurement_range or noise_std would show here.
+        - but a gross unit slip in max_field or noise_std would show here.
         """
         state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]), self._R, np.zeros(3))
         env, rng = self._env(), np.random.default_rng(0)
@@ -448,3 +450,194 @@ def test_get_environment_requires_configure(monkeypatch) -> None:
     monkeypatch.setattr(P, "_ctx", None)
     with pytest.raises(RuntimeError):
         P.get_environment(0.0)
+
+
+class TestRateGyro:
+    """Physics invariants for the rate gyro measurement model."""
+
+    _R = np.array([ALT_RADIUS, 0.0, 0.0])
+    _OMEGA = np.array([0.01, -0.02, 0.005])   # rad/s, body frame
+    _Q = np.array([1.0, 0.0, 0.0, 0.0])
+
+    def _env(self) -> P.EnvironmentData:
+        return _sample_env(self._R, np.zeros(3), np.zeros(3), np.array([1.0, 0.0, 0.0]))
+
+    def _state(self, omega: np.ndarray | None = None) -> SatState:
+        s = _sample_state(self._Q, self._R, np.zeros(3))
+        return replace(s, omega_body=self._OMEGA if omega is None else omega)
+
+    def _config(self, **kwargs) -> RateGyroConfig:
+        """A zero-noise gyro, overridable field by field."""
+        base = dict(
+            name="test",
+            body_to_sensor=np.eye(3),
+            arw=0.0,
+            rrw=0.0,
+            bias_initial_std=0.0,
+            max_rate=np.deg2rad(400.0),
+            update_rate_hz=5.0,
+        )
+        base.update(kwargs)
+        return RateGyroConfig(**base)
+
+    def test_shape_and_dtype(self) -> None:
+        """Returns a (3,) float array."""
+        w = read_rate_gyro(
+            self._state(), self._env(), self._config(), np.zeros(3), 1.0,
+            np.random.default_rng(0),
+        )
+        assert w.shape == (3,)
+        assert w.dtype == np.float64
+
+    def test_noise_free_is_truth(self) -> None:
+        """Zero noise, zero bias, identity mounting: measures omega_body exactly."""
+        w = read_rate_gyro(
+            self._state(), self._env(), self._config(), np.zeros(3), 1.0,
+            np.random.default_rng(0),
+        )
+        assert np.allclose(w, self._OMEGA)
+
+    def test_attitude_does_not_enter(self) -> None:
+        """A gyro measures rotation, not pointing: attitude has no effect."""
+        q = np.array([0.98, 0.10, -0.05, 0.15])
+        q = q / np.linalg.norm(q)
+        cfg, rng_args = self._config(), (np.zeros(3), 1.0)
+        upright = read_rate_gyro(
+            self._state(), self._env(), cfg, *rng_args, np.random.default_rng(0)
+        )
+        tilted = read_rate_gyro(
+            replace(self._state(), q_eci_body=q), self._env(), cfg, *rng_args,
+            np.random.default_rng(0),
+        )
+        assert np.allclose(upright, tilted)
+
+    def test_rotation_composition(self) -> None:
+        """The measurement is R_S @ omega_body - one rotation, not two."""
+        r_s = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+        w = read_rate_gyro(
+            self._state(), self._env(), self._config(body_to_sensor=r_s),
+            np.zeros(3), 1.0, np.random.default_rng(0),
+        )
+        assert np.allclose(w, r_s @ self._OMEGA)
+
+    def test_bias_is_additive_in_sensor_frame(self) -> None:
+        """Bias adds after R_S, so it shifts the measurement by exactly b.
+
+        With a non-identity mounting this also distinguishes sensor-frame bias
+        from body-frame bias: the latter would appear rotated.
+        """
+        bias = np.array([1e-3, -2e-3, 3e-3])
+        r_s = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+        cfg = self._config(body_to_sensor=r_s)
+        clean = read_rate_gyro(
+            self._state(), self._env(), cfg, np.zeros(3), 1.0, np.random.default_rng(0)
+        )
+        biased = read_rate_gyro(
+            self._state(), self._env(), cfg, bias, 1.0, np.random.default_rng(0)
+        )
+        assert np.allclose(biased - clean, bias)
+
+    def test_seeded_reproducibility(self) -> None:
+        """Identical seeds give identical noise; different seeds do not."""
+        cfg = self._config(arw=np.deg2rad(0.15) / 60.0)
+        args = (self._state(), self._env(), cfg, np.zeros(3), 1.0)
+        a = read_rate_gyro(*args, np.random.default_rng(42))
+        b = read_rate_gyro(*args, np.random.default_rng(42))
+        c = read_rate_gyro(*args, np.random.default_rng(43))
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    def test_noise_scales_as_arw_over_sqrt_dt(self) -> None:
+        """Per-sample spread is arw/sqrt(dt): ten times faster is sqrt(10) noisier."""
+        arw = np.deg2rad(0.15) / 60.0
+        cfg = self._config(arw=arw)
+        args = (self._state(np.zeros(3)), self._env(), cfg, np.zeros(3))
+        rng = np.random.default_rng(11)
+        coarse = np.array([read_rate_gyro(*args, 1.0, rng) for _ in range(20000)])
+        fine = np.array([read_rate_gyro(*args, 0.1, rng) for _ in range(20000)])
+        assert np.allclose(coarse.std(axis=0), arw, rtol=0.05)
+        assert np.allclose(fine.std(axis=0), arw / np.sqrt(0.1), rtol=0.05)
+
+    def test_angle_error_is_timestep_invariant(self) -> None:
+        """Integrated angle error over a fixed span does not depend on dt.
+
+        The discriminating test for the noise scaling. A single-dt variance
+        check passes for arw, arw/sqrt(dt) and arw*sqrt(dt) alike if the
+        coefficient is fitted; only the correct scaling makes a coarse and a
+        fine run agree over the same wall-clock span. rrw is zero here so the
+        bias walk contributes no growth of its own.
+        """
+        arw = np.deg2rad(0.15) / 60.0
+        span, n_runs = 100.0, 400
+        cfg = self._config(arw=arw)
+        state, env = self._state(np.zeros(3)), self._env()
+
+        def integrated_angle_std(dt: float, seed: int) -> np.ndarray:
+            rng = np.random.default_rng(seed)
+            n = int(round(span / dt))
+            angles = np.array(
+                [
+                    sum(
+                        read_rate_gyro(state, env, cfg, np.zeros(3), dt, rng) * dt
+                        for _ in range(n)
+                    )
+                    for _ in range(n_runs)
+                ]
+            )
+            return angles.std(axis=0)
+
+        coarse = integrated_angle_std(1.0, 5)
+        fine = integrated_angle_std(0.1, 5)
+        expected = arw * np.sqrt(span)
+        assert np.allclose(coarse, expected, rtol=0.15)
+        assert np.allclose(fine, expected, rtol=0.15)
+
+    def test_saturation_clips_to_max_rate(self) -> None:
+        """A rate beyond max_rate comes back clipped."""
+        limit = np.deg2rad(400.0)
+        fast = np.array([2.0 * limit, -3.0 * limit, 0.5 * limit])
+        w = read_rate_gyro(
+            self._state(fast), self._env(), self._config(), np.zeros(3), 1.0,
+            np.random.default_rng(0),
+        )
+        assert np.allclose(w, np.array([limit, -limit, 0.5 * limit]))
+
+
+def test_gyro_bias_variance_grows_as_rrw_squared_t() -> None:
+    """Var[b(t)] grows as rrw^2 * t, the Farrenkopf rate random walk.
+
+    Validates propagate_sensor_state, which has been in the loop since it was
+    written but never checked. Driven directly rather than through run(), which
+    discards the sensor state (D18). Sampled at two times to confirm the growth
+    is linear in t, not in t^2 or constant.
+
+    Runs at dt = 10 s rather than the 1 s sim step: each step contributes
+    rrw^2 * dt and n * dt = t, so the statistics at a given t are identical
+    while the call count drops tenfold. The expected value is computed from t
+    rather than from the step count, so the test also demonstrates that
+    timestep-independence rather than merely relying on it.
+    """
+    rrw = np.deg2rad(10.0) / 3600.0 / np.sqrt(3600.0)
+    cfg = RateGyroConfig(
+        name="test", body_to_sensor=np.eye(3), arw=0.0, rrw=rrw,
+        bias_initial_std=0.0, max_rate=np.deg2rad(400.0), update_rate_hz=5.0,
+    )
+    suite = replace(sensors, rate_gyros=[cfg])
+    dt, n_runs = 10.0, 500
+    checkpoints = (90, 360)                  # steps
+    times = (900.0, 3600.0)                  # s, = checkpoints * dt
+
+    rng = np.random.default_rng(3)
+    walks = np.zeros((n_runs, len(checkpoints), 3))
+    for run_i in range(n_runs):
+        s = initial_sensor_state(suite, rng)
+        step_i, next_cp = 0, 0
+        while next_cp < len(checkpoints):
+            s = propagate_sensor_state(s, suite, dt, rng)
+            step_i += 1
+            if step_i == checkpoints[next_cp]:
+                walks[run_i, next_cp] = s.gyro_bias[0]
+                next_cp += 1
+
+    for cp, t in enumerate(times):
+        assert np.allclose(walks[:, cp].std(axis=0), rrw * np.sqrt(t), rtol=0.15)

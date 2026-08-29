@@ -31,7 +31,7 @@ class SensorState:
     """Internal error states of the sensor suite that carry memory across steps.
 
     Attributes:
-        gyro_bias: Rate gyro bias [rad/s], body frame, one row per gyro,
+        gyro_bias: Rate gyro bias [rad/s], sensor frame, one row per gyro,
             shape (n_gyros, 3).
     """
 
@@ -84,7 +84,7 @@ def read_magnetometer(
     B_sensor = config.body_to_sensor @ dcm_eci_to_body(state.q_eci_body) @ env.b_field_eci 
     # Measured B field in sensor frame 
     B_meas = B_sensor + config.bias + rng.normal(0, config.noise_std, 3) # Zero mean, because we have the bias term
-    B_meas = np.clip(B_meas, -config.measurement_range, config.measurement_range)
+    B_meas = np.clip(B_meas, -config.max_field, config.max_field)
     return B_meas
 
 
@@ -120,17 +120,73 @@ def read_star_tracker(
     """
     return np.array([1.0, 0.0, 0.0, 0.0])
 
+# ω_meas = R_S @ ω_body + b + n_v,   n_v ~ N(0, (arw/sqrt(dt))^2),   clipped to +-max_rate
 def read_rate_gyro(
     state: SatState,
-    env: EnvironmentData,
+    env: EnvironmentData, # don't delete
     config: RateGyroConfig,
     bias: np.ndarray,
+    dt: float,
     rng: np.random.Generator,
 ) -> np.ndarray:
     """Measured angular velocity for one rate gyro [rad/s], shape (3,),
     sensor frame.
+    
+    Measurement model, after Farrenkopf (1978), "Analytic Steady-State Accuracy
+    Solutions for Two Common Spacecraft Attitude Estimators", JGC 1(4):
+
+        w_meas = w_true + b + n_v,    b_dot = n_u
+
+    Noise scaling. arw is a continuous-time coefficient [rad/sqrt(s)]. 
+    Woodman (2007) Eq. 5:
+
+        sigma_theta(t) = sigma * sqrt(dt * t)
+
+    Requiring that to equal the sampling-independent form arw * sqrt(t) gives
+    sigma = arw / sqrt(dt).
+
+    Assumption: dt is the gyro's sampling interval. If the loop ever runs
+    faster than the unit produces data, this overstates the noise.
+
+    Bias frame. b is in the SENSOR frame, not the body frame, and is added
+    after R_S.
+
+    The bias arrives already propagated: initial_sensor_state draws it at
+    turn-on and propagate_sensor_state advances the random walk in step()
+
+    PLACEHOLDER PARAMETERS.
+
+    Not modelled:
+        Temperature-dependent bias drift - named explicitly in the CubeADCS
+            C&O Manual v1.05 p.93 as a real effect for these units. Needs a
+            thermal model and a temperature coefficient on the bias state.
+        Scale factor and axis misalignment - unpublished, and separable from
+            body_to_sensor only with calibration data.
+        Quantisation - no ADC resolution figure available.
+        g-sensitivity - MEMS gyros respond to linear acceleration, negligible
+            in free fall except during thruster firing, which EventSat has not.
+
+    Args:
+        state: True satellite state; supplies the body-frame angular velocity.
+        env: Unused. Present for signature uniformity across the read_*
+            functions - a gyro measures rotation, not the environment.
+        config: This gyro's mounting, noise coefficient and range.
+        bias: This gyro's current bias [rad/s], shape (3,), sensor frame,
+            from SensorState.gyro_bias.
+        dt: Sampling interval [s]; sets the per-sample noise magnitude.
+        rng: Supplies the angle-random-walk noise.
+
+    Returns:
+        Measured angular velocity [rad/s], shape (3,), sensor frame, clipped to
+        the unit's measurement range.
+
     """
-    return np.zeros(3)
+    # True w in sensor frame:
+    w_sensor = config.body_to_sensor @ state.omega_body
+    # Measured w in sensor frame:
+    w_meas = w_sensor + bias + rng.normal(0, config.arw/np.sqrt(dt), 3)
+    w_meas = np.clip(w_meas, -config.max_rate, config.max_rate)
+    return w_meas
 
 
 @dataclass

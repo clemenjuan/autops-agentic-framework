@@ -29,7 +29,7 @@ class MagnetometerConfig:
             [T], shape (3,).
         bias: Per-axis constant bias [T], shape (3,).
         update_rate_hz: Rate at which the unit produces new measurements [Hz].
-        measurement_range: Per-axis saturation limit [T].
+        max_field: Per-axis saturation limit [T].
     """
 
     name: str
@@ -37,7 +37,7 @@ class MagnetometerConfig:
     noise_std: np.ndarray
     bias: np.ndarray
     update_rate_hz: float
-    measurement_range: float
+    max_field: float
 
 
 @dataclass
@@ -116,7 +116,7 @@ class StarTrackerConfig:
 
 @dataclass(frozen=True)
 class RateGyroConfig:
-    """MEMS rate gyro with a Farrenkopf error model. (Farrenkopf, JGCD 1978)
+    """MEMS rate gyro with a Farrenkopf error model. (Farrenkopf, JGC 1(4))
 
     Attributes:
         name: Instance identifier.
@@ -124,6 +124,7 @@ class RateGyroConfig:
         arw: Angle random walk [rad/sqrt(s)] - white noise on the rate.
         rrw: Rate random walk [rad/s^1.5] - drives the bias drift.
         bias_initial_std: Turn-on bias repeatability [rad/s], one sigma.
+        update_rate_hz: Rate at which the unit produces new measurements [Hz].
         max_rate: Measurement saturation limit [rad/s].
     """
 
@@ -132,11 +133,13 @@ class RateGyroConfig:
     arw: float
     rrw: float
     bias_initial_std: float
+    update_rate_hz: float
     max_rate: float
 
 # =============================================================================
 # Actuator classes set up
 # =============================================================================
+
 @dataclass
 class ReactionWheelConfig:
     """Per-wheel configuration.
