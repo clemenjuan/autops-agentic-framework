@@ -9,8 +9,8 @@ estimator.
 """
 
 from __future__ import annotations
-from dataclasses import dataclass
-from typing import List
+from dataclasses import dataclass, replace
+from typing import List, Optional
 import numpy as np
 
 from src.environment.orbital.adcs.configs import (
@@ -33,20 +33,35 @@ class SensorState:
     Attributes:
         gyro_bias: Rate gyro bias [rad/s], sensor frame, one row per gyro,
             shape (n_gyros, 3).
+        fss_bias: FSS bias [rad], one row per sensor, shape(n_fss, 2) ((alpha, beta) incident angles),
+        doesn't change across steps, 
     """
 
     gyro_bias: np.ndarray
+    fss_bias: np.ndarray
 
 
 def initial_sensor_state(
     sensors: SensorSuite, rng: np.random.Generator
 ) -> SensorState:
     """Draw the turn on sensor error states.
+
+     Args:
+        sensors: The sensor suite; sizes both bias arrays.
+        rng: Supplies the turn-on draws.
+
+    Returns:
+        A SensorState with both bias arrays populated. Empty suites give
+        (0, 3) and (0, 2) rather than (0,), so downstream indexing is
+        uniform.
     """
     gyro_bias = np.array(
-        [rng.normal(0.0, g.bias_initial_std, 3) for g in sensors.rate_gyros]
+        [rng.normal(0.0, gyr.bias_initial_std, 3) for gyr in sensors.rate_gyros]
     ).reshape(len(sensors.rate_gyros), 3)
-    return SensorState(gyro_bias=gyro_bias)
+    fss_bias = np.array(
+        [rng.normal(0.0, fss.bias_std, 2) for fss in sensors.fine_sun_sensors]
+    ).reshape(len(sensors.fine_sun_sensors), 2)
+    return SensorState(gyro_bias=gyro_bias, fss_bias=fss_bias)
 
 
 def propagate_sensor_state(
@@ -61,10 +76,14 @@ def propagate_sensor_state(
         return sensor_state
     rrw = np.array([g.rrw for g in sensors.rate_gyros])[:, None]
     bias = sensor_state.gyro_bias
-    return SensorState(gyro_bias=bias + rrw * np.sqrt(dt) * rng.standard_normal(bias.shape))
+    new_bias = bias + rrw * np.sqrt(dt) * rng.standard_normal(bias.shape)
+    return replace(sensor_state, gyro_bias=new_bias)
 
 def read_magnetometer(
-    state: SatState, env: EnvironmentData, config: MagnetometerConfig, rng: np.random.Generator
+    state: SatState, 
+    env: EnvironmentData, 
+    config: MagnetometerConfig, 
+    rng: np.random.Generator
 ) -> np.ndarray:
     """Measured magnetic field for one magnetometer [T], shape (3,).
 
@@ -89,11 +108,87 @@ def read_magnetometer(
 
 
 def read_fine_sun_sensor(
-    state: SatState, env: EnvironmentData, config: FineSunSensorConfig, rng: np.random.Generator
-) -> np.ndarray:
-    """Measured sun direction for one fine sun sensor, shape (3,), sensor frame.
+    state: SatState, 
+    env: EnvironmentData, 
+    config: FineSunSensorConfig, 
+    bias: np.ndarray, 
+    rng: np.random.Generator
+) -> Optional[np.ndarray]:
+    """Measured sun direction for one fine sun sensor, unit (3,), sensor frame.
+
+    Returns None when there is no measurement.
+
+    The unit reports two image-plane incident angles which are converted to a
+    vector. Noise and bias are applied to those angles, since that is where the
+    sensor physically measures (Kim et al., "High-Accuracy Image Centroiding Algorithm
+    for CMOS-Based Digital Sun Sensors", Eq. 2.)
+
+        alpha = arctan2(y, z),   beta = arctan2(-x, z)
+
+    ASSUMPTION 1: the axis pairing and the sign of beta follow the cited paper,
+    not a CubeSpace document.
+
+    ASSUMPTION 2: Eq. 2 is a pinhole model; the CubeSense uses a fisheye lens.
+    Kannala & Brandt (2006) for the projection models a calibration would identify.
+
+    Flat noise across the field of view is the PD's own specification - a
+    single per-axis figure with no angular dependence. 
+    Accuracy above the slew cutoff is not modelled (the degradation is documented
+     but its shape is not).
+
+    The slew gate uses total body rate. Blur depends on the
+    component perpendicular to the sun line, thus this model is conservative.
+
+    Args:
+        state: True satellite state; supplies attitude and body rate.
+        env: True environment; supplies the sun direction and eclipse flag.
+        config: This unit's mounting, field of view, noise and cutoff.
+        bias: This unit's (alpha, beta) offset [rad], shape (2,), from
+            SensorState.fss_bias. Drawn at turn-on, constant thereafter.
+        rng: Supplies the incident-angle noise.
+
+    Returns:
+        Unit sun direction in the sensor frame, shape (3,), or None.
     """
-    return np.zeros(3)
+    incident_angle_noise = rng.normal(0, config.incident_angle_noise_std, 2)
+
+    # Check for eclipse:
+    if env.eclipse:
+        return None
+
+    # Sun vector in sensor frame:
+    sun_vector_sen = config.body_to_sensor @ dcm_eci_to_body(state.q_eci_body) @ env.sun_vector_eci
+    
+    # Check if Sun is within FoV, by dot product with z_sen = [0,0,1]:
+    if sun_vector_sen[2] < np.cos(config.fov_half_angle):
+        return None
+
+    # Check if slew rate is too large for a measurement (conservative):
+    if np.linalg.norm(state.omega_body) > config.max_slew_rate:
+        return None
+
+    # True incident angles alpha and beta (pin hole model):
+    alpha_true = np.arctan2(sun_vector_sen[1], sun_vector_sen[2])
+    beta_true = np.arctan2(-sun_vector_sen[0], sun_vector_sen[2])
+
+    # Measured incident angles alpha and beta:
+    alpha_meas = alpha_true + incident_angle_noise[0] + bias[0]
+    beta_meas = beta_true + incident_angle_noise[1] + bias[1]
+
+    # Make sure to reject unphysical measurements:
+    if np.abs(alpha_meas) >= np.pi/2 or np.abs(beta_meas) >= np.pi/2:
+        return None
+
+    # Measured sun vector in sensor frame 
+    sun_vector_sen_meas = np.array([
+        -np.sin(beta_meas) * np.cos(alpha_meas), # minus as in ref (assumption 1) 
+        np.sin(alpha_meas) * np.cos(beta_meas), 
+        np.cos(alpha_meas) * np.cos(beta_meas)
+        ])
+
+    sun_vector_sen_meas = sun_vector_sen_meas / np.linalg.norm(sun_vector_sen_meas)
+
+    return sun_vector_sen_meas
 
 
 def read_coarse_sun_sensor(
@@ -198,7 +293,7 @@ class SensorMeasurements:
         magnetometers: Measured field per magnetometer [T], each shape (3,),
             sensor frame.
         fine_sun_sensors: Sun unit vector per fine sun sensor, each shape (3,),
-            sensor frame; zero vector when the sun is out of view.
+            sensor frame; None when the sun is out of view.
         coarse_sun: Photodiode voltages from the coarse array, shape (n_cells,).
         earth_horizon: Nadir unit vector in the sensor frame, shape (3,); zero
             when nadir is out of the field of view.
@@ -212,7 +307,7 @@ class SensorMeasurements:
     """
 
     magnetometers: List[np.ndarray]
-    fine_sun_sensors: List[np.ndarray]
+    fine_sun_sensors: List[Optional[np.ndarray]]
     coarse_sun: np.ndarray
     earth_horizon: np.ndarray
     star_trackers: List[np.ndarray]

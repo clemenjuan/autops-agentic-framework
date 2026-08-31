@@ -71,19 +71,24 @@ _magnetometers = [
 
 # -----------------------------------------------------------------------------
 # Fine sun sensors: 2x CubeSense
-# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------    
+
 _fine_sun_sensors = [
     FineSunSensorConfig(
-        name="fss_a",
-        body_to_sensor=np.eye(3),
-        fov_half_angle=np.deg2rad(60.0),
-        noise_std=np.deg2rad(0.1),
+        name="fss0",
+        body_to_sensor=np.eye(3), # PLACEHOLDER
+        fov_half_angle=np.deg2rad(90), # ICD 3.1.2 Fig. 3
+        incident_angle_noise_std=np.deg2rad(0.2/2), # PD p.10 gives 0.2°/axis at 2σ
+        bias_std=np.deg2rad(0.05), # PLACEHOLDER
+        max_slew_rate=np.deg2rad(70), # PD p.10
     ),
     FineSunSensorConfig(
-        name="fss_b",
-        body_to_sensor=np.eye(3),
-        fov_half_angle=np.deg2rad(60.0),
-        noise_std=np.deg2rad(0.1),
+        name="fss1",
+        body_to_sensor=np.eye(3), # PLACEHOLDER
+        fov_half_angle=np.deg2rad(90), # ICD 3.1.2 Fig. 3
+        incident_angle_noise_std=np.deg2rad(0.2/2), # PD p.10 gives 0.2°/axis at 2σ
+        bias_std=np.deg2rad(0.05), # PLACEHOLDER(PD gives ≤0.05°/axis as a worst case and not a σ, so reading it as 1σ likely overstates the bias)
+        max_slew_rate=np.deg2rad(70), # PD p.10
     ),
 ]
 

@@ -32,9 +32,18 @@ from src.environment.orbital.adcs.eventsat import actuators, sim, orbit, satelli
 from src.environment.orbital.adcs.simulation import initial_state, run, step
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.adcs.actuators import apply_magnetorquer, apply_reaction_wheel
-from src.environment.orbital.adcs.configs import SimulationConfig, MagnetometerConfig, RateGyroConfig
+from src.environment.orbital.adcs.configs import (
+    SimulationConfig, 
+    MagnetometerConfig, 
+    RateGyroConfig,
+    FineSunSensorConfig,
+    )
 from src.environment.orbital.adcs.sensors import (
-    initial_sensor_state, propagate_sensor_state, read_magnetometer, read_rate_gyro,
+    initial_sensor_state, 
+    propagate_sensor_state, 
+    read_magnetometer, 
+    read_rate_gyro,
+    read_fine_sun_sensor,
 )
 
 requires_orekit = pytest.mark.skipif(
@@ -71,8 +80,8 @@ def test_run_executes_end_to_end(history: List[SatState]) -> None:
 
 def test_run_advances_time(history: List[SatState]) -> None:
     """Time runs from start_step * step_s to end_step * step_s."""
-    assert history[0].t == START_STEP * sim.step_s
-    assert history[-1].t == END_STEP * sim.step_s
+    assert history[0].t == pytest.approx(START_STEP * sim.step_s)
+    assert history[-1].t == pytest.approx(END_STEP * sim.step_s)
 
 
 def test_final_state_shapes(history: List[SatState]) -> None:
@@ -641,3 +650,211 @@ def test_gyro_bias_variance_grows_as_rrw_squared_t() -> None:
 
     for cp, t in enumerate(times):
         assert np.allclose(walks[:, cp].std(axis=0), rrw * np.sqrt(t), rtol=0.15)
+
+
+class TestFineSunSensor:
+    """Physics invariants for the fine sun sensor measurement model."""
+
+    _R = np.array([ALT_RADIUS, 0.0, 0.0])
+    _Q = np.array([1.0, 0.0, 0.0, 0.0])
+    _SUN = np.array([0.0, 0.0, 1.0])          # on the boresight, identity mounting
+    _NO_BIAS = np.zeros(2)
+
+    def _env(self, sun: np.ndarray | None = None, eclipse: bool = False) -> P.EnvironmentData:
+        return _sample_env(
+            self._R, np.zeros(3), np.zeros(3),
+            self._SUN if sun is None else sun, eclipse=eclipse,
+        )
+
+    def _state(self, omega: np.ndarray | None = None) -> SatState:
+        s = _sample_state(self._Q, self._R, np.zeros(3))
+        return s if omega is None else replace(s, omega_body=omega)
+
+    def _config(self, **kwargs) -> FineSunSensorConfig:
+        """A zero-error sun sensor, overridable field by field."""
+        base = dict(
+            name="test",
+            body_to_sensor=np.eye(3),
+            fov_half_angle=np.deg2rad(90.0),
+            incident_angle_noise_std=0.0,
+            bias_std=0.0,
+            max_slew_rate=np.deg2rad(70.0),
+        )
+        base.update(kwargs)
+        return FineSunSensorConfig(**base)
+
+    def _read(self, **kwargs):
+        """Read with defaults; state, env, config, bias overridable."""
+        return read_fine_sun_sensor(
+            kwargs.get("state", self._state()),
+            kwargs.get("env", self._env()),
+            kwargs.get("config", self._config()),
+            kwargs.get("bias", self._NO_BIAS),
+            kwargs.get("rng", np.random.default_rng(0)),
+        )
+
+    def test_shape_and_unit(self) -> None:
+        """Returns a (3,) float array of unit length."""
+        s = self._read()
+        assert s.shape == (3,)
+        assert s.dtype == np.float64
+        assert np.isclose(np.linalg.norm(s), 1.0)
+
+    def test_noise_free_round_trip_is_identity(self) -> None:
+        """Vector -> angles -> vector recovers the truth exactly.
+
+        The forward and inverse must use the same axis pairing and the same
+        sign on beta. A mirrored convention would flip a component here.
+        """
+        for sun in (
+            np.array([0.0, 0.0, 1.0]),
+            np.array([0.5, 0.0, np.sqrt(0.75)]),      # tilted toward +x
+            np.array([0.0, -0.4, np.sqrt(0.84)]),     # tilted toward -y
+            np.array([0.3, 0.4, np.sqrt(0.75)]),      # asymmetric
+        ):
+            sun = sun / np.linalg.norm(sun)
+            assert np.allclose(self._read(env=self._env(sun)), sun, atol=1e-12)
+
+    def test_rotation_composition(self) -> None:
+        """The sun is rotated by R_S @ C(q) before the angles are taken."""
+        q = np.array([0.98, 0.10, -0.05, 0.15])
+        q = q / np.linalg.norm(q)
+        r_s = np.array([[0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [1.0, 0.0, 0.0]])
+        sun_eci = np.array([0.2, -0.3, 0.93])
+        sun_eci = sun_eci / np.linalg.norm(sun_eci)
+        expected = r_s @ dcm_eci_to_body(q) @ sun_eci
+        if expected[2] <= 0.0:
+            raise AssertionError("test case must place the sun in the forward hemisphere")
+        s = self._read(
+            state=_sample_state(q, self._R, np.zeros(3)),
+            env=self._env(sun_eci),
+            config=self._config(body_to_sensor=r_s),
+        )
+        assert np.allclose(s, expected, atol=1e-12)
+
+    def test_eclipse_returns_none(self) -> None:
+        """No sunlight, no measurement - None rather than a zero vector."""
+        assert self._read(env=self._env(eclipse=True)) is None
+
+    def test_out_of_fov_returns_none(self) -> None:
+        """A sun behind the sensor is not detected."""
+        assert self._read(env=self._env(np.array([0.0, 0.0, -1.0]))) is None
+
+    def test_narrow_fov_gates(self) -> None:
+        """The cone test uses fov_half_angle, not a hardcoded hemisphere."""
+        sun = np.array([np.sin(np.deg2rad(40.0)), 0.0, np.cos(np.deg2rad(40.0))])
+        assert self._read(env=self._env(sun)) is not None
+        narrow = self._config(fov_half_angle=np.deg2rad(30.0))
+        assert self._read(env=self._env(sun), config=narrow) is None
+
+    def test_slew_cutoff_returns_none(self) -> None:
+        """Above max_slew_rate the unit reports no detection."""
+        limit = np.deg2rad(70.0)
+        assert self._read(state=self._state(np.array([0.0, 0.0, 0.9 * limit]))) is not None
+        assert self._read(state=self._state(np.array([0.0, 0.0, 1.1 * limit]))) is None
+
+    def test_slew_gate_uses_total_rate(self) -> None:
+        """Three axes each below the limit can still exceed it in magnitude.
+
+        Confirms the gate is on ||omega||, not per-axis - the conservative
+        choice documented in the read function.
+        """
+        per_axis = np.deg2rad(50.0)               # each below 70, norm ~87
+        omega = np.full(3, per_axis)
+        assert np.linalg.norm(omega) > np.deg2rad(70.0)
+        assert self._read(state=self._state(omega)) is None
+
+    def test_bias_shifts_the_angles(self) -> None:
+        """Bias offsets alpha and beta, not the output vector's components."""
+        bias = np.array([np.deg2rad(2.0), np.deg2rad(-3.0)])
+        sun = np.array([0.0, 0.0, 1.0])
+        s = self._read(env=self._env(sun), bias=bias)
+        alpha = np.arctan2(s[1], s[2])
+        beta = np.arctan2(-s[0], s[2])
+        assert np.isclose(alpha, bias[0])
+        assert np.isclose(beta, bias[1])
+
+    def test_seeded_reproducibility(self) -> None:
+        """Identical seeds give identical measurements; different seeds do not."""
+        cfg = self._config(incident_angle_noise_std=np.deg2rad(0.1))
+        a = self._read(config=cfg, rng=np.random.default_rng(42))
+        b = self._read(config=cfg, rng=np.random.default_rng(42))
+        c = self._read(config=cfg, rng=np.random.default_rng(43))
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    def test_noise_statistics_on_the_angles(self) -> None:
+        """Angle spread matches incident_angle_noise_std, and the mean is truth.
+
+        Measured on alpha and beta rather than on the vector, since that is
+        where the noise is applied. Catches a sigma-convention error, e.g.
+        feeding the PD's 2-sigma figure into a 1-sigma field.
+        """
+        sigma = np.deg2rad(0.5)
+        cfg = self._config(incident_angle_noise_std=sigma)
+        rng = np.random.default_rng(7)
+        samples = np.array(
+            [self._read(config=cfg, rng=rng) for _ in range(20000)]
+        )
+        alpha = np.arctan2(samples[:, 1], samples[:, 2])
+        beta = np.arctan2(-samples[:, 0], samples[:, 2])
+        assert np.isclose(alpha.mean(), 0.0, atol=5.0 * sigma / np.sqrt(20000))
+        assert np.isclose(beta.mean(), 0.0, atol=5.0 * sigma / np.sqrt(20000))
+        assert np.isclose(alpha.std(), sigma, rtol=0.05)
+        assert np.isclose(beta.std(), sigma, rtol=0.05)
+
+    def test_draw_before_gate(self) -> None:
+        """The rng advances by the same amount whether or not the sensor gates.
+
+        D17: if a gated call skipped its draw, every later sensor's noise
+        would shift with the physics, and two configurations could not be
+        compared on identical noise.
+        """
+        cfg = self._config(incident_angle_noise_std=np.deg2rad(0.1))
+        lit, dark = np.random.default_rng(3), np.random.default_rng(3)
+        self._read(config=cfg, rng=lit)
+        assert self._read(config=cfg, env=self._env(eclipse=True), rng=dark) is None
+        assert lit.standard_normal() == dark.standard_normal()
+
+    def test_unphysical_angle_returns_none(self) -> None:
+        """Noise pushing a reported angle past 90 deg yields None, not a
+        backwards vector.
+
+        Reachable near the field-of-view rim: an angle beyond 90 deg is
+        outside what the instrument can report, and both reconstruction forms
+        misbehave there - the bounded form flips the whole vector.
+        """
+        edge = np.deg2rad(89.5)
+        sun = np.array([0.0, np.sin(edge), np.cos(edge)])
+        cfg = self._config(incident_angle_noise_std=np.deg2rad(1.0))
+        rng = np.random.default_rng(11)
+        results = [self._read(env=self._env(sun), config=cfg, rng=rng) for _ in range(2000)]
+        assert any(r is None for r in results), "no excursion past the boundary occurred"
+        for r in results:
+            if r is not None:
+                assert r[2] > 0.0
+                assert np.isclose(np.linalg.norm(r), 1.0)
+
+    def test_eventsat_units_detect_a_boresight_sun(self) -> None:
+        """Both configured units return a plausible measurement."""
+        rng = np.random.default_rng(0)
+        for cfg in sensors.fine_sun_sensors:
+            s = self._read(config=cfg, rng=rng)
+            assert s is not None
+            assert np.isclose(np.linalg.norm(s), 1.0)
+            assert np.degrees(np.arccos(np.clip(s[2], -1.0, 1.0))) < 1.0
+
+
+def test_fss_config_rejects_fov_outside_hemisphere() -> None:
+    """fov_half_angle must be in (0, pi/2] — the pinhole model has no rear hemisphere."""
+    for bad in (np.deg2rad(120.0), 0.0, -0.1):
+        with pytest.raises(ValueError):
+            FineSunSensorConfig(
+                name="bad", body_to_sensor=np.eye(3), fov_half_angle=bad,
+                incident_angle_noise_std=0.0, bias_std=0.0,
+                max_slew_rate=np.deg2rad(70.0),
+            )
+    FineSunSensorConfig(  # exactly pi/2 is valid and is EventSat's value
+        name="ok", body_to_sensor=np.eye(3), fov_half_angle=np.pi / 2,
+        incident_angle_noise_std=0.0, bias_std=0.0, max_slew_rate=np.deg2rad(70.0),
+    )

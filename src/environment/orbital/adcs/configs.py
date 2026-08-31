@@ -44,19 +44,34 @@ class MagnetometerConfig:
 class FineSunSensorConfig:
     """Fine sun sensor configuration.
 
+    Models a CMOS imager simplified to a pinhole model (High-Accuracy Image 
+    Centroiding Algorithm for CMOS-Based Digital Sun Sensors (Kim et al., Eq. 2)),
+    reporting the sun direction as two image-plane incident angles (alpha,
+    beta) which are converted to a unit vector in the sensor frame.
+
     Attributes:
         name: Human-readable identifier.
         body_to_sensor: 3x3 rotation matrix, body frame to sensor frame.
-        fov_half_angle: Half-angle of the conical field of view [rad]. The
-            sun is only seen when within this cone of the boresight.
-        noise_std: Angular measurement noise standard deviation (1-sigma)
-            [rad].
+        fov_half_angle: Half-angle of the conical detection region [rad].
+            must be between 0 and pi/2 rad, due to the pinhole model simplification
+        incident_angle_noise_std: Noise standard deviation (1-SIGMA) on each
+            incident angle [rad]. 
+        bias_std: Standard deviation [rad] for drawing the per-unit turn-on
+            offset on each incident angle. This is the spread, not the bias.
+        max_slew_rate: Body rate above which the unit reports no detection
+            [rad/s]. Hard cutoff, CubeSun PD p.10.
     """
 
     name: str
     body_to_sensor: np.ndarray
     fov_half_angle: float
-    noise_std: float
+    incident_angle_noise_std: float
+    bias_std: float
+    max_slew_rate: float
+
+    def __post_init__(self) -> None:
+        if self.fov_half_angle > np.pi/2 or self.fov_half_angle <= 0:
+            raise ValueError(f"fov_half_angle must not be bigger than pi/2 rad (pinhole model) , got {self.fov_half_angle}")
 
 
 @dataclass

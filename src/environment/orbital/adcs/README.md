@@ -2,6 +2,22 @@
 
 A modular and configurable Attitude Determination and Control System (ADCS) simulation for the **EventSat 6U CubeSat**, designed as an RL training/evaluation environment and reconfigurable for other CubeSat missions.
 
+**Status Update 31.08.2026:** Fine sun sensor implemented in `sensors.py`. 
+The noise and bias are applied to `(α, β)` rather than to the output vector. 
+`read_fine_sun_sensor` returns `Optional[np.ndarray]`: `None` when there is no 
+measurement (eclipse, out offield of view, above the 70 °/s slew cutoff, or 
+when noise pushes a reported angle outside the instrument's physical range). 
+`fov_half_angle` is now validated to lie in (0, π/2], since
+the pinhole parameterisation has no rear hemisphere. 
+
+**Status Update 29.08.2026:** Rate gyro measurement model implemented in
+`sensors.py`: `ω_meas = R_S·ω_body + b + n_v`, Farrenkopf (1978) two-term
+model with the per-sample noise scaled as `arw/√dt` (Woodman 2007 §3.2.2
+Eq. 5). EventSat models GYR0 only; GYR1 stays defined but out of the suite.
+All gyro parameters remain placeholders. `RateGyroConfig` gains
+`update_rate_hz`; `MagnetometerConfig.measurement_range` renamed to
+`max_field`, following the `max_<quantity>` convention.
+
 **Status Update 28.08.2026:** Magnetometer measurement model implemented in
 `sensors.py`: `B_meas = R_S·C(q)·B_eci + b₀ + n`, additive structure after
 Alonso & Shuster (2002), with per-axis Gaussian noise and saturation clipping.

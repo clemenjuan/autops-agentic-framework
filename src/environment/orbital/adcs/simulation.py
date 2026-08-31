@@ -110,13 +110,14 @@ def step(
     measurements = SensorMeasurements(
         magnetometers=[read_magnetometer(state, env, mag, rng) for mag in sensors.magnetometers],
         fine_sun_sensors=[
-            read_fine_sun_sensor(state, env, fss, rng) for fss in sensors.fine_sun_sensors
+            read_fine_sun_sensor(state, env, fss, sensor_state.fss_bias[i], rng) 
+            for i, fss in enumerate(sensors.fine_sun_sensors)
         ],
         coarse_sun=read_coarse_sun_sensor(state, env, sensors.coarse_sun_sensor, rng),
         earth_horizon=read_earth_horizon(state, env, sensors.earth_horizon_sensor, rng),
         star_trackers=[read_star_tracker(state, env, st, rng) for st in sensors.star_trackers],
         gyros=[
-            read_rate_gyro(state, env, g, sensor_state.gyro_bias[i],dt, rng)
+            read_rate_gyro(state, env, g, sensor_state.gyro_bias[i], dt, rng)
             for i, g in enumerate(sensors.rate_gyros)
         ],
     )
