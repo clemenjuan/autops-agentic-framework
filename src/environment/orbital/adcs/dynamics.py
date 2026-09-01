@@ -17,10 +17,7 @@ import numpy as np
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.propagator import EnvironmentData
 from src.environment.orbital.adcs.configs import SatelliteConfig
-
-OMEGA_EARTH = 7.2921159e-5  # rad/s, Earth's sidereal rotation rate
-SOLAR_PRESSURE = 4.56e-6  # N/m², solar radiation pressure at 1 AU (1367 W/m² / c, Paluszek Table 8.1)
-MU_EARTH = 3.986004418e14  # m³/s², Earth gravitational parameter (GM)
+from src.environment.orbital.adcs.constants import MU_EARTH, OMEGA_EARTH, SOLAR_PRESSURE
 
 def quat_multiply(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
     """Hamilton quaternion product ``q1 ⊗ q2`` (scalar-first ``[w, x, y, z]``).

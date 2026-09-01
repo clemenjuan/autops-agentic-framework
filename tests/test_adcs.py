@@ -45,6 +45,7 @@ from src.environment.orbital.adcs.sensors import (
     read_rate_gyro,
     read_fine_sun_sensor,
 )
+from src.environment.orbital.adcs import constants as C
 
 requires_orekit = pytest.mark.skipif(
     not P.is_available(), reason="Orekit unavailable; skipping physics checks."
@@ -858,3 +859,14 @@ def test_fss_config_rejects_fov_outside_hemisphere() -> None:
         name="ok", body_to_sensor=np.eye(3), fov_half_angle=np.pi / 2,
         incident_angle_noise_std=0.0, bias_std=0.0, max_slew_rate=np.deg2rad(70.0),
     )
+
+@requires_orekit
+def test_constants_match_orekit() -> None:
+    """The adcs-side constants must equal Orekit's, since both are in use.
+
+    dynamics.py cannot import from Orekit (invariant 1), so WGS84 values exist
+    twice. This is the only thing that would catch them diverging.
+    """
+    from org.orekit.utils import Constants
+    assert C.R_EARTH == Constants.WGS84_EARTH_EQUATORIAL_RADIUS
+    assert C.MU_EARTH == Constants.WGS84_EARTH_MU
