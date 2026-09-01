@@ -2,6 +2,14 @@
 
 A modular and configurable Attitude Determination and Control System (ADCS) simulation for the **EventSat 6U CubeSat**, designed as an RL training/evaluation environment and reconfigurable for other CubeSat missions.
 
+**Status Update 02.09.2026:** Coarse sun sensor implemented in `sensors.py`.
+Each cell returns a current. `noise_std` is a placeholder, as well as the surface normals.
+
+**Status Update 02.09.2026:** Physical constants collected into
+`adcs/constants.py`: Earth's radius, gravitational parameter and rotation rate,
+solar radiation pressure, and Earth's Bond albedo. The rule is that physical
+constants live here.
+
 **Status Update 31.08.2026:** Fine sun sensor implemented in `sensors.py`. 
 The noise and bias are applied to `(α, β)` rather than to the output vector. 
 `read_fine_sun_sensor` returns `Optional[np.ndarray]`: `None` when there is no 

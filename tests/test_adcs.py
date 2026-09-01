@@ -37,6 +37,7 @@ from src.environment.orbital.adcs.configs import (
     MagnetometerConfig, 
     RateGyroConfig,
     FineSunSensorConfig,
+    CoarseSunSensorConfig,
     )
 from src.environment.orbital.adcs.sensors import (
     initial_sensor_state, 
@@ -44,6 +45,7 @@ from src.environment.orbital.adcs.sensors import (
     read_magnetometer, 
     read_rate_gyro,
     read_fine_sun_sensor,
+    read_coarse_sun_sensor,
 )
 from src.environment.orbital.adcs import constants as C
 
@@ -870,3 +872,232 @@ def test_constants_match_orekit() -> None:
     from org.orekit.utils import Constants
     assert C.R_EARTH == Constants.WGS84_EARTH_EQUATORIAL_RADIUS
     assert C.MU_EARTH == Constants.WGS84_EARTH_MU
+    assert C.OMEGA_EARTH == Constants.WGS84_EARTH_ANGULAR_VELOCITY
+
+class TestCoarseSunSensor:
+    """Physics invariants for the coarse sun sensor array model.
+
+    Two fixture geometries, chosen so each test isolates one term. There is no
+    config switch for albedo - it is a planetary constant in constants.py, not
+    a property of the array - so the separation is geometric instead:
+
+      TERMINATOR: position on +x, sun on +z. The sub-satellite point is at the
+        terminator, cos Z = 0, so albedo is exactly zero and only the direct
+        term contributes. Physically real, not a contrivance.
+      NOON: position on +x, sun on +x. cos Z = 1 and the -x cell faces nadir
+        exactly, so the albedo term is at its maximum and hand-computable.
+    """
+
+    _R = np.array([ALT_RADIUS, 0.0, 0.0])
+    _SUN_NOON = np.array([1.0, 0.0, 0.0])          # cos Z = 1
+    _SUN_TERMINATOR = np.array([0.0, 0.0, 1.0])    # cos Z = 0, albedo off
+    _Q = np.array([1.0, 0.0, 0.0, 0.0])
+    _I_FS = 930e-6
+
+    # Albedo current on a nadir-facing cell at local noon, hand-computed:
+    # I_fs * a * F, with F = (R_EARTH / |r|)^2. About 27 % of full direct sun.
+    _F = (C.R_EARTH / ALT_RADIUS) ** 2
+    _I_ALBEDO_MAX = _I_FS * C.EARTH_BOND_ALBEDO * _F
+
+    _FACE_NORMALS = np.array([
+        [1.0, 0.0, 0.0], [-1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0], [0.0, -1.0, 0.0],
+        [0.0, 0.0, 1.0], [0.0, 0.0, -1.0],
+    ])
+
+    def _env(self, sun=None, r=None, eclipse: bool = False) -> P.EnvironmentData:
+        return _sample_env(
+            self._R if r is None else r, np.zeros(3), np.zeros(3),
+            self._SUN_TERMINATOR if sun is None else sun, eclipse=eclipse,
+        )
+
+    def _config(self, **kwargs) -> CoarseSunSensorConfig:
+        """A noise-free six-face array."""
+        base = dict(
+            name="test",
+            normals=self._FACE_NORMALS,
+            full_scale_current=self._I_FS,
+            noise_std=0.0,
+        )
+        base.update(kwargs)
+        return CoarseSunSensorConfig(**base)
+
+    def _read(self, **kwargs) -> np.ndarray:
+        r = kwargs.get("r", self._R)
+        return read_coarse_sun_sensor(
+            kwargs.get("state", _sample_state(self._Q, r, np.zeros(3))),
+            kwargs.get("env", self._env(kwargs.get("sun"), r, kwargs.get("eclipse", False))),
+            kwargs.get("config", self._config()),
+            kwargs.get("rng", np.random.default_rng(0)),
+        )
+
+    # --- shape ------------------------------------------------------------
+
+    def test_shape_and_dtype(self) -> None:
+        """One current per cell, float."""
+        i = self._read()
+        assert i.shape == (6,)
+        assert i.dtype == np.float64
+
+    def test_shape_follows_config(self) -> None:
+        """The cell count comes from normals, not a hardcoded number."""
+        cfg = self._config(normals=np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]))
+        assert self._read(config=cfg).shape == (2,)
+
+    # --- direct sun, at the terminator where albedo is exactly zero -------
+
+    def test_cosine_law(self) -> None:
+        """A cell reads I_fs * cos(incidence), zero facing away or edge-on.
+
+        Terminator geometry: cos Z = 0, so this isolates the direct term.
+        """
+        theta = np.deg2rad(60.0)
+        sun = np.array([0.0, np.sin(theta), np.cos(theta)])   # tilted in the y-z plane
+        i = self._read(sun=sun)
+        assert np.isclose(i[4], self._I_FS * np.cos(theta))   # +z cell
+        assert np.isclose(i[2], self._I_FS * np.sin(theta))   # +y cell
+        assert i[5] == 0.0                                    # -z, facing away
+        assert i[0] == 0.0                                    # +x, edge-on
+
+    def test_no_negative_currents(self) -> None:
+        """max(0, .) holds: a diode cannot be negatively illuminated."""
+        sun = np.array([0.0, -0.6, 0.8])
+        assert np.all(self._read(sun=sun) >= 0.0)
+
+    def test_attitude_rotates_the_response(self) -> None:
+        """The normals are body-frame, so attitude changes which cells are lit."""
+        s = np.sqrt(0.5)
+        q = np.array([s, s, 0.0, 0.0])                        # 90 deg about ECI x
+        upright = self._read()
+        turned = self._read(state=_sample_state(q, self._R, np.zeros(3)))
+        assert np.isclose(upright[4], self._I_FS)             # +z cell sees the sun
+        assert np.isclose(turned[2], self._I_FS)              # now the +y cell does
+        assert np.isclose(turned[4], 0.0)
+
+    # --- albedo, at local noon where it is maximal ------------------------
+
+    def test_albedo_lights_the_nadir_cell(self) -> None:
+        """At local noon the nadir-facing cell reads I_fs * a * F.
+
+        Hand-computed rather than reproduced from the code: a is Earth's Bond
+        albedo and F = (R_EARTH/r)^2 is the view factor. Without F this would
+        be 1.15x larger.
+        """
+        i = self._read(sun=self._SUN_NOON)
+        assert np.isclose(i[1], self._I_ALBEDO_MAX)           # -x cell faces nadir
+        assert np.isclose(i[0], self._I_FS)                   # +x cell in full sun
+        assert np.allclose(i[2:], 0.0)                        # the rest are edge-on
+
+    def test_albedo_is_a_quarter_of_direct_sun(self) -> None:
+        """Sanity on magnitude: a nadir cell at noon reads ~27 % of full sun.
+
+        Not a derivation - a check that the term is neither negligible nor
+        dominant, which is what makes it worth modelling at all.
+        """
+        i = self._read(sun=self._SUN_NOON)
+        assert 0.2 < i[1] / i[0] < 0.35
+
+    def test_albedo_vanishes_over_dark_ground(self) -> None:
+        """cos Z gates on the ground, not the spacecraft.
+
+        At the terminator geometry the sub-satellite point is unlit while
+        env.eclipse is still False - the 20.9 deg band at 450 km that the
+        eclipse flag cannot represent. The nadir cell must read zero.
+        """
+        env = self._env(self._SUN_TERMINATOR)
+        assert not env.eclipse
+        assert self._read(env=env)[1] == 0.0
+
+    def test_albedo_falls_off_as_cos_z(self) -> None:
+        """Albedo on the nadir cell follows cos Z, smoothly to zero.
+
+        The sun stays in the x-z plane at zenith angles up to 90 deg, so the
+        nadir-facing -x cell is never directly lit (its dot product with the
+        sun is <= 0 throughout) and this isolates the albedo term. Past 90 deg
+        the sun swings round far enough to illuminate that cell directly, which
+        is why the sweep stops there.
+        """
+        currents = []
+        for z in np.deg2rad([0.0, 45.0, 80.0, 89.0, 90.0]):
+            sun = np.array([np.cos(z), 0.0, np.sin(z)])
+            currents.append(self._read(sun=sun)[1])
+        assert np.all(np.diff(currents) < 0.0)              # strictly falling
+        assert np.isclose(currents[0], self._I_ALBEDO_MAX)  # cos Z = 1 at noon
+        assert currents[-1] < 1e-8 * self._I_ALBEDO_MAX     # ~zero at the terminator
+
+        # Continuity: no jump at the boundary. A boolean gate on env.eclipse
+        # would hold the full albedo current right up to 90 deg and then drop.
+        for z in np.deg2rad([89.99, 89.999, 90.0]):
+            sun = np.array([np.cos(z), 0.0, np.sin(z)])
+            assert self._read(sun=sun)[1] < 1e-3 * self._I_ALBEDO_MAX
+
+    def test_view_factor_falls_with_altitude(self) -> None:
+        """F = (R_EARTH/r)^2 is computed at runtime, so a higher orbit sees less."""
+        low_r = np.array([C.R_EARTH + 300e3, 0.0, 0.0])
+        high_r = np.array([C.R_EARTH + 800e3, 0.0, 0.0])
+        low = self._read(sun=self._SUN_NOON, r=low_r)[1]
+        high = self._read(sun=self._SUN_NOON, r=high_r)[1]
+        assert low > high
+        assert np.isclose(low / high, ((C.R_EARTH + 800e3) / (C.R_EARTH + 300e3)) ** 2)
+
+    # --- eclipse and noise ------------------------------------------------
+
+    def test_eclipse_returns_noise_only(self) -> None:
+        """In shadow the array reads noise about zero - a real measurement, not
+        None: zero current is what the diodes actually produce."""
+        cfg = self._config(noise_std=1e-9)
+        i = self._read(config=cfg, sun=self._SUN_NOON, eclipse=True,
+                       rng=np.random.default_rng(5))
+        assert i.shape == (6,)
+        assert np.all(np.abs(i) < 1e-8)
+
+    def test_draw_before_gate(self) -> None:
+        """The rng advances identically whether or not the eclipse gate fires (D17)."""
+        cfg = self._config(noise_std=1e-9)
+        lit, dark = np.random.default_rng(3), np.random.default_rng(3)
+        self._read(config=cfg, rng=lit)
+        self._read(config=cfg, eclipse=True, rng=dark)
+        assert lit.standard_normal() == dark.standard_normal()
+
+    def test_seeded_reproducibility(self) -> None:
+        """Identical seeds give identical noise; different seeds do not."""
+        cfg = self._config(noise_std=1e-8)
+        a = self._read(config=cfg, rng=np.random.default_rng(42))
+        b = self._read(config=cfg, rng=np.random.default_rng(42))
+        c = self._read(config=cfg, rng=np.random.default_rng(43))
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    def test_noise_statistics(self) -> None:
+        """Over many samples the mean is the noise-free current and the spread
+        is noise_std."""
+        sigma = 1e-8
+        cfg = self._config(noise_std=sigma)
+        rng = np.random.default_rng(7)
+        clean = self._read()
+        samples = np.array([self._read(config=cfg, rng=rng) for _ in range(20000)])
+        assert np.allclose(samples.mean(axis=0), clean, atol=5.0 * sigma / np.sqrt(20000))
+        assert np.allclose(samples.std(axis=0), sigma, rtol=0.05)
+
+    # --- the configured array ---------------------------------------------
+
+    def test_eventsat_array_is_well_conditioned(self) -> None:
+        """Every sun direction lights at least three cells.
+
+        The reason for the tetrahedral corners: the previous set had four
+        coplanar diagonals, leaving one lit cell at +/-z where the
+        least-squares inversion is singular. D2 - the normals remain a
+        placeholder, but this property must survive whatever replaces them.
+        """
+        n = sensors.coarse_sun_sensor.normals
+        assert np.allclose(np.linalg.norm(n, axis=1), 1.0)
+        rng = np.random.default_rng(0)
+        dirs = rng.standard_normal((5000, 3))
+        dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
+        lit = (np.maximum(0.0, dirs @ n.T) > 1e-9).sum(axis=1)
+        assert lit.min() >= 3
+
+
+
+
+    

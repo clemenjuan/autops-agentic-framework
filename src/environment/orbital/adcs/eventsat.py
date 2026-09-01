@@ -111,7 +111,9 @@ _coarse_sun_sensor = CoarseSunSensorConfig(
     [-_S3, -_S3,  _S3],
     [-_S3,  _S3, -_S3],
     [ _S3, -_S3, -_S3],
-    ])
+    ]),
+    full_scale_current=930.0e-6, # derived from SLCD-61N8 datasheet
+    noise_std=1e-6, # PLACEHOLDER
 )    
 
 
@@ -256,10 +258,10 @@ satellite = SatelliteConfig(
 # -----------------------------------------------------------------------------
 # Orbit Config
 # -----------------------------------------------------------------------------
-
+ALTITUDE_KM = 450
 orbit = OrbitConfig(
     epoch=datetime(2024, 12, 31, 10, 30, 0, tzinfo=timezone.utc), # For IGRF-13 validity
-    altitude_km=450.0,         # CMO p.14 - not yet confirmed
+    altitude_km=ALTITUDE_KM,         # CMO p.14 - not yet confirmed
     eccentricity=0.0,          # Assumption
     inclination_deg=97.4,      # CMO p.14
     raan_deg=0.0,              # propagator.configure() derives RAAN from LTAN and this value is unused
@@ -274,6 +276,6 @@ orbit = OrbitConfig(
 # -----------------------------------------------------------------------------
 # Will be later moved to a different file, maybe
 # 0.2 s = the 5 Hz flight control loop (CubeADCS ICD p.42; CubeMag PD p.11).
-sim = SimulationConfig( 
-    step_s = 0.2,   
+sim = SimulationConfig(
+    step_s = 0.2,
 )

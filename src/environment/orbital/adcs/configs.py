@@ -78,14 +78,23 @@ class FineSunSensorConfig:
 class CoarseSunSensorConfig:
     """Coarse sun sensor array configuration.
 
+    A set of photodiodes with fixed body-frame normals. Each cell returns a
+    scalar current, so a single reading is consistent with a cone of sun
+    directions.
+
     Attributes:
         name: Human-readable identifier.
-        normals: Outward unit normals of each photodiode cell in the body
+        normals: Outward unit normals of each photodiode cell in the BODY
             frame, shape (n_cells, 3). EventSat has ten cells.
+        full_scale_current: Cell current [A] at normal incidence at 1 AU with
+            no albedo. A scale factor at a reference condition.
+        noise_std: Readout noise standard deviation (1-SIGMA) [A]. Estimation.
     """
 
     name: str
     normals: np.ndarray
+    full_scale_current: float
+    noise_std: float
 
 
 @dataclass

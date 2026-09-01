@@ -25,6 +25,7 @@ from src.environment.orbital.adcs.configs import (
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.propagator import EnvironmentData
 from src.environment.orbital.adcs.dynamics import dcm_eci_to_body
+from src.environment.orbital.adcs.constants import EARTH_BOND_ALBEDO, R_EARTH
 
 @dataclass
 class SensorState:
@@ -194,9 +195,82 @@ def read_fine_sun_sensor(
 def read_coarse_sun_sensor(
     state: SatState, env: EnvironmentData, config: CoarseSunSensorConfig, rng: np.random.Generator
 ) -> np.ndarray:
-    """Photodiode voltages for the coarse sun sensor array, shape (n_cells,).
+    """Each photodiode returns a current for the coarse sun sensor array, shape (n_cells,).
+
+    A cell's current is proportional to its projected area toward
+    the source. (SLCD-61N8 datasheet, Lambertian response)
+
+    Takes into account both light coming from the sun and light from 
+    Earth's albedo. During eclipse it returns only noise.
+
+    The view factor (F), is the fraction of a surface's hemispherical view that Earth fills:
+    F = sin^2(rho) with sin(rho) = R_EARTH/r by definition, so
+    F = (R_EARTH/r)^2 exactly - an identity, not a small-angle approximation.
+    Without F the point-source form runs 1.15x hot, verified against numerical
+    integration of a Lambertian sphere.
+
+    a is Earth's Bond albedo, a planetary constant.
+
+    Not modelled:
+        Earth as an extended disc,
+        Surface reflectivity variation,
+        Mounting offsets and obscuration,
+        Diode Saturation,
+        Dark current,
+        Moonlight,
+
+    Args:
+        state: True satellite state; supplies the attitude quaternion.
+        env: True environment; supplies position, sun direction, eclipse flag.
+        config: The array's normals, full-scale current and noise.
+        rng: Supplies the readout noise.
+
+    Returns:
+        Per-cell current [A], shape (n_cells,). Currents, not voltages: every
+        source document works in current, and the transimpedance gain that
+        would convert them is EventSat electronics, unspecified. In eclipse
+        the array reads noise about zero, which is a real measurement - unlike
+        the fine sun sensor, where a zero vector would be a fabricated
+        direction and None is returned instead.
     """
-    return np.zeros(len(config.normals))
+    # Sensor_noise:
+    I_noise = rng.normal(0, config.noise_std, len(config.normals))
+
+    # Check for eclipse:
+    if env.eclipse:
+        return I_noise
+
+    # Sun direction in body frame:
+    sun_vector_body = dcm_eci_to_body(state.q_eci_body) @ env.sun_vector_eci
+
+    # Current due to sun:
+    I_sun = config.full_scale_current * np.maximum(0, config.normals @ sun_vector_body)
+
+    # Direction of r_eci:
+    r_eci_norm = np.linalg.norm(env.r_eci)
+    r_eci_direction = env.r_eci / r_eci_norm
+
+    # r_nadir:
+    r_nadir_eci = -r_eci_direction
+    r_nadir_body = dcm_eci_to_body(state.q_eci_body) @ r_nadir_eci
+
+    # View factor:
+    view_factor = ( R_EARTH / r_eci_norm )**2
+
+    # Current due to Earth's albedo:
+    I_alb = (
+        config.full_scale_current * EARTH_BOND_ALBEDO * view_factor 
+        * np.maximum(0, r_eci_direction @ env.sun_vector_eci ) # Due to brightness of land below satellite
+        * np.maximum(0, config.normals @ r_nadir_body) # Due to how much light a given diode cathes
+    )
+
+    # Total current:
+    I_css = I_sun + I_alb
+
+    # Measured current:
+    I_meas = I_css + I_noise
+    
+    return I_meas
 
 
 def read_earth_horizon(
@@ -204,6 +278,8 @@ def read_earth_horizon(
 ) -> np.ndarray:
     """Measured nadir direction for the earth horizon sensor, shape (3,).
     """
+    # Current due to sun:
+
     return np.zeros(3)
 
 
@@ -294,7 +370,7 @@ class SensorMeasurements:
             sensor frame.
         fine_sun_sensors: Sun unit vector per fine sun sensor, each shape (3,),
             sensor frame; None when the sun is out of view.
-        coarse_sun: Photodiode voltages from the coarse array, shape (n_cells,).
+        coarse_sun: Photodiode currents from the coarse array, shape (n_cells,).
         earth_horizon: Nadir unit vector in the sensor frame, shape (3,); zero
             when nadir is out of the field of view.
         star_trackers: Attitude quaternion (ECI to body) per star tracker, each
