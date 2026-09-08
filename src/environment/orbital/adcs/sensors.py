@@ -32,9 +32,9 @@ class SensorState:
     """Internal error states of the sensor suite that carry memory across steps.
 
     Attributes:
-        gyro_bias: Rate gyro bias [rad/s], sensor frame, one row per gyro,
+        gyro_bias: Rate gyro bias [rad/s], sensor frame, one roll per gyro,
             shape (n_gyros, 3).
-        fss_bias: FSS bias [rad], one row per sensor, shape(n_fss, 2) ((alpha, beta) incident angles),
+        fss_bias: FSS bias [rad], one roll per sensor, shape(n_fss, 2) ((alpha, beta) incident angles),
         doesn't change across steps, 
     """
 
@@ -194,7 +194,7 @@ def read_fine_sun_sensor(
 
 def read_coarse_sun_sensor(
     state: SatState, env: EnvironmentData, config: CoarseSunSensorConfig, rng: np.random.Generator
-) -> np.ndarray:
+) -> Optional[np.ndarray]:
     """Each photodiode returns a current for the coarse sun sensor array, shape (n_cells,).
 
     A cell's current is proportional to its projected area toward
@@ -238,7 +238,7 @@ def read_coarse_sun_sensor(
 
     # Check for eclipse:
     if env.eclipse:
-        return I_noise
+        return I_noise  # Should the other sensors also return noise/should this return None???
 
     # Sun direction in body frame:
     sun_vector_body = dcm_eci_to_body(state.q_eci_body) @ env.sun_vector_eci
@@ -275,13 +275,130 @@ def read_coarse_sun_sensor(
 
 def read_earth_horizon(
     state: SatState, env: EnvironmentData, config: EarthHorizonConfig, rng: np.random.Generator
-) -> np.ndarray:
-    """Measured nadir direction for the earth horizon sensor, shape (3,).
-    """
-    # Current due to sun:
+) -> Optional[np.ndarray]:
 
-    return np.zeros(3)
+    """Measured nadir direction for the earth horizon sensor, unit (3,), sensor frame.
 
+        Returns None when there is no measurement: above the slew cutoff, when the
+        horizon arc is rotated too far in the image, or when the limb is not in the
+        field of view. pitch and roll are computed from the body-frame nadir while
+        the return is sensor-frame.
+
+        ASSUMPTIONS: 
+            - Body to sensor mounting 
+            - The Earth's horizon is a circle around nadir
+            - The field-of-view figures are inconsistent in the ADCS PD and the EHS PD. and
+            - The 90 deg diagonal value was not used, instead the diagonal of the 72x90 FoV
+                was used
+
+        Not modelled:
+            Slew-dependent accuracy degradation - 'dependent on slew' is stated
+                without a shape, same as the fine sun sensor (D42).
+            Earth oblateness - theta_hor uses the equatorial radius, which is what
+                the ADCS PD p.30 formula specifies. The polar radius would shift it
+                by ~0.497 deg.
+
+        Args:
+            state: True satellite state; supplies attitude and body rate.
+            env: True environment; supplies position, from which both nadir and the
+                current horizon angle are derived.
+            config: This unit's mounting, field of view, roll bound, noise and slew
+                cutoff.
+            rng: Supplies the pitch and roll noise.
+
+        Returns:
+            Unit nadir direction in the sensor frame, shape (3,), or None.
+        """
+    
+    # Sensor noise:
+    ehs_angle_noise = rng.normal(0.0, config.noise_std, 2)
+
+    # Check if slew rate is too large for a measurement (conservative):
+    if np.linalg.norm(state.omega_body) > config.max_slew_rate:
+        return None
+
+    # Projection Matrices:
+    P_xy = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0],
+    ])
+
+    P_yz = np.array([
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    P_xz = np.array([
+        [1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+
+    # Direction of r_eci:
+    r_eci_norm = np.linalg.norm(env.r_eci)
+    r_eci_direction = env.r_eci / r_eci_norm
+    
+    # r_nadir:
+    r_nadir_eci = -r_eci_direction
+    r_nadir_body = dcm_eci_to_body(state.q_eci_body) @ r_nadir_eci
+    r_nadir_body_xz = P_xz @ r_nadir_body # Projection on xz plane
+    r_nadir_body_yz = P_yz @ r_nadir_body # Projection on yz plane 
+    r_nadir_sen = config.body_to_sensor @ r_nadir_body
+    r_nadir_sen_xy = P_xy @ r_nadir_sen
+    r_nadir_sen_norm = r_nadir_sen / np.linalg.norm(r_nadir_sen)
+
+    # Azimuth of nadir in the sensor frame nominal:
+    tan_azim_nadir_nominal = config.body_to_sensor @ np.array([0, 0, 1])
+    azim_nadir_nominal = np.arctan2(tan_azim_nadir_nominal[1], tan_azim_nadir_nominal[0])
+
+    # Azimuth of nadir in the sensor frame:
+    azim_nadir = np.arctan2(r_nadir_sen_xy[1], r_nadir_sen_xy[0])
+
+    # Roll in sensor frame:
+    roll_sen = (azim_nadir - azim_nadir_nominal + np.pi) % (2*np.pi) - np.pi
+
+    # Is the roll in sensor frame along boresight too big for measurement:
+    if abs(roll_sen) > config.horizon_roll_half_angle:
+        return None
+
+    # Field of view as a function of roll:
+    c, s = abs(np.cos(roll_sen)), abs(np.sin(roll_sen))
+    fov = np.arctan(min(
+        np.tan(config.fov_half_angle_vertical) / max(c, 1e-12),
+        np.tan(config.fov_half_angle_horizontal) / max(s, 1e-12),
+    ))
+
+    # Direction of boresight relative to nadir in sensor frame:
+    boresight_dir = np.arccos(np.clip(r_nadir_sen_norm @ np.array([0, 0, 1]), -1, 1 ))
+
+    # Earth horizon angle
+    earth_horizon_angle = np.arcsin(R_EARTH / r_eci_norm)
+
+    # Is Earth's horizon in the FoV:
+    if abs(boresight_dir - earth_horizon_angle) > fov:
+        return None
+
+    # True pitch and roll angles:
+    pitch_true = np.arctan2(-r_nadir_body_xz[0], r_nadir_body_xz[2]) # angle between naddir in body projected onto xz_body and z_body
+    roll_true = np.arctan2(r_nadir_body_yz[1], r_nadir_body_yz[2]) # angle between naddir in body projected onto yz_body and z_body
+    
+    # Measured pitch and roll angles:
+    pitch_meas = pitch_true + ehs_angle_noise[0]
+    roll_meas = roll_true + ehs_angle_noise[1]
+
+    if abs(pitch_meas) > np.pi/2 or abs(roll_meas) > np.pi/2:
+        return None
+
+    # Nadir measured:
+    r_nadir_body_z = 1 / np.sqrt(np.tan(pitch_meas) **2 + np.tan(roll_meas) **2 + 1)
+    r_nadir_body_y = r_nadir_body_z * np.tan(roll_meas)
+    r_nadir_body_x = - r_nadir_body_z * np.tan(pitch_meas)
+    r_nadir_body_meas = np.array([r_nadir_body_x, r_nadir_body_y, r_nadir_body_z])
+    r_nadir_sen_meas = config.body_to_sensor @ r_nadir_body_meas
+
+    return r_nadir_sen_meas
+    
 
 def read_star_tracker(
     state: SatState, env: EnvironmentData, config: StarTrackerConfig, rng: np.random.Generator
@@ -387,4 +504,4 @@ class SensorMeasurements:
     coarse_sun: np.ndarray
     earth_horizon: np.ndarray
     star_trackers: List[np.ndarray]
-    gyros: List[np.ndarray]
+    gyros: List[np.ndarray]    

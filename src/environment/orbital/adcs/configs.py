@@ -112,8 +112,11 @@ class EarthHorizonConfig:
 
     name: str
     body_to_sensor: np.ndarray
-    fov_half_angle: float
+    fov_half_angle_horizontal: float
+    fov_half_angle_vertical: float
+    horizon_roll_half_angle: float
     noise_std: float
+    max_slew_rate: float
 
 @dataclass
 class StarTrackerConfig:

@@ -352,11 +352,12 @@ def configure(orbit: "OrbitConfig") -> None:
     try:
         igrf = GeoMagneticFieldFactory.getIGRF(decimal_year)
     except Exception as exc:
-        igrf = None
-        logger.warning(
-            "IGRF unavailable; b_field_eci will be zero. Add IGRF.COF to "
-            "orekit-data. Reason: %s", exc
-        )
+        raise RuntimeError(
+            "IGRF geomagnetic model could not be loaded (needs IGRF.COF in "
+            "orekit-data). The standard orekit-data archive does not ship it; "
+            "add IGRF.COF to orekit-data-main/ in the zip. "
+            f"Underlying error: {exc}"
+        ) from exc
 
     # Harris-Priester atmosphere: embedded density table
     atmosphere = HarrisPriester(sun, earth, 6.0)
@@ -402,12 +403,9 @@ def get_environment(t: float) -> EnvironmentData:
         + angles.getOccultedApparentRadius() < 0.0
     )
 
-    if _ctx.igrf is not None:
-        b_field_eci = _b_field_eci(pos_v3d, target, _ctx.earth, _ctx.igrf, _ctx.frame)
-    else:
-        b_field_eci = np.zeros(3)
-
     atmospheric_density = float(_ctx.atmosphere.getDensity(target, pos_v3d, _ctx.frame))
+
+    b_field_eci = _b_field_eci(pos_v3d, target, _ctx.earth, _ctx.igrf, _ctx.frame)
 
     return EnvironmentData(
         r_eci=r_eci,

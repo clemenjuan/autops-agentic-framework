@@ -27,7 +27,9 @@ from src.environment.orbital.adcs.configs import (
     OrbitConfig,
     SimulationConfig,
 )
+from src.environment.orbital.adcs import constants as C
 
+_ALTITUDE_KM = 450
 
 # -----------------------------------------------------------------------------
 # Magnetometers: CubeMag Deployable (2 sensors) + CubeMag Compact
@@ -120,11 +122,19 @@ _coarse_sun_sensor = CoarseSunSensorConfig(
 # -----------------------------------------------------------------------------
 # Earth horizon sensor
 # -----------------------------------------------------------------------------
+_EARTH_HORIZON_ANGLE = np.arcsin(C.R_EARTH / (C.R_EARTH + _ALTITUDE_KM * 1000))
 _earth_horizon_sensor = EarthHorizonConfig(
     name="hss0",
-    body_to_sensor=np.eye(3),
-    fov_half_angle=np.deg2rad(60.0),
-    noise_std=np.deg2rad(0.2),
+    body_to_sensor=np.array([   # PLACEHOLDER, boresight pointing to Earth's horizon
+        [np.cos(_EARTH_HORIZON_ANGLE), 0.0, -np.sin(_EARTH_HORIZON_ANGLE)],
+        [0.0, 1.0, 0.0],
+        [np.sin(_EARTH_HORIZON_ANGLE), 0.0, np.cos(_EARTH_HORIZON_ANGLE)],
+    ]),  # +Z is nadir, +X is along-track, +Y is anti-normal
+    fov_half_angle_horizontal = np.deg2rad(45.0), # ADCS PD p.31
+    fov_half_angle_vertical = np.deg2rad(36.0), # ADCS p.31
+    horizon_roll_half_angle = np.deg2rad(45.0), # EHS PD p.13
+    noise_std = np.deg2rad(1.0/3.0), # EHS PD p.11 (1 deg at 3 sigma)
+    max_slew_rate = np.deg2rad(14.0), # EHS PD p.11  
 )
 
 # -----------------------------------------------------------------------------
@@ -258,10 +268,9 @@ satellite = SatelliteConfig(
 # -----------------------------------------------------------------------------
 # Orbit Config
 # -----------------------------------------------------------------------------
-ALTITUDE_KM = 450
 orbit = OrbitConfig(
     epoch=datetime(2024, 12, 31, 10, 30, 0, tzinfo=timezone.utc), # For IGRF-13 validity
-    altitude_km=ALTITUDE_KM,         # CMO p.14 - not yet confirmed
+    altitude_km = _ALTITUDE_KM,         # CMO p.14 - not yet confirmed
     eccentricity=0.0,          # Assumption
     inclination_deg=97.4,      # CMO p.14
     raan_deg=0.0,              # propagator.configure() derives RAAN from LTAN and this value is unused

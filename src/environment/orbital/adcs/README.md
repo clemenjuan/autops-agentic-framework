@@ -2,6 +2,12 @@
 
 A modular and configurable Attitude Determination and Control System (ADCS) simulation for the **EventSat 6U CubeSat**, designed as an RL training/evaluation environment and reconfigurable for other CubeSat missions.
 
+**Status Update 04.09.2026:** Earth horizon sensor implemented in `sensors.py`.
+The boresight is mounted ~69 deg off nadir so it lands on the limb, modeled after the 
+information from the ADCS PD and EHS PD, but not confirmed for eventsat. Field of view 
+was chosen to be 90x72 and per ADCS PD and not EHS PD, which stated 90x80, since both documents
+state the the half verical fov is 36 deg. FoV roll is also implemented.
+
 **Status Update 02.09.2026:** Coarse sun sensor implemented in `sensors.py`.
 Each cell returns a current. `noise_std` is a placeholder, as well as the surface normals.
 

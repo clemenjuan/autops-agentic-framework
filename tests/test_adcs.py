@@ -38,6 +38,7 @@ from src.environment.orbital.adcs.configs import (
     RateGyroConfig,
     FineSunSensorConfig,
     CoarseSunSensorConfig,
+    EarthHorizonConfig,
     )
 from src.environment.orbital.adcs.sensors import (
     initial_sensor_state, 
@@ -46,6 +47,7 @@ from src.environment.orbital.adcs.sensors import (
     read_rate_gyro,
     read_fine_sun_sensor,
     read_coarse_sun_sensor,
+    read_earth_horizon,
 )
 from src.environment.orbital.adcs import constants as C
 
@@ -1096,6 +1098,263 @@ class TestCoarseSunSensor:
         dirs /= np.linalg.norm(dirs, axis=1, keepdims=True)
         lit = (np.maximum(0.0, dirs @ n.T) > 1e-9).sum(axis=1)
         assert lit.min() >= 3
+
+class TestEarthHorizon:
+    """Physics invariants for the earth horizon sensor measurement model.
+
+    The mounting tilts the boresight ~69 deg off nadir so it lands on the limb,
+    which is why nadir is never in the field of view and the gate tests
+    |psi - theta_hor| rather than nadir's position. Fixture attitudes are given
+    as rotations from nominal, where the boresight sits exactly on the limb.
+    """
+
+    _R = np.array([ALT_RADIUS, 0.0, 0.0])
+    _Q = np.array([1.0, 0.0, 0.0, 0.0])
+    _SUN = np.array([0.0, 0.0, 1.0])
+
+    @staticmethod
+    def _rot_x(deg: float) -> np.ndarray:
+        t = np.deg2rad(deg)
+        return np.array([[1.0, 0.0, 0.0],
+                         [0.0, np.cos(t), np.sin(t)],
+                         [0.0, -np.sin(t), np.cos(t)]])
+
+    @staticmethod
+    def _rot_y(deg: float) -> np.ndarray:
+        t = np.deg2rad(deg)
+        return np.array([[np.cos(t), 0.0, -np.sin(t)],
+                         [0.0, 1.0, 0.0],
+                         [np.sin(t), 0.0, np.cos(t)]])
+
+    def _quat_from_dcm(self, c: np.ndarray) -> np.ndarray:
+        """Scalar-first quaternion from an ECI->body DCM (Shepperd, trace branch)."""
+        w = 0.5 * np.sqrt(max(1e-12, 1.0 + np.trace(c)))
+        return np.array([w,
+                         (c[1, 2] - c[2, 1]) / (4.0 * w),
+                         (c[2, 0] - c[0, 2]) / (4.0 * w),
+                         (c[0, 1] - c[1, 0]) / (4.0 * w)])
+
+    def _env(self, r: np.ndarray | None = None) -> P.EnvironmentData:
+        return _sample_env(self._R if r is None else r, np.zeros(3),
+                           np.zeros(3), self._SUN)
+
+    def _config(self, **kwargs) -> EarthHorizonConfig:
+        """The EventSat unit with zero noise, overridable field by field."""
+        cfg = sensors.earth_horizon_sensor
+        base = dict(
+            name="test",
+            body_to_sensor=cfg.body_to_sensor,
+            fov_half_angle_horizontal=cfg.fov_half_angle_horizontal,
+            fov_half_angle_vertical=cfg.fov_half_angle_vertical,
+            horizon_roll_half_angle=cfg.horizon_roll_half_angle,
+            noise_std=0.0,
+            max_slew_rate=cfg.max_slew_rate,
+        )
+        base.update(kwargs)
+        return EarthHorizonConfig(**base)
+
+    def _read(self, dcm: np.ndarray | None = None, **kwargs):
+        """Read at an attitude given as an ECI->body DCM (default nominal).
+
+        Nominal means +Z body along nadir. With the position on +x, nadir is
+        -x in ECI, so the nominal DCM maps ECI -x onto body +z. The position
+        comes from the env, so an env at a different altitude produces a state
+        at that altitude rather than silently keeping the default.
+        """
+        env = kwargs.get("env", self._env())
+        nominal = np.array([[0.0, 0.0, 1.0],
+                            [0.0, 1.0, 0.0],
+                            [-1.0, 0.0, 0.0]])
+        c = nominal if dcm is None else dcm @ nominal
+        state = _sample_state(self._quat_from_dcm(c), env.r_eci, np.zeros(3))
+        state = replace(state, omega_body=kwargs.get("omega", np.zeros(3)))
+        return read_earth_horizon(
+            state, env,
+            kwargs.get("config", self._config()),
+            kwargs.get("rng", np.random.default_rng(0)),
+        ), state
+
+    # --- the design case --------------------------------------------------
+
+    def test_nominal_attitude_sees_the_limb(self) -> None:
+        """At nominal the boresight sits on the limb, so a measurement exists.
+
+        Every incorrect version of this gate failed here: a nadir-in-FOV test
+        rejects, because nadir is ~69 deg from the boresight by design.
+        """
+        n, _ = self._read()
+        assert n is not None
+        assert n.shape == (3,)
+        assert n.dtype == np.float64
+        assert np.isclose(np.linalg.norm(n), 1.0)
+
+    def test_noise_free_round_trip(self) -> None:
+        """Nadir -> pitch/roll -> nadir returns the sensor-frame truth exactly.
+
+        Validates the whole chain: body-frame projections, the sign on pitch,
+        the unit-norm reconstruction, and the rotation back to the sensor
+        frame. A mirrored convention anywhere in it flips a component here.
+        """
+        cfg = self._config()
+        for dcm in (None,
+                    self._rot_x(20.0), self._rot_x(-20.0),
+                    self._rot_y(30.0), self._rot_y(-30.0),
+                    self._rot_x(15.0) @ self._rot_y(-20.0)):
+            got, state = self._read(dcm, config=cfg)
+            assert got is not None, "test attitude must pass the gates"
+            nadir_body = dcm_eci_to_body(state.q_eci_body) @ (-self._R / ALT_RADIUS)
+            assert np.allclose(got, cfg.body_to_sensor @ nadir_body, atol=1e-9)
+
+    # --- the limb gate ----------------------------------------------------
+
+    def test_limb_gate_rejects_beyond_the_field_of_view(self) -> None:
+        """Rotating in the tilt plane moves the boresight across the limb.
+
+        |psi - theta_hor| equals the rotation angle here, so the boundary sits
+        at the vertical half-angle: the boresight moves along the short image
+        axis, which EHS PD p.13 bounds at +-36 deg.
+        """
+        bound = np.rad2deg(self._config().fov_half_angle_vertical)
+        assert self._read(self._rot_y(bound - 1.0))[0] is not None
+        assert self._read(self._rot_y(-(bound - 1.0)))[0] is not None
+        assert self._read(self._rot_y(bound + 1.0))[0] is None
+        assert self._read(self._rot_y(-(bound + 1.0)))[0] is None
+
+    def test_limb_gate_is_two_sided(self) -> None:
+        """A boresight buried inside Earth's disc has no horizon either.
+
+        Without abs() on (psi - theta_hor) this case returns a measurement:
+        the difference is large and negative, which passes a one-sided test.
+        """
+        n, state = self._read(self._rot_y(-60.0))
+        ns = self._config().body_to_sensor @ (
+            dcm_eci_to_body(state.q_eci_body) @ (-self._R / ALT_RADIUS))
+        psi = np.arccos(np.clip(ns[2], -1.0, 1.0))
+        theta_hor = np.arcsin(C.R_EARTH / ALT_RADIUS)
+        assert psi < theta_hor, "this case must put the boresight inside the disc"
+        assert n is None
+
+    def test_limb_gate_uses_runtime_altitude(self) -> None:
+        """theta_hor comes from |r_eci|, not from the design-time constant.
+
+        The bracket is frozen at the nominal altitude, so at a different
+        altitude it points where the limb used to be. At 800 km the limb sits
+        6.39 deg off the boresight; at 450 km it is on it. Narrowing the field
+        of view to 5 deg makes that difference decide the gate.
+
+        Substituting the design constant for the runtime value makes the
+        second assertion fail: the difference would cancel and read zero at
+        every altitude (D22).
+        """
+        narrow = self._config(fov_half_angle_horizontal=np.deg2rad(5.0),
+                                fov_half_angle_vertical=np.deg2rad(5.0))
+        design = self._env(np.array([C.R_EARTH + 450e3, 0.0, 0.0]))
+        higher = self._env(np.array([C.R_EARTH + 800e3, 0.0, 0.0]))
+        assert self._read(env=design, config=narrow)[0] is not None
+        assert self._read(env=higher, config=narrow)[0] is None
+
+    # --- the roll gate ----------------------------------------------------
+
+    def test_roll_is_zero_at_nominal(self) -> None:
+        """Roll is measured from the nominal azimuth, which is derived from the
+        mounting rather than assumed to be zero.
+
+        With this mounting the raw azimuth of nadir is 180 deg, so a gate on
+        the raw value would reject every attitude including nominal.
+        """
+        cfg = self._config(horizon_roll_half_angle=np.deg2rad(0.001))
+        assert self._read(config=cfg)[0] is not None
+
+    def test_roll_gate_is_symmetric(self) -> None:
+        """Equal rotations either side of nominal must behave identically.
+
+        The nominal azimuth sits on the arctan2 branch cut, so without
+        wrapping the difference one direction reads as ~-355 deg and rejects
+        while the other reads +5 deg and passes.
+        """
+        for deg in (5.0, 20.0, 40.0):
+            assert self._read(self._rot_x(deg))[0] is not None
+            assert self._read(self._rot_x(-deg))[0] is not None
+
+    def test_roll_gate_rejects_large_rotation(self) -> None:
+        """Past the roll bound the curvature fit fails, so no measurement."""
+        assert self._read(self._rot_x(90.0))[0] is None
+        assert self._read(self._rot_x(-90.0))[0] is None
+
+    # --- slew, noise, determinism ----------------------------------------
+
+    def test_slew_cutoff(self) -> None:
+        """Above 14 deg/s the unit reports no detection."""
+        limit = sensors.earth_horizon_sensor.max_slew_rate
+        assert self._read(omega=np.array([0.0, 0.0, 0.9 * limit]))[0] is not None
+        assert self._read(omega=np.array([0.0, 0.0, 1.1 * limit]))[0] is None
+
+    def test_slew_gate_uses_total_rate(self) -> None:
+        """Three axes each below the limit can exceed it in magnitude."""
+        per_axis = sensors.earth_horizon_sensor.max_slew_rate * 0.7
+        omega = np.full(3, per_axis)
+        assert np.linalg.norm(omega) > sensors.earth_horizon_sensor.max_slew_rate
+        assert self._read(omega=omega)[0] is None
+
+    def test_draw_before_gate(self) -> None:
+        """The rng advances identically whether or not a gate fires (D17)."""
+        cfg = self._config(noise_std=np.deg2rad(0.1))
+        passing, gated = np.random.default_rng(3), np.random.default_rng(3)
+        assert self._read(config=cfg, rng=passing)[0] is not None
+        assert self._read(self._rot_x(90.0), config=cfg, rng=gated)[0] is None
+        assert passing.standard_normal() == gated.standard_normal()
+
+    def test_seeded_reproducibility(self) -> None:
+        """Identical seeds give identical measurements; different seeds do not."""
+        cfg = self._config(noise_std=np.deg2rad(0.1))
+        a = self._read(config=cfg, rng=np.random.default_rng(42))[0]
+        b = self._read(config=cfg, rng=np.random.default_rng(42))[0]
+        c = self._read(config=cfg, rng=np.random.default_rng(43))[0]
+        assert np.array_equal(a, b)
+        assert not np.array_equal(a, c)
+
+    def test_noise_statistics_on_the_angles(self) -> None:
+        """Pitch and roll spread matches noise_std, measured where the noise is
+        applied rather than on the reconstructed vector.
+
+        Catches a sigma-convention error: the PD quotes 1 deg at 3 sigma.
+        """
+        sigma = np.deg2rad(0.5)
+        cfg = self._config(noise_std=sigma)
+        rng = np.random.default_rng(7)
+        samples = np.array([self._read(config=cfg, rng=rng)[0] for _ in range(20000)])
+        body = samples @ cfg.body_to_sensor          # sensor -> body, R^T applied
+        pitch = np.arctan2(-body[:, 0], body[:, 2])
+        roll = np.arctan2(body[:, 1], body[:, 2])
+        assert np.isclose(pitch.std(), sigma, rtol=0.05)
+        assert np.isclose(roll.std(), sigma, rtol=0.05)
+        assert np.isclose(pitch.mean(), 0.0, atol=5.0 * sigma / np.sqrt(20000))
+        assert np.isclose(roll.mean(), 0.0, atol=5.0 * sigma / np.sqrt(20000))
+
+    # --- the configured unit ---------------------------------------------
+
+    def test_eventsat_mounting_points_at_the_limb(self) -> None:
+        """The placeholder mounting must actually aim the boresight at the limb.
+
+        Identity would not be neutral here: it would point the boresight at
+        nadir, leaving the limb ~69 deg outside the field of view, and the
+        instrument would return None for the whole mission with no error (D34).
+        """
+        cfg = sensors.earth_horizon_sensor
+        theta_hor = np.arcsin(C.R_EARTH / (C.R_EARTH + 450e3))
+        boresight_body = np.array([np.sin(theta_hor), 0.0, np.cos(theta_hor)])
+        assert np.allclose(cfg.body_to_sensor @ boresight_body, [0.0, 0.0, 1.0])
+        assert np.allclose(cfg.body_to_sensor @ cfg.body_to_sensor.T, np.eye(3))
+        assert np.isclose(np.linalg.det(cfg.body_to_sensor), 1.0)
+
+    def test_vertical_half_angle_is_the_documented_boresight_range(self) -> None:
+        """EHS PD p.13: "+-36 deg to the vertical boresight angle" is the range
+        the limb gate enforces at zero roll. The alternative reading puts the
+        horizontal 45 deg here, which leaves this field binding nothing inside
+        the +-45 deg roll bound.
+        """
+        assert np.isclose(sensors.earth_horizon_sensor.fov_half_angle_vertical,
+                          np.deg2rad(36.0))
 
 
 
