@@ -59,6 +59,28 @@ def apply_reaction_wheel(
 
     return torque
 
+def _bounded_avg_dipole(
+    config: MagnetorquerConfig,
+    command: float,
+)-> float:
+    """Helper function, checks if the commanded average dipole magnitude is within 
+    the physical limits of the magnetorquer, which it calculates and clips if needed.
+
+    Args:
+        config: Used for maximum dipole moment per rod and the maximum duty cycle 
+        command: Commanded the step average dipole magnitude along the rod axis [A·m²].
+
+    Returns:
+        Bounded command value, within the physical capabilities of a rod
+        [A*m^2]
+    """
+    max_avg_dipole = config.max_dipole * config.duty_max
+    bounded_avg_dipole = float(
+            np.clip(command, -max_avg_dipole, max_avg_dipole)
+        )
+    
+    return bounded_avg_dipole
+
 
 def apply_magnetorquer(
     state: SatState,
@@ -78,14 +100,56 @@ def apply_magnetorquer(
     Returns:
         Body-frame torque [N·m], shape (3,).
     """
-    dipole_magnitude = float(
-        np.clip(command, -config.max_dipole, config.max_dipole)
-    )
-    dipole_body = dipole_magnitude * config.axis_body
+
+    dipole_body = _bounded_avg_dipole(config, command) * config.axis_body
 
     b_body = dcm_eci_to_body(state.q_eci_body) @ env.b_field_eci
 
     return np.cross(dipole_body, b_body)
+
+def power_magnetorquer(
+    config: MagnetorquerConfig,
+    command: float,
+)-> float:
+
+    """Electrical power drawn by one magnetorquer [W], scalar.
+
+        P(m) = R * m^2 / (K_m^2 * duty_max)
+
+    with R the coil resistance, K_m the magnetic gain and m the bounded
+    average dipole magnitude.
+
+    ASSUMPTION - quadratic form. Power goes as m^2 only if the drive current
+    is smooth. PD p.10 states rods are typically PWM-driven and names
+    variable-current drivers as an alternative, but does not state which the
+    CubeTorquer uses. Both named schemes give a smooth current here, since the
+    coil's corner sits at 1/(2*pi*L/R) = 21 Hz, far below any normal PWM carrier.
+   
+    PRECONDITION - the duty treatment holds only while ``step_s`` is a
+    multiple of the ADCS loop period 
+
+    Not modelled:
+      - Coil resistance vs temperature.
+      - Coil current transient within the energised window. Treating current
+        as rectangular ignores the rise and the decay tail.
+      - Driver quiescent and switching losses. No figure published.
+      - Linearity error. m = K_m·I is assumed exact; PD p.10 bounds the
+        departure at <=2.5% or <=2%. The looser figure is taken.
+
+    Args:
+        config: This rod's configuration.
+        command: Commanded period-averaged dipole along the rod axis [A·m²].
+
+    Returns:
+        Loop-averaged electrical power [W], always >= 0.
+    """
+
+    bounded_avg_dipole = _bounded_avg_dipole(config, command)
+    mtq_power = (config.coil_resistance * bounded_avg_dipole **2 / 
+                 (config.magnetic_gain **2 * config.duty_max)
+    )
+
+    return float(mtq_power)
 
 
 @dataclass

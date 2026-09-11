@@ -31,7 +31,11 @@ from src.environment.orbital.adcs.estimator import initial_estimator_state
 from src.environment.orbital.adcs.eventsat import actuators, sim, orbit, satellite, sensors
 from src.environment.orbital.adcs.simulation import initial_state, run, step
 from src.environment.orbital.adcs.state import SatState
-from src.environment.orbital.adcs.actuators import apply_magnetorquer, apply_reaction_wheel
+from src.environment.orbital.adcs.actuators import(
+    apply_magnetorquer,
+    power_magnetorquer,
+    apply_reaction_wheel,
+    )
 from src.environment.orbital.adcs.configs import (
     SimulationConfig, 
     MagnetometerConfig, 
@@ -39,6 +43,7 @@ from src.environment.orbital.adcs.configs import (
     FineSunSensorConfig,
     CoarseSunSensorConfig,
     EarthHorizonConfig,
+    MagnetorquerConfig,
     )
 from src.environment.orbital.adcs.sensors import (
     initial_sensor_state, 
@@ -1355,6 +1360,155 @@ class TestEarthHorizon:
         """
         assert np.isclose(sensors.earth_horizon_sensor.fov_half_angle_vertical,
                           np.deg2rad(36.0))
+
+
+class TestMagnetorquerPower:
+    """Invariants for the magnetorquer power model."""
+
+    def _config(self, **kwargs) -> MagnetorquerConfig:
+        """The EventSat rod, overridable field by field."""
+        cfg = actuators.magnetorquers[0]
+        base = dict(
+            name="test",
+            axis_body=cfg.axis_body,
+            max_dipole=cfg.max_dipole,
+            coil_resistance=cfg.coil_resistance,
+            magnetic_gain=cfg.magnetic_gain,
+            supply_voltage=cfg.supply_voltage,
+            duty_max=cfg.duty_max,
+        )
+        base.update(kwargs)
+        return MagnetorquerConfig(**base)
+
+    def test_power_never_exceeds_the_electrical_ceiling(self) -> None:
+        """Full command must draw less than V²/R, the coil's hard ceiling.
+
+        The rod cannot dissipate more than the supply across the coil, so
+        this bound is independent of the power model: it comes from
+        supply_voltage and coil_resistance, while the model comes from
+        coil_resistance, magnetic_gain and duty_max. Only two of the five
+        fields are shared, so this is a genuine cross-check rather than the
+        model retyped.
+
+        It is the test that catches a duty factor applied in the wrong
+        place. Dividing by duty_max where it should multiply gives 0.602 W
+        at full command against a 0.556 W ceiling - a 8% error that every
+        model-derived assertion would accept.
+        """
+        cfg = self._config()
+        ceiling = cfg.supply_voltage ** 2 / cfg.coil_resistance
+        full = cfg.max_dipole * cfg.duty_max
+        assert power_magnetorquer(cfg, full) < ceiling
+        assert power_magnetorquer(cfg, 10.0 * full) < ceiling
+
+    def test_power_quadruples_when_command_doubles(self) -> None:
+        """P goes as the square of the commanded dipole.
+
+        This is the test that pins the quadratic assumption. The linear
+        alternative - a driver switching slowly enough that current follows
+        the PWM - doubles instead, and the two forms differ by up to 6.4x at
+        low command. Both endpoints sit well inside the bound so the clip
+        plays no part.
+
+        The ratio is asserted rather than either value, so no figure from
+        the config appears on the right-hand side and nothing here can pass
+        by restating the model.
+        """
+        cfg = self._config()
+        small = 0.1 * cfg.max_dipole * cfg.duty_max
+        assert power_magnetorquer(cfg, 2.0 * small) == pytest.approx(
+            4.0 * power_magnetorquer(cfg, small)
+        )
+    def test_zero_command_draws_no_power(self) -> None:
+        """No commanded dipole, no current, no dissipation - exactly zero.
+
+        Exact rather than approximate: the model is coil dissipation only,
+        and driver quiescent draw is excluded by decision, not by rounding.
+        A small nonzero result would mean a constant had crept in, which is
+        a change of scope rather than a numerical error.
+        """
+        assert power_magnetorquer(self._config(), 0.0) == 0.0
+
+    def test_power_is_symmetric_in_command_sign(self) -> None:
+        """Reversing the dipole reverses the torque but not the dissipation.
+
+        I²R does not care which way the current flows. A model that let sign
+        through - a stray sign on the bound, or an odd power of the dipole -
+        would report a rod costing nothing, or negative, on one half of its
+        range.
+        """
+        cfg = self._config()
+        for m in (0.1, 0.3, 0.48, 5.0):
+            assert power_magnetorquer(cfg, m) == pytest.approx(
+                power_magnetorquer(cfg, -m)
+            )
+
+    def test_power_is_never_negative(self) -> None:
+        """Dissipation has one sign, across the whole command range.
+
+        Weak on its own - symmetry and the quadratic form already imply it.
+        It earns its place as a guard on future edits: a thermal correction
+        or an efficiency term would be the kind of change that could push
+        this negative at some corner without breaking anything else here.
+        """
+        cfg = self._config()
+        bound = cfg.max_dipole * cfg.duty_max
+        for m in np.linspace(-2.0 * bound, 2.0 * bound, 21):
+            assert power_magnetorquer(cfg, float(m)) >= 0.0
+
+    def test_power_and_torque_saturate_at_the_same_command(self) -> None:
+        """Both functions must stop responding at the same commanded dipole.
+
+        The D52 guard, and the reason _bounded_avg_dipole was extracted
+        before power_magnetorquer existed. If either function ever grew its
+        own copy of the bound, the two could drift and the simulation would
+        report power for a dipole it was not producing torque from - silent,
+        and wrong for every step of every run.
+
+        Asserting that both are flat between two over-bound commands, rather
+        than checking either against a value, means this passes only if they
+        agree; it says nothing about whether the shared bound is correct,
+        which is the next test's job.
+        """
+        cfg = self._config()
+        bound = cfg.max_dipole * cfg.duty_max
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]),
+                              np.array([ALT_RADIUS, 0.0, 0.0]), np.zeros(3))
+        env = _sample_env(np.array([ALT_RADIUS, 0.0, 0.0]), np.zeros(3),
+                          np.array([2e-5, 1e-5, -3e-5]), np.array([1.0, 0.0, 0.0]))
+
+        assert power_magnetorquer(cfg, 1.5 * bound) == pytest.approx(
+            power_magnetorquer(cfg, 3.0 * bound)
+        )
+        assert np.allclose(
+            apply_magnetorquer(state, env, cfg, 1.5 * bound),
+            apply_magnetorquer(state, env, cfg, 3.0 * bound),
+        )
+
+    def test_clip_binds_at_the_dutied_bound(self) -> None:
+        """The bound is max_dipole * duty_max, not max_dipole.
+
+        The first coverage this path has ever had: the only prior call passed
+        0.6 against a bound of 0.6, so np.clip ran without ever clipping.
+
+        The discriminating input is a command between the two candidate
+        bounds - above max_dipole * duty_max but below max_dipole. The dutied
+        bound clips it; the undutied bound would pass it through unchanged.
+        Comparing two over-bound commands cannot distinguish them, since both
+        clip to the same value under either bound.
+        """
+        cfg = self._config()
+        bound = cfg.max_dipole * cfg.duty_max
+        between = 0.5 * (bound + cfg.max_dipole)
+        state = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]),
+                              np.array([ALT_RADIUS, 0.0, 0.0]), np.zeros(3))
+        env = _sample_env(np.array([ALT_RADIUS, 0.0, 0.0]), np.zeros(3),
+                          np.array([2e-5, 1e-5, -3e-5]), np.array([1.0, 0.0, 0.0]))
+        b_body = dcm_eci_to_body(state.q_eci_body) @ env.b_field_eci
+
+        tau = apply_magnetorquer(state, env, cfg, between)
+        assert np.allclose(tau, np.cross(bound * cfg.axis_body, b_body))
+        assert not np.allclose(tau, np.cross(between * cfg.axis_body, b_body))
 
 
 

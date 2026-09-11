@@ -202,11 +202,20 @@ class MagnetorquerConfig:
         axis_body: Unit vector along the rod axis in the body frame,
             shape (3,).
         max_dipole: Maximum commandable magnetic dipole moment [A·m²].
+        coil_resistance: Coil resistance of each rod [Ohm]
+        magnetic_gain: Dipole per amp [A*m^2/A]       
+        supply_voltage: Voltage supplied to each rod [V]     
+        duty_max: Maximum fraction of the ADCS control loop during which the rod
+            may be energised.
     """
 
     name: str
     axis_body: np.ndarray
     max_dipole: float
+    coil_resistance: float
+    magnetic_gain: float
+    supply_voltage: float     
+    duty_max: float             
 
 
 # =============================================================================

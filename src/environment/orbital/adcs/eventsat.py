@@ -218,15 +218,37 @@ _reaction_wheels = [
 # Magnetorquers: 3x CubeTorquer CR0006, one per SBC axis (CMO p.40).
 # -----------------------------------------------------------------------------
 
-_MTQ_MAX_DIPOLE = 0.6  # A*m^2 (CMO p.23; CubeTorquer PD p.10; CubeADCS ICD p.43)
+_MTQ_MAX_DIPOLE = 0.6  # [A*m^2] (CMO p.23; CubeTorquer PD p.10; CubeADCS ICD p.43)
+_MTQ_COIL_RESISTANCE = 45.0 # [Ohm] at 20–25 deg celsius (CubeTorquer PD p.10)
+_MTQ_MAGNETIC_GAIN = 5.8 # [A*m^2/A] Dipole per Amp, bounded by the linearity spec (CubeTorquer PD p.10)
+_MTQ_SUPPLY_VOLTAGE = 5.0 # [V] (CubeADCS ICD p.43)
+_MTQ_DUTY_MAX = 0.8 # magnetic actuation is limited to 80% of the ADCS loop (CubeADCS ICD p.43)               
 
 _magnetorquers = [
-    MagnetorquerConfig(name="mtq0", axis_body=np.array([1.0, 0.0, 0.0]),
-                       max_dipole=_MTQ_MAX_DIPOLE),
-    MagnetorquerConfig(name="mtq1", axis_body=np.array([0.0, 1.0, 0.0]),
-                       max_dipole=_MTQ_MAX_DIPOLE),
-    MagnetorquerConfig(name="mtq2", axis_body=np.array([0.0, 0.0, 1.0]),
-                       max_dipole=_MTQ_MAX_DIPOLE),
+    MagnetorquerConfig(name="mtq0", 
+                       axis_body=np.array([1.0, 0.0, 0.0]),
+                       max_dipole = _MTQ_MAX_DIPOLE,
+                       coil_resistance = _MTQ_COIL_RESISTANCE,
+                       magnetic_gain = _MTQ_MAGNETIC_GAIN,
+                       supply_voltage = _MTQ_SUPPLY_VOLTAGE,
+                       duty_max = _MTQ_DUTY_MAX,
+                       ),
+    MagnetorquerConfig(name="mtq1", 
+                       axis_body=np.array([0.0, 1.0, 0.0]),
+                       max_dipole = _MTQ_MAX_DIPOLE,
+                       coil_resistance = _MTQ_COIL_RESISTANCE,
+                       magnetic_gain = _MTQ_MAGNETIC_GAIN,
+                       supply_voltage = _MTQ_SUPPLY_VOLTAGE,
+                       duty_max = _MTQ_DUTY_MAX,
+                       ),
+    MagnetorquerConfig(name="mtq2", 
+                       axis_body=np.array([0.0, 0.0, 1.0]),
+                       max_dipole = _MTQ_MAX_DIPOLE,
+                       coil_resistance = _MTQ_COIL_RESISTANCE,
+                       magnetic_gain = _MTQ_MAGNETIC_GAIN,
+                       supply_voltage = _MTQ_SUPPLY_VOLTAGE,
+                       duty_max = _MTQ_DUTY_MAX,
+                       ),
 ]
 
 # -----------------------------------------------------------------------------
