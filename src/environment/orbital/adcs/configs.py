@@ -420,7 +420,7 @@ class AdcsEnvConfig:
     max_body_rate: float
     start_step: int
     seed: Optional[int]
-    reward_weights: Dict[str, Optional[float]]
+    reward_weights: Dict[str, float]
     mission: MissionConfig
 
     def with_overrides(self, overrides: Optional[Dict[str, Any]]) -> "AdcsEnvConfig":

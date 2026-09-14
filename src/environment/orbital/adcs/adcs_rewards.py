@@ -87,16 +87,16 @@ def get_total_reward(
 def event_rewards(
     target_cleared: bool,
     mission_done: bool,
-    weights: Dict[str, Optional[float]],
+    weights: Dict[str, float],
 ) -> Dict[str, float]:
     """Sparse bonuses for this step, keyed by EVENT_COMPONENTS (0.0 when the
     corresponding event did not fire).
     """
     return {
-        "target_cleared_bonus": float(weights.get("target_cleared_bonus", 0.0) or 0.0)
+        "target_cleared_bonus": float(weights.get("target_cleared_bonus", 0.0))
         if target_cleared
         else 0.0,
-        "mission_done_bonus": float(weights.get("mission_done_bonus", 0.0) or 0.0)
+        "mission_done_bonus": float(weights.get("mission_done_bonus", 0.0))
         if mission_done
         else 0.0,
     }
