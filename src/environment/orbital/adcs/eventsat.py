@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from src.environment.orbital.adcs.configs import (
     ActuatorSuite,
+    AdcsEnvConfig,
     CoarseSunSensorConfig,
     EarthHorizonConfig,
     FineSunSensorConfig,
@@ -26,6 +27,7 @@ from src.environment.orbital.adcs.configs import (
     SatelliteConfig,
     OrbitConfig,
     SimulationConfig,
+    SlewSequenceConfig
 )
 from src.environment.orbital.adcs import constants as C
 
@@ -287,4 +289,43 @@ orbit = OrbitConfig(
 # 0.2 s = the 5 Hz flight control loop (CubeADCS ICD p.42; CubeMag PD p.11).
 sim = SimulationConfig(
     step_s = 0.2,
+)
+
+# -----------------------------------------------------------------------------
+# RL task config
+# -----------------------------------------------------------------------------
+# Might move with the simulation config to another file later
+# Reward magnitudes, keyed by adcs_rewards.REWARD_COMPONENTS and
+# EVENT_COMPONENTS. The dense components are normalised by their own functions
+# (pointing_error_penalty in [-1, 0], boundary_layer_reward in [0, 1],
+# rw_saturation_penalty in [-n_wheels, 0]), so these set relative importance.
+#
+# !!! STARTING POINTS, NOT TUNED !!! Chosen so an on-target step pays about +1
+# and a 180 deg-off step about -1, i.e. the sign of the per-step reward alone
+# says whether the satellite is pointing. Every reference return has to be
+# re-measured after any change here.
+_reward_weights = {
+    "pointing_error_penalty": 1.0,
+    "boundary_layer_reward": 1.0,
+    "rw_saturation_reward": 0.1,        # -0.4 with all four wheels saturated
+    "slew_rate_boundary_reward": 10.0,  # -0.4 at 0.3 rad/s against the 0.1 rad/s threshold
+    "target_cleared_bonus": 100.0,
+    "mission_done_bonus": 500.0,
+    # None -> completion_credit_per_step() falls back to boundary_layer_reward,
+    # so finishing early pays what holding on target would have paid.
+    "completion_time_credit": None,
+}
+
+# body_rate_thresh: the wheel cluster stores h = 1.02e-2 N*m*s about any body
+# axis (4 wheels x 5.7e-3 N*m*s, pyramid geometry), which against the largest
+# principal inertia I_yy = 9.68e-2 kg*m^2 is 0.105 rad/s -- so above ~0.1 rad/s
+# the wheels can no longer take the body momentum back out.
+# TODO max_body_rate had some consideration, but still needs to be fixed with a concrete calculation 
+env = AdcsEnvConfig(
+    body_rate_thresh=0.1,
+    max_body_rate=0.4,
+    start_step=0,
+    seed=None,
+    reward_weights=_reward_weights,
+    mission=SlewSequenceConfig(type="slew", tolerance_deg=5.0, hold_time=2, max_steps=2000, num_targets=1)
 )
