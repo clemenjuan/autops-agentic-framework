@@ -25,7 +25,7 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-from src.environment.orbital.adcs.actuators import apply_magnetorquer, apply_reaction_wheel
+from src.environment.orbital.adcs.actuators import ControlCommand, apply_magnetorquer, apply_reaction_wheel
 from src.environment.orbital.adcs.configs import ActuatorSuite, SensorSuite, SatelliteConfig, OrbitConfig, SimulationConfig
 from src.environment.orbital.adcs.control import Setpoint, compute_control, initial_setpoint
 from src.environment.orbital.adcs.dynamics import disturbance_torque, integrate
@@ -85,6 +85,7 @@ def step(
     setpoint: Setpoint,
     sim: SimulationConfig,
     rng: np.random.Generator,
+    command: Optional[ControlCommand] = None
 ) -> Tuple[SatState, SensorState, EstimatorState]:
     """Advance the simulation by one timestep, running the full closed loop.
 
@@ -99,6 +100,7 @@ def step(
         setpoint: The target the controller tracks.
         sim: Numerical simulation parameters; supplies the timestep.
         rng: Supplies sensor noise and state drift.
+        command: Direct input for actuators from the RL agent.
 
     Returns:
         A tuple of: new true state, new sensor state, updated estimator state.
@@ -126,7 +128,8 @@ def step(
     estimator = update_estimator(estimator, measurements, dt)
 
     # Control
-    command = compute_control(estimator, setpoint, actuators, dt)
+    if command is None:
+        command = compute_control(estimator, setpoint, actuators, dt)
 
     # Actuate: the reaction wheels return per-wheel motor torques
     wheel_torque = np.array(
