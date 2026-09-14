@@ -22,16 +22,6 @@ EVENT_COMPONENTS = (
     "mission_done_bonus",
 )
 
-DEFAULT_REWARD_WEIGHTS: Dict[str, Optional[float]] = {
-    # --- Per-step shaping (rewards.REWARD_COMPONENTS) --
-    "pointing_error_penalty": 2.0,
-    "boundary_layer_reward": 1.0,
-    "rw_saturation_reward": 0.5,
-    "slew_rate_boundary_reward": 2.0,
-    # --- Sparse event bonuses (rewards.EVENT_COMPONENTS) ---
-    "target_cleared_bonus": 500.0,
-    "mission_done_bonus": 1000.0,
-}
 
 def get_total_reward(
     err_quat: np.ndarray,
@@ -40,7 +30,7 @@ def get_total_reward(
     omega_body: np.ndarray,
     omega_body_thresh: float,
     sigma: float,
-    weights: Dict[str, Optional[float]] = DEFAULT_REWARD_WEIGHTS,
+    weights: Dict[str, float],
     target_cleared: bool = False,
     mission_done: bool = False,
     m_dipole: Optional[np.ndarray] = None,
@@ -53,8 +43,10 @@ def get_total_reward(
     env only decides *whether* the events fired, not what they are worth.
 
     weights: every reward magnitude, keyed by REWARD_COMPONENTS and
-    EVENT_COMPONENTS; see DEFAULT_REWARD_WEIGHTS
-    for the defaults.
+    EVENT_COMPONENTS. Required, with no default: the weights actually
+    trained with live in the scenario config (eventsat._reward_weights),
+    and a fallback here would shadow them silently whenever a caller
+    forgot to pass them.
 
     target_cleared / mission_done: whether those events fired on this step.
     
