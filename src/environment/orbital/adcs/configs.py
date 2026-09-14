@@ -7,8 +7,8 @@ the specific instances for the relevant configuration.
 Here the parameters for each sensor/actuator are defined.
 """
 
-from dataclasses import dataclass, field, replace
-from typing import List, Optional
+from dataclasses import dataclass, field, is_dataclass, replace
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 from datetime import datetime
@@ -354,3 +354,117 @@ class SimulationConfig:
         if self.seed is not None:
             return self
         return replace(self, seed=int(np.random.SeedSequence().entropy) & (2**63 - 1))
+
+# =============================================================================
+# Mission Config
+# =============================================================================
+
+@dataclass(frozen=True)
+class MissionConfig:
+    """General Mission Config parameters.
+
+    Attributes:
+        type: Name of mission type being performed
+        tolerance_deg: Pointing accuracy that counts as on target [deg].
+        hold_time: Consecutive seconds inside the tolerance before a target
+            counts as cleared. Stops a target being "cleared" by flying through
+            it at rate. 
+        max_steps: Steps before the episode is truncated.
+    """
+    type: str
+    tolerance_deg: float
+    hold_time: float
+    max_steps: int
+
+    @property
+    def sigma(self) -> float:   # moved off AdcsEnvConfig
+        return float(np.sin(np.deg2rad(self.tolerance_deg) / 2.0))
+
+@dataclass(frozen=True)
+class SlewSequenceConfig(MissionConfig):
+    """Specific Mission config for a simple attitude tracking 
+    mission where the satellite tracks a list of setpoints one after the other.
+
+    Attributes:
+        num_targets: Slew targets to visit in one episode; the mission is done
+            once all of them have been cleared.
+    """
+    num_targets: int
+
+    
+# =============================================================================
+# RL environment config
+# =============================================================================
+
+@dataclass(frozen=True)
+class AdcsEnvConfig:
+    """Task and reward parameters for the RL wrapper around the ADCS sim.
+
+    Separate from SimulationConfig, which describes the *numerics* of the
+    simulation: this describes the *task* the agent is trained on. 
+
+    Attributes:
+        body_rate_thresh: Body rate above which the slew-rate penalty starts
+            [rad/s].
+        max_body_rate: Body rate to normailse all body rate observations 
+        start_step: Step index the episode starts at; scales into SatState.t and
+            so picks the point in the orbit.
+        seed: Base seed for the episode. None draws a fresh one per reset.
+        reward_weights: Reward magnitude per component, keyed by
+            adcs_rewards.REWARD_COMPONENTS and EVENT_COMPONENTS. The dense
+            components are already normalised by their own functions, so these
+            set relative importance rather than scale.
+    """
+
+    body_rate_thresh: float
+    max_body_rate: float
+    start_step: int
+    seed: Optional[int]
+    reward_weights: Dict[str, Optional[float]]
+    mission: MissionConfig
+
+    def with_overrides(self, overrides: Optional[Dict[str, Any]]) -> "AdcsEnvConfig":
+        """Copy with the given fields replaced, taking them as a plain dict.
+
+        For overrides that arrive as data -- RLlib's ``env_config``, or a sweep
+        varying the task per trial. An override written literally in code wants
+        ``dataclasses.replace`` instead.
+        """
+        if not overrides:
+            return self
+        if isinstance(overrides, AdcsEnvConfig):
+            return overrides
+
+        # Every field name this config accepts; Python builds this dict on any
+        # dataclass.
+        fields = self.__dataclass_fields__
+
+        # Anything asked for that is not a field is a typo. Dropping it quietly
+        # would train a different config than the one written down and report a
+        # clean run. Nothing foreign lands here to be tolerated: RLlib's
+        # EnvContext carries worker_index and the rest as attributes, not keys.
+        unknown = sorted(set(overrides) - set(fields))
+        if unknown:
+            raise ValueError(
+                f"Unknown {type(self).__name__} field(s): {', '.join(unknown)}. "
+                f"Valid fields: {', '.join(sorted(fields))}."
+            )
+
+        resolved: Dict[str, Any] = {}
+        for key, value in overrides.items():
+            current = getattr(self, key)
+
+            # A dict where a config object belongs: `asdict` is recursive, and
+            # so is any JSON round-trip, so `mission` arrives flattened.
+            # Rebuilding off the current value restores the type -- and the
+            # concrete subclass, SlewSequenceConfig rather than the
+            # MissionConfig the annotation names. Assigning the dict straight
+            # through is checked by nothing here and fails much later, at the
+            # first attribute access inside the mission.
+            if is_dataclass(current) and isinstance(value, dict):
+                value = replace(current, **value)
+
+            resolved[key] = value
+
+        return replace(self, **resolved)
+    
