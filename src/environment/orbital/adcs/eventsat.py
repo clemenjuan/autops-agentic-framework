@@ -311,9 +311,6 @@ _reward_weights = {
     "slew_rate_boundary_reward": 10.0,  # -0.4 at 0.3 rad/s against the 0.1 rad/s threshold
     "target_cleared_bonus": 100.0,
     "mission_done_bonus": 500.0,
-    # None -> completion_credit_per_step() falls back to boundary_layer_reward,
-    # so finishing early pays what holding on target would have paid.
-    "completion_time_credit": None,
 }
 
 # body_rate_thresh: the wheel cluster stores h = 1.02e-2 N*m*s about any body
