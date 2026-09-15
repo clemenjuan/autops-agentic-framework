@@ -32,6 +32,12 @@ The written file also carries a ``channels`` manifest inside its metadata
 instead of hard-coding whatever the schema happened to be on the day it was
 written.
 
+Reading a file back is :mod:`scripts.episode_io`, not this module:
+``Recording.load(path)`` for a plot or the viewer, ``load_episode(path)`` for
+the two raw dicts. Both are re-exported here, but importing *this* module to
+get at them pulls in the env and with it the Orekit JVM, which a reader has no
+use for.
+
 Defaults, for the EventSat mission config (``step_s = 0.2``, ``max_steps =
 2000``):
 
@@ -82,7 +88,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import json
 import subprocess
 import sys
 from dataclasses import dataclass, replace, asdict
@@ -98,6 +103,23 @@ from src.environment.orbital.adcs.adcs_gymnasium_wrapper import EventSatEnv, _WH
 from src.environment.orbital.adcs.adcs_rewards import (
     EVENT_COMPONENTS,
     REWARD_COMPONENTS,
+)
+
+# Re-exported so `save_episode`/`load_episode` still resolve here, which is
+# where every caller and every docstring in this module expects them. They live
+# in episode_io because a reader -- a plot, the Rerun viewer -- must not have to
+# import this module to get at them: that import chain reaches `propagator`,
+# which boots the Orekit JVM.
+#
+# Imported as `scripts.episode_io` rather than as a bare `episode_io`: the
+# latter resolves only while this file is run as a script, when its own
+# directory heads sys.path, and would break the moment anything imports
+# `scripts.adcs_record` instead. The sys.path insert above is what makes the
+# qualified form work in both cases.
+from scripts.episode_io import (  # noqa: F401
+    Recording,
+    load_episode,
+    save_episode,
 )
 from src.environment.orbital.adcs.configs import AdcsEnvConfig
 from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, sim as EVENTSAT_SIM
@@ -599,6 +621,7 @@ def build_meta(
     recorder: EpisodeRecorder,
     config: AdcsEnvConfig,
     *,
+    env: EventSatEnv,
     arrays: Dict[str,np.ndarray],
     seed: int,
     policy_name: str,
@@ -612,6 +635,25 @@ def build_meta(
     that wrote it: seed, timing, mission and reward configuration, which
     policy ran, how the episode ended, the git commit, and the channel
     manifest.
+
+    The hardware constants come off `env` rather than from the eventsat module,
+    so they describe the satellite that actually flew this episode rather than
+    whatever the module currently declares. They are what a consumer needs to
+    interpret the channels at all: `command_torque` has no meaning without the
+    limit it was measured against, and `wheel_speeds` says nothing about
+    momentum without the cluster geometry.
+
+    Args:
+        recorder: The recorder that captured the episode; read for its row
+            counts and the channel manifest.
+        config: The env config the episode ran under.
+        env: The env that ran it, for the actuator limits and wheel geometry.
+        arrays: The stacked channels, for the manifest's shapes and dtypes.
+        seed: Seed the episode was reset with.
+        policy_name: Which policy drove it.
+        checkpoint_path: Where that policy was loaded from, if it was.
+        terminated: Whether the mission completed.
+        truncated: Whether the step cap was hit.
     """
 
     # Reason for stopping 
@@ -647,9 +689,24 @@ def build_meta(
         "start_step": config.start_step,
         "body_rate_thresh": config.body_rate_thresh,
         "max_body_rate": config.max_body_rate,
-        "wheel_max_speed": float(_WHEEL_MAX_SPEED),
         "reward_weights": dict(config.reward_weights or {}),
         "mission": asdict(config.mission),
+
+        # Which reward channels are paid every step and which only on an event.
+        # Recorded rather than inferred: the two are indistinguishable in the
+        # data -- a dense term can sit at zero for a whole episode, and an event
+        # term is a plain float column like any other.
+        "dense_components": list(REWARD_COMPONENTS),
+        "event_components": list(EVENT_COMPONENTS),
+
+        # Hardware limits and geometry, so the channels can be read without
+        # importing the sim. `max_action` is what `command_torque` was scaled
+        # by, in the same layout: wheel torque [N*m] first, MTQ dipole
+        # [A*m^2] after.
+        "max_action": env.max_action.tolist(),
+        "wheel_max_speed": float(_WHEEL_MAX_SPEED),
+        "wheel_axes": env.satellite.wheel_axes.tolist(),
+        "wheel_inertia": env.satellite.wheel_inertia.tolist(),
 
         "channels": recorder.manifest(arrays),
     }
@@ -713,6 +770,7 @@ def record_episode(
     meta = build_meta(
         recorder,
         config,
+        env=env,
         arrays=arrays,
         seed=seed,
         policy_name=policy_name,
@@ -721,63 +779,6 @@ def record_episode(
         truncated=truncated,
     )
 
-    return arrays, meta
-
-
-def save_episode(
-    arrays: Dict[str, np.ndarray],
-    path: Path | str,
-    meta: Dict[str, Any],
-) -> Path:
-    """Write one episode to a compressed NPZ.
-
-    The metadata goes in as a single `meta` entry holding a JSON string, so
-    the archive is self-contained: there is no sidecar to lose track of.
-
-    Args:
-        arrays: Channel name -> array, from `EpisodeRecorder.to_arrays`.
-        path: Destination. Parent directories are created.
-        meta: JSON-serialisable run metadata.
-
-    Returns:
-        The path written.
-
-    Raises:
-        ValueError: If `arrays` already contains a `meta` key, or if the
-            channel arrays disagree on their leading dimension.
-    """
-    if "meta" in arrays:
-        raise ValueError("'meta' is reserved for the metadata blob")
-
-    lengths = {name: a.shape[0] for name, a in arrays.items()}
-    if len(set(lengths.values())) != 1:
-        raise ValueError(f"arrays disagree on their leading dimension: {lengths}")
-
-    path = Path(path)
-    if path.suffix != ".npz":
-        path = path.with_suffix(".npz")
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    np.savez_compressed(path, meta=np.array(json.dumps(meta)), **arrays)
-    return path
-
-
-def load_episode(path: Path | str) -> Tuple[Dict[str, np.ndarray], Dict[str, Any]]:
-    """Read back what `save_episode` wrote.
-
-    Args:
-        path: An NPZ written by this module.
-
-    Returns:
-        (arrays, meta). Arrays are materialised into a plain dict, so the
-        archive is closed before this returns -- NpzFile is lazy, and handing
-        one back leaks a file handle for as long as the caller holds it.
-    """
-    with np.load(path, allow_pickle=False) as data:
-        if "meta" not in data.files:
-            raise ValueError(f"{path} has no 'meta' entry; not written by save_episode")
-        arrays = {name: data[name] for name in data.files if name != "meta"}
-        meta = json.loads(data["meta"].item())
     return arrays, meta
 
 
