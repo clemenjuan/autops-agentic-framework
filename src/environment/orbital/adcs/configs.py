@@ -425,6 +425,32 @@ class SlewSequenceConfig(MissionConfig):
     """
     num_targets: int
 
+@dataclass(frozen=True)
+class TargetTrackConfig(MissionConfig):
+    """Specific Mission config for target following
+    mission where the satellite searches and then tracks multiple targets.
+
+    Attributes:
+        num_targets: Slew targets to visit in one episode; the mission is done
+            once all of them have been cleared.
+        fov_half_angle: Half-angle of the payload's conical field of view [rad].
+            A target counts as visible while it lies inside this cone about the
+            boresight.
+        boresight_body: Unit vector along the camera boresight in the BODY
+            frame, shape (3,).
+        reference_body: Unit vector giving the camera's roll reference in the
+            BODY frame, shape (3,); must not be parallel to boresight_body.
+            Pointing the boresight somewhere fixes only two of the three
+            attitude degrees of freedom, and the pointing error the reward sees
+            is the full attitude error, roll included. So the remaining freedom
+            has to be pinned to something physical rather than left arbitrary:
+            this axis is aligned with the orbit normal.
+    """
+    num_targets: int
+    fov_half_angle: float
+    boresight_body: np.ndarray
+    reference_body: np.ndarray
+
     
 # =============================================================================
 # RL environment config
