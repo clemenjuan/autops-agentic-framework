@@ -39,6 +39,9 @@ llm = [
 rl = [
     "torch",           # For subsymbolic representations (optional)
     "gymnasium",       # Standard RL interface (optional)
+    "rerun-sdk",       # Time-series/3D logging for training + episode inspection
+    "ray[rllib]",      # PPO trainer behind src/rl/adcs_train_ppo.py
+    "wandb",           # Training run logging (src/rl/adcs_train_ppo.py)
 ]
 
 viz = [
