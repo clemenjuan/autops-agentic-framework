@@ -66,6 +66,6 @@ class Mission(ABC):
     def update(self, ms: MissionState, state: SatState, env_data: EnvironmentData, pointing_error_deg: float, dt: float) -> Tuple[MissionState, MissionEvents]:
         pass
 
+    @abstractmethod
     def info(self, ms:MissionState) -> Dict[str, Any]:
         return {"mission/target_idx": ms.target_idx, "mission/phase": ms.phase}
-    
