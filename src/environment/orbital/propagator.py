@@ -305,6 +305,47 @@ class _PropagatorContext:
 _ctx: Optional[_PropagatorContext] = None
 
 
+def _build_propagator(
+    orbit: "OrbitConfig", epoch_date: Any, frame: Any, sun: Any
+) -> Any:
+    """Translate an OrbitConfig into an Orekit propagator.
+
+    Split out of configure() so that a second body can be propagated without
+    going through the module-level context: create_orbit_track calls this too.
+    Keeping it in one place also keeps the LTAN->RAAN rule from being written
+    twice, where the two copies could drift apart.
+
+    Args:
+        orbit: The orbit to propagate.
+        epoch_date: Orekit AbsoluteDate for ``orbit.epoch``; passed in rather
+            than rebuilt so the caller's epoch and this one cannot disagree.
+        frame: The ECI frame, from _get_eci_frame.
+        sun: Orekit Sun body, used only to derive RAAN from LTAN.
+
+    Returns:
+        An Orekit analytical propagator.
+
+    Raises:
+        ValueError: If ``orbit.propagator_type`` names no known propagator.
+    """
+    if orbit.ltan_hours is not None:
+        raan_deg = _raan_from_ltan(epoch_date, orbit.ltan_hours, sun, frame)
+        logger.info("Derived RAAN=%.3f deg from LTAN=%.2f h", raan_deg, orbit.ltan_hours)
+    else:
+        raan_deg = orbit.raan_deg
+
+    a_km = Constants.WGS84_EARTH_EQUATORIAL_RADIUS / 1000.0 + orbit.altitude_km
+    args = (
+        a_km, orbit.eccentricity, orbit.inclination_deg,
+        raan_deg, orbit.arg_perigee_deg, orbit.true_anomaly_deg, orbit.epoch,
+    )
+    if orbit.propagator_type == "j2":
+        return create_j2_propagator(*args)
+    if orbit.propagator_type == "keplerian":
+        return create_keplerian_propagator(*args)
+    raise ValueError(f"Unknown propagator_type: {orbit.propagator_type!r}")
+
+
 def configure(orbit: "OrbitConfig") -> None:
     """Build the orbit propagator from config and store it for get_environment.
     """
@@ -319,23 +360,7 @@ def configure(orbit: "OrbitConfig") -> None:
     frame = _get_eci_frame()
     sun = CelestialBodyFactory.getSun()
 
-    if orbit.ltan_hours is not None:
-        raan_deg = _raan_from_ltan(epoch_date, orbit.ltan_hours, sun, frame)
-        logger.info("Derived RAAN=%.3f deg from LTAN=%.2f h", raan_deg, orbit.ltan_hours)
-    else:
-        raan_deg = orbit.raan_deg
-
-    a_km = Constants.WGS84_EARTH_EQUATORIAL_RADIUS / 1000.0 + orbit.altitude_km
-    args = (
-        a_km, orbit.eccentricity, orbit.inclination_deg,
-        raan_deg, orbit.arg_perigee_deg, orbit.true_anomaly_deg, orbit.epoch,
-    )
-    if orbit.propagator_type == "j2":
-        prop = create_j2_propagator(*args)
-    elif orbit.propagator_type == "keplerian":
-        prop = create_keplerian_propagator(*args)
-    else:
-        raise ValueError(f"Unknown propagator_type: {orbit.propagator_type!r}")
+    prop = _build_propagator(orbit, epoch_date, frame, sun)
 
     earth = _get_earth()
     occultation = OccultationEngine(sun, Constants.SUN_RADIUS, earth)
@@ -414,4 +439,85 @@ def get_environment(t: float) -> EnvironmentData:
         sun_vector_eci=sun_vector_eci,
         eclipse=eclipse,
         atmospheric_density=atmospheric_density,
+    )
+
+
+# -------------------------------------------------------------------
+# Additional propagated bodies
+# -------------------------------------------------------------------
+
+
+@dataclass
+class OrbitTrack:
+    """One propagated body's ECI state over simulation time.
+
+    Independent of the module-level configure()/get_environment() context: any
+    number of these can coexist, and constructing one does not disturb the
+    satellite's environment. That separation is the point -- configure() stores
+    its propagator in a module global, so configuring a second orbit through it
+    would silently replace the satellite's own, and every later
+    get_environment() call would describe the wrong body without raising.
+
+    Carries no field, eclipse or density model. A tracked body is a point on an
+    orbit, not a spacecraft being simulated, and those models are both the
+    expensive part of EnvironmentData and specific to the satellite.
+
+    Returns numpy rather than Orekit objects so callers stay clear of Orekit,
+    which is this module's whole reason for existing.
+    """
+
+    _prop: Any    # Orekit analytical propagator
+    _epoch: Any   # Orekit AbsoluteDate; t=0 for state_at
+    _frame: Any   # Orekit ECI Frame (from _get_eci_frame)
+
+    def state_at(self, t: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Position and velocity at time t.
+
+        Args:
+            t: Seconds since this track's epoch. To share a clock with
+                get_environment, the OrbitConfig this track was built from must
+                carry the same epoch as the configured satellite orbit.
+
+        Returns:
+            ``(r_eci, v_eci)``, position [m] and velocity [m/s] in the ECI
+            frame, each shape (3,).
+        """
+        pv = self._prop.propagate(self._epoch.shiftedBy(float(t))).getPVCoordinates(
+            self._frame
+        )
+        return _vec3_to_np(pv.getPosition()), _vec3_to_np(pv.getVelocity())
+
+
+def create_orbit_track(orbit: "OrbitConfig") -> OrbitTrack:
+    """Build a standalone propagator for one body.
+
+    For bodies the simulation only needs the position of -- tracking targets,
+    other spacecraft -- as opposed to the satellite itself, which needs the full
+    EnvironmentData that configure() and get_environment() provide.
+
+    Args:
+        orbit: The orbit to propagate. Its epoch sets t=0 for
+            ``OrbitTrack.state_at``.
+
+    Returns:
+        An OrbitTrack for that orbit. The module-level context is untouched.
+
+    Raises:
+        RuntimeError: If Orekit is not available.
+        ValueError: If ``orbit.propagator_type`` names no known propagator.
+    """
+    if not OREKIT_AVAILABLE:
+        raise RuntimeError(
+            f"Orekit unavailable; an orbit track cannot be created. "
+            f"Load error: {_orekit_load_error}"
+        )
+
+    epoch_date = _datetime_to_absolute(orbit.epoch)
+    frame = _get_eci_frame()
+    sun = CelestialBodyFactory.getSun()
+
+    return OrbitTrack(
+        _prop=_build_propagator(orbit, epoch_date, frame, sun),
+        _epoch=epoch_date,
+        _frame=frame,
     )
