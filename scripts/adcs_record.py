@@ -56,19 +56,25 @@ Defaults, for the EventSat mission config (``step_s = 0.2``, ``max_steps =
     wheel_speed_frac   (N,)     float64   max |w| / w_max
     obs                (N, 11)  float32
     action             (N, 7)   float32   normalised, NaN at row 0
-    command_torque     (N, 7)   float64   NaN at row 0
+    wheel_torque       (N, 4)   float64   N*m, NaN at row 0
+    mtq_dipole         (N, 3)   float64   A*m^2, NaN at row 0
     reward             (N,)     float64   NaN at row 0
     reward_<component> (N,)     float64   6 channels, NaN at row 0
     terminated         (N,)     bool
     truncated          (N,)     bool
     meta               ()       <U        JSON, see `load_episode`
 
-``command_torque`` is what was *asked for*: wheel motor torque [N*m] in
-``[0:4]`` and magnetorquer dipole [A*m^2] in ``[4:7]``. It is deliberately not
-called ``wheel_torque``/``mtq_dipole``, because the torque the wheels actually
-deliver is clipped against the momentum envelope inside
-``actuators.apply_reaction_wheel`` -- the two diverge exactly when the wheels
+``wheel_torque`` and ``mtq_dipole`` are what was *asked for*: the action vector
+scaled by ``max_action``. Not what was delivered -- the torque the wheels
+actually produce is clipped against the momentum envelope inside
+``actuators.apply_reaction_wheel``, and the two diverge exactly when the wheels
 saturate, which is when you care.
+
+They are two channels rather than one because they are two units, N*m and
+A*m^2, differing by two orders of magnitude. ``action`` stays packed at (N, 7),
+and so does ``max_action`` in the metadata: those are the policy's own
+interface, normalised to [-1, 1] throughout, and splitting them would
+misdescribe what the policy emits.
 
 Not recorded yet
 ----------------
@@ -140,7 +146,10 @@ SEED = 42
 
 # Bumped when the meaning of an existing channel changes, not when one is
 # added -- consumers keyed off the `channels` manifest survive additions.
-SCHEMA_VERSION = 1
+# 2: `command_torque` (N, 7) split into `wheel_torque` (N, 4) [N*m] and
+#    `mtq_dipole` (N, 3) [A*m^2] -- one array cannot carry two units, and
+#    every consumer was slicing it apart again. v1 archives are not read.
+SCHEMA_VERSION = 2
 
 # Every reward term, dense and event, in the order adcs_rewards declares them.
 ALL_REWARD_COMPONENTS: Tuple[str, ...] = REWARD_COMPONENTS + EVENT_COMPONENTS
@@ -247,15 +256,33 @@ def _target_quat(frame: Frame) -> np.ndarray:
     return np.copy(frame.env.mission_state.setpoint.target_q_eci_body)
 
 
-def _command_torque(frame: Frame) -> Optional[np.ndarray]:
-    """Commanded actuator effort: action * env.max_action.
+def _commanded(frame: Frame) -> Optional[np.ndarray]:
+    """Commanded actuator effort: action * env.max_action, still packed.
 
-    Wheel motor torque [N*m] in [0:4], magnetorquer dipole [A*m^2] in [4:7].
-    Commanded, not achieved -- see the module docstring.
+    The scaling is one operation over the whole action vector, so it happens
+    once here; `_wheel_torque` and `_mtq_dipole` slice the result into the two
+    quantities it actually holds. Commanded, not achieved -- see the module
+    docstring.
     """
     if frame.action is None:
         return None
     return np.asarray(frame.action, dtype=np.float64) * frame.env.max_action
+
+
+def _wheel_torque(frame: Frame) -> Optional[np.ndarray]:
+    """Commanded wheel motor torque [N*m], (n_wheels,)."""
+    commanded = _commanded(frame)
+    if commanded is None:
+        return None
+    return commanded[: frame.env.satellite.wheel_axes.shape[1]]
+
+
+def _mtq_dipole(frame: Frame) -> Optional[np.ndarray]:
+    """Commanded magnetorquer dipole [A*m^2], (n_rods,)."""
+    commanded = _commanded(frame)
+    if commanded is None:
+        return None
+    return commanded[frame.env.satellite.wheel_axes.shape[1] :]
 
 
 DEFAULT_CHANNELS: Tuple[Channel, ...] = (
@@ -295,9 +322,14 @@ DEFAULT_CHANNELS: Tuple[Channel, ...] = (
         doc="normalised action in [-1, 1], (7,)",
     ),
     Channel(
-        "command_torque",
-        _command_torque,
-        doc="commanded wheel torque [N*m] (0:4), MTQ dipole [A*m^2] (4:7)",
+        "wheel_torque",
+        _wheel_torque,
+        doc="commanded wheel motor torque [N*m]",
+    ),
+    Channel(
+        "mtq_dipole",
+        _mtq_dipole,
+        doc="commanded magnetorquer dipole [A*m^2]",
     ),
     Channel("reward", lambda f: f.reward, doc="total step reward"),
     *(
@@ -639,7 +671,7 @@ def build_meta(
     The hardware constants come off `env` rather than from the eventsat module,
     so they describe the satellite that actually flew this episode rather than
     whatever the module currently declares. They are what a consumer needs to
-    interpret the channels at all: `command_torque` has no meaning without the
+    interpret the channels at all: `wheel_torque` has no meaning without the
     limit it was measured against, and `wheel_speeds` says nothing about
     momentum without the cluster geometry.
 
@@ -700,9 +732,9 @@ def build_meta(
         "event_components": list(EVENT_COMPONENTS),
 
         # Hardware limits and geometry, so the channels can be read without
-        # importing the sim. `max_action` is what `command_torque` was scaled
-        # by, in the same layout: wheel torque [N*m] first, MTQ dipole
-        # [A*m^2] after.
+        # importing the sim. `max_action` is what `action` was scaled by, and
+        # keeps the action vector's own layout: wheel torque [N*m] first, MTQ
+        # dipole [A*m^2] after. `Recording` slices it into the two limits.
         "max_action": env.max_action.tolist(),
         "wheel_max_speed": float(_WHEEL_MAX_SPEED),
         "wheel_axes": env.satellite.wheel_axes.tolist(),

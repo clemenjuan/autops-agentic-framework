@@ -121,7 +121,7 @@ class Recording:
     archive's own names visible rather than hiding them behind an attribute per
     channel that would have to be extended every time a channel is added.
     Attributes are reserved for what the archive does *not* hold literally:
-    elapsed time, the two halves of ``command_torque``, the reward split, the
+    elapsed time, the two halves of ``max_action``, the reward split, the
     event rows, and the configured limits that threshold lines are drawn at.
 
     Limits that older archives do not carry are reported as None rather than
@@ -201,8 +201,8 @@ class Recording:
         """Reaction wheels in this recording.
 
         Read off the data rather than assumed to be four, which is what lets
-        `wheel_torque` and `mtq_dipole` split `command_torque` correctly for a
-        satellite with a different wheel count.
+        `wheel_max_torque` and `mtq_max_dipole` split `max_action` correctly
+        for a satellite with a different wheel count.
         """
         return int(self["wheel_speeds"].shape[1])
 
@@ -214,20 +214,24 @@ class Recording:
         and the wheels clip against their momentum envelope inside
         `actuators.apply_reaction_wheel`. The two diverge exactly at
         saturation.
+
+        A plain channel read since schema 2. It stays a property because the
+        limit properties beside it are not channels, and a consumer should not
+        have to know which of the four happens to be stored literally.
         """
-        return self["command_torque"][:, : self.n_wheels]
+        return self["wheel_torque"]
 
     @property
     def mtq_dipole(self) -> np.ndarray:
         """Commanded magnetorquer dipole [A*m^2], (N, n_rods)."""
-        return self["command_torque"][:, self.n_wheels :]
+        return self["mtq_dipole"]
 
     @property
     def max_action(self) -> Optional[np.ndarray]:
         """Per-actuator command limit, or None if the file predates the field.
 
         Wheel torque [N*m] first, magnetorquer dipole [A*m^2] after, matching
-        the layout of `command_torque`.
+        the layout of the `action` vector it scales.
         """
         limits = self.meta.get("max_action")
         return None if limits is None else np.asarray(limits, dtype=float)
