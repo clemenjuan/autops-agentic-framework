@@ -13,6 +13,8 @@ import numpy as np
 
 from datetime import datetime, timezone
 
+from typing import Dict
+
 from src.environment.orbital.adcs.configs import (
     ActuatorSuite,
     AdcsEnvConfig,
@@ -27,7 +29,9 @@ from src.environment.orbital.adcs.configs import (
     SatelliteConfig,
     OrbitConfig,
     SimulationConfig,
-    SlewSequenceConfig
+    MissionConfig,
+    SlewSequenceConfig,
+    TargetTrackConfig
 )
 from src.environment.orbital.adcs import constants as C
 
@@ -331,6 +335,24 @@ sim = SimulationConfig(
     step_s = 0.2,
 )
 
+DEFAULT_MISSION = "slew"
+
+MISSION_CONFIGS: Dict[str,MissionConfig] = {
+    "slew": SlewSequenceConfig(type="slew", tolerance_deg=5.0, hold_time=2.0, max_steps=2000, num_targets=1),
+    "target_track": TargetTrackConfig(type="target_track", tolerance_deg=5.0, hold_time=2.0, max_steps=2000, num_targets=1,
+                                        fov_half_angle= np.deg2rad(45.0),
+                                        boresight_body= np.array([1.0, 0.0, 0.0]), #TODO PLACEHOLDER adjust to actual camera facing, currently facing forward
+                                        reference_body= np.array([0.0, 1.0, 0.0]) #TODO PLACEHOLDER
+                                        ) 
+}
+for name, mission_cfg in MISSION_CONFIGS.items():
+    if mission_cfg.type != name:
+        raise ValueError(
+            f"MISSION_CONFIGS key {name!r} carries type {mission_cfg.type!r}. "
+            f"build_mission dispatches on .type while callers look up by key, "
+            f"so the two disagreeing builds the wrong mission silently."
+        )
+
 # -----------------------------------------------------------------------------
 # RL task config
 # -----------------------------------------------------------------------------
@@ -364,5 +386,5 @@ env = AdcsEnvConfig(
     start_step=0,
     seed=None,
     reward_weights=_reward_weights,
-    mission=SlewSequenceConfig(type="slew", tolerance_deg=5.0, hold_time=2, max_steps=2000, num_targets=1)
+    mission=MISSION_CONFIGS[DEFAULT_MISSION]
 )

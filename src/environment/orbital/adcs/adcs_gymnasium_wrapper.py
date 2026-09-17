@@ -39,7 +39,7 @@ from src.environment.orbital.adcs.configs import(
     AdcsEnvConfig,
     ReactionWheelConfig,
 )
-from src.mission.slew_sequence_mission import SlewSequenceMission
+from src.mission.registry import build_mission
 
 
 use_state_flag = True
@@ -55,9 +55,7 @@ class EventSatEnv(gym.Env):
 
     def __init__(self, config:Optional[AdcsEnvConfig] = None)->None:
         self.cfg = config or env
-        self.mission = SlewSequenceMission(self.cfg.mission)
         
-
         self.max_action = np.concatenate([np.repeat([_WHEEL_MAX_TORQUE], 4), 
                                           np.repeat([_MTQ_MAX_DIPOLE], 3)])
 
@@ -67,6 +65,8 @@ class EventSatEnv(gym.Env):
         self.sensors = sensors
         configure(orbit)
 
+        # After configure(): a mission may build Orekit objects from `orbit`.
+        self.mission = build_mission(cfg= self.cfg.mission, orbit=orbit)
 
         self.action_space = spaces.Box(
             low=-1,
