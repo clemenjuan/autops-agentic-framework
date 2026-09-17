@@ -164,6 +164,38 @@ def log_earth() -> None:
         static=True
     )
 
+def _orbit_ring(r0: np.ndarray, v0:np.ndarray, n: int = 360) ->np.ndarray:
+    """The array needed to build the orbital ring for any object
+
+    Args:
+        r0: Position at t0, ECI [m], shape (3,).
+        v0: Velocity at t0, ECI [m/s], shape (3,).
+        n: Points around the ring.
+
+    Returns:
+        Points around the closed orbit, ECI [m], shape (n, 3).
+
+    """
+
+    # Orbit-plane basis. The normal comes first because the other two are only
+    # defined relative to it: x towards the satellite at t0, y completing the
+    # right-handed set and so pointing along the motion.
+    h = np.cross(r0, v0)
+    n_hat = h / np.linalg.norm(h)
+    x_hat = r0 / np.linalg.norm(r0)
+    y_hat = np.cross(n_hat, x_hat)
+    
+    # vis-viva. Using |r0| instead would be within metres here, but only
+    # because the orbit is circular -- this stays right if it ever is not.
+    a = 1.0 / (2.0 / np.linalg.norm(r0) - v0 @ v0 / MU_EARTH)
+    
+    # endpoint=True (the default) makes theta[-1] coincide with theta[0],
+    # which is what closes the strip instead of leaving a seam.
+    theta = np.linspace(0, 2 * np.pi, n)
+    ring = a * (np.cos(theta)[:, None] * x_hat + np.sin(theta)[:, None] * y_hat)
+
+    return ring
+
 def log_orbit_path(rec:Recording) -> None:
     """The whole orbit the satellite is on, as one closed ring.
 
@@ -180,28 +212,27 @@ def log_orbit_path(rec:Recording) -> None:
     r0 = rec["r_eci"][0]
     v0 = rec["v_eci"][0]
 
-    # Orbit-plane basis. The normal comes first because the other two are only
-    # defined relative to it: x towards the satellite at t0, y completing the
-    # right-handed set and so pointing along the motion.
-    h = np.cross(r0, v0)
-    n_hat = h / np.linalg.norm(h)
-    x_hat = r0 / np.linalg.norm(r0)
-    y_hat = np.cross(n_hat, x_hat)
-
-    # vis-viva. Using |r0| instead would be within metres here, but only
-    # because the orbit is circular -- this stays right if it ever is not.
-    a = 1.0 / (2.0 / np.linalg.norm(r0) - v0 @ v0 / MU_EARTH)
-
-    # endpoint=True (the default) makes theta[-1] coincide with theta[0],
-    # which is what closes the strip instead of leaving a seam.
-    theta = np.linspace(0, 2 * np.pi, 360)
-    ring = a * (np.cos(theta)[:, None] * x_hat + np.sin(theta)[:, None] * y_hat)
-
     rr.log(
         "world/orbit",
-        rr.LineStrips3D(ring * M_TO_KM),
+        rr.LineStrips3D(_orbit_ring(r0,v0) * M_TO_KM),
         static=True
     )
+
+def log_target_orbits(rec:Recording) -> None:
+    """The orbits the targets are on as closed rings"""
+
+    target_positions = rec["target_positions"] #(T, num_targets, 3)
+    target_velocities = rec["target_velocities"] #(T, num_targets, 3)
+    num_targets = target_positions.shape[1]
+
+    for i in range(num_targets):
+        rr.log(
+            f"world/targets/{i}/orbit",
+            rr.LineStrips3D(
+                _orbit_ring(r0=target_positions[0][i], v0=target_velocities[0][i]) * M_TO_KM,
+                colors=TARGET_PALETTE[0]),
+            static = True
+            )
 
 def log_orbit_track(rec:Recording) -> None:
     """Where the satellite actually was, over the episode.
@@ -242,8 +273,22 @@ def log_satellite_marker() -> None:
         static=True
     )
 
-def log_ground_targets(rec:Recording)->None:
-    pass
+TARGET_PALETTE = np.array([[120,120,120], [40,160,60], [255,80,40]], dtype=np.uint8)
+
+def log_targets(rec:Recording)->None:
+    pos = rec["target_positions"] * M_TO_KM #(T, num_targets, 3)
+    num_targets = pos.shape[1]  
+    colors = TARGET_PALETTE[rec["target_status"]] # (T, num_targets, 3)
+
+    rr.send_columns(
+        "world/targets/markers",
+        indexes=_timelines(rec),
+        columns=rr.Points3D.columns(
+            positions=pos.reshape(-1,3),
+            colors=colors.reshape(-1,3),
+    ).partition([num_targets] * pos.shape[0])
+    )
+
 
 ############################################################################
 # Attitude
@@ -522,6 +567,7 @@ def main(argv: Optional[Sequence[str]] = None):
     # All static object created and logged 
     log_earth()
     log_orbit_path(rec=rec)
+    log_target_orbits(rec=rec)
     log_orbit_track(rec=rec)
     log_satellite_marker()
     log_satellite_geometry()
@@ -531,6 +577,7 @@ def main(argv: Optional[Sequence[str]] = None):
 
     # Temporal pass
     log_orbit_motion(rec=rec)
+    log_targets(rec=rec)
     log_attitude(rec=rec)
     log_scalars(rec=rec)
     log_thresholds(rec=rec)
