@@ -372,8 +372,13 @@ class Recording:
         return str(self.meta["termination_reason"])
 
     # -------------------------------------------------------------------------
-    # Task configuration -- what threshold lines are drawn at
+    # Task configuration -- the mission, and what threshold lines are drawn at
     # -------------------------------------------------------------------------
+
+    @property
+    def mission_type(self) -> str:
+        """Which mission this episode ran, e.g. "slew" or "target_track"."""
+        return str(self.meta["mission"]["type"])
 
     @property
     def tolerance_deg(self) -> float:
