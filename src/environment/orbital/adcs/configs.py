@@ -176,21 +176,46 @@ class ReactionWheelConfig:
         spin_axis_body: Unit vector along the wheel spin axis in the body
             frame, shape (3,).
         max_torque: Maximum commandable torque magnitude [N·m].
-        max_momentum: Angular momentum at saturation [N·m·s].
+        max_speed: Angular speed at saturation [rad/s].
         wheel_inertia: Wheel inertia about its spin axis [kg·m²].
         friction_viscous: Viscous friction coefficient sigma_v
             [N·m·s/rad], the speed-proportional term of Paluszek Eq. 10.14
         friction_coulomb: Coulomb friction torque f_c [N·m], constant in
             magnitude and opposing motion (Paluszek Eq. 10.14).
+        power_fit_square_param: Quadratic coefficient of the power fit
+            [W·s²/rad²]. This coefficient and the folowing two are a 
+            single least-squares solution over 49 points 
+            digitised from the ADCS ICD p.45 steady-state trace at 16V.
+        power_fit_lin_param: Linear coefficient of the same fit [W·s/rad].
+        power_fit_const_param: Constant term of the same fit [W].
+        mechanical_power_scale: empirical scaling factor for the physical
+            torque term that is added to the zero torque fit.
+        momentum_at_max_speed: Calculating the momentum of a single wheel
+            at the maimum angular velocity [N*m*s].Derived as 
+            wheel_inertia * max_speed; not a constructor
     """
 
     name: str
     spin_axis_body: np.ndarray
     max_torque: float
-    max_momentum: float
+    max_speed: float
     wheel_inertia: float
-    friction_viscous: float = 0.0
-    friction_coulomb: float = 0.0
+    friction_viscous: float
+    friction_coulomb: float
+
+    # Power Model fit parameters: 
+    # P_fit(omega) = 0.0836 + 5.007e-4*|omega| + 5.487e-7*omega^2
+    power_fit_square_param: float
+    power_fit_lin_param: float
+    power_fit_const_param: float
+
+    mechanical_power_scale: float
+
+    # Derived:
+    momentum_at_max_speed: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.momentum_at_max_speed = self.max_speed * self.wheel_inertia
 
 
 @dataclass

@@ -35,6 +35,7 @@ from src.environment.orbital.adcs.actuators import(
     apply_magnetorquer,
     power_magnetorquer,
     apply_reaction_wheel,
+    power_reaction_wheel,
     )
 from src.environment.orbital.adcs.configs import (
     SimulationConfig, 
@@ -44,6 +45,7 @@ from src.environment.orbital.adcs.configs import (
     CoarseSunSensorConfig,
     EarthHorizonConfig,
     MagnetorquerConfig,
+    ReactionWheelConfig,
     )
 from src.environment.orbital.adcs.sensors import (
     initial_sensor_state, 
@@ -235,6 +237,407 @@ def test_actuator_return_shapes() -> None:
     assert isinstance(u, float)
     assert tau.shape == (3,)
 
+class TestReactionWheel:
+    """Behavioural invariants for the reaction wheel actuator model.
+
+    Characterisation tests: they pin what apply_reaction_wheel does today, so
+    that later changes are visible rather than silent. Before these, the
+    function's only coverage was test_actuator_return_shapes asserting
+    isinstance(u, float) - actuators.py reported 100% statement coverage from
+    the structural smoke test alone, with nothing checking a single value.
+
+    Tests referencing max_momentum move when that field becomes max_speed.
+    """
+
+    def _config(self, **kwargs) -> ReactionWheelConfig:
+        """The EventSat wheel, overridable field by field."""
+        cfg = actuators.reaction_wheels[0]
+        base = dict(
+            name="test",
+            spin_axis_body=cfg.spin_axis_body,
+            max_torque=cfg.max_torque,
+            max_speed=cfg.max_speed,
+            wheel_inertia=cfg.wheel_inertia,
+            friction_viscous=cfg.friction_viscous,
+            friction_coulomb=cfg.friction_coulomb,
+            power_fit_square_param=cfg.power_fit_square_param,
+            power_fit_lin_param=cfg.power_fit_lin_param,
+            power_fit_const_param=cfg.power_fit_const_param,
+            mechanical_power_scale=cfg.mechanical_power_scale,
+        )
+        base.update(kwargs)
+        return ReactionWheelConfig(**base)
+
+    def _state(self, speed: float = 0.0, omega: np.ndarray | None = None) -> SatState:
+        """A state with one wheel spinning and the body optionally rotating."""
+        speeds = np.zeros(len(actuators.reaction_wheels))
+        speeds[0] = speed
+        s = _sample_state(np.array([1.0, 0.0, 0.0, 0.0]),
+                          np.array([ALT_RADIUS, 0.0, 0.0]), np.zeros(3))
+        return replace(s, wheel_speeds=speeds,
+                       omega_body=np.zeros(3) if omega is None else omega)
+
+    # --- the torque clip -------------------------------------------------
+
+    def test_command_clips_at_max_torque(self) -> None:
+        """Beyond +/-max_torque the motor delivers its limit, not the command.
+
+        At zero wheel speed the momentum headroom is max_momentum/dt = 28.5
+        mNm, far above max_torque, so this isolates the torque clip.
+        """
+        cfg = self._config()
+        t, st = cfg.max_torque, self._state()
+        assert apply_reaction_wheel(st, cfg, 2.0 * t, 0, sim.step_s) == pytest.approx(t)
+        assert apply_reaction_wheel(st, cfg, -2.0 * t, 0, sim.step_s) == pytest.approx(-t)
+        assert apply_reaction_wheel(st, cfg, 0.5 * t, 0, sim.step_s) == pytest.approx(0.5 * t)
+
+    def test_zero_command_at_rest_delivers_nothing(self) -> None:
+        """The null case, exactly zero - a constant term would show here."""
+        assert apply_reaction_wheel(self._state(), self._config(), 0.0, 0, sim.step_s) == 0.0
+
+    # --- the momentum clip -----------------------------------------------
+
+    def test_saturated_wheel_cannot_spin_up_but_can_brake(self) -> None:
+        """At the momentum limit the clip is one-sided, and mirrored in sign.
+
+        A two-sided clip would forbid braking a saturated wheel, which would
+        make saturation unrecoverable.
+        """
+        cfg = self._config()
+        sat = cfg.max_speed
+        up, down = self._state(sat), self._state(-sat)
+        assert apply_reaction_wheel(up, cfg, cfg.max_torque, 0, sim.step_s) == pytest.approx(0.0)
+        assert apply_reaction_wheel(up, cfg, -cfg.max_torque, 0, sim.step_s) == pytest.approx(-cfg.max_torque)
+        assert apply_reaction_wheel(down, cfg, -cfg.max_torque, 0, sim.step_s) == pytest.approx(0.0)
+        assert apply_reaction_wheel(down, cfg, cfg.max_torque, 0, sim.step_s) == pytest.approx(cfg.max_torque)
+
+    def test_momentum_headroom_scales_with_timestep(self) -> None:
+        """The clip is a rate limit: half the step, twice the allowed torque.
+
+        The remaining momentum is a fixed quantity, so the torque that would
+        consume it within one step is inversely proportional to dt. A clip
+        written against a fixed torque bound would give the same answer for
+        both, which is what this distinguishes.
+        """
+        cfg = self._config()
+        near = 0.99 * cfg.max_speed
+        st = self._state(near)
+        coarse = apply_reaction_wheel(st, cfg, cfg.max_torque, 0, 0.2)
+        fine = apply_reaction_wheel(st, cfg, cfg.max_torque, 0, 0.1)
+        assert coarse < cfg.max_torque, "the momentum clip must be the binding one here"
+        assert fine == pytest.approx(2.0 * coarse)
+
+    def test_wheel_index_selects_its_own_speed(self) -> None:
+        """Each call reads the speed of the wheel it was given, not wheel 0.
+
+        An off-by-one in the index would be silent: every wheel would clamp
+        against a neighbour's momentum, and nothing else in the suite looks
+        at more than one wheel.
+        """
+        cfg = self._config()
+        sat = cfg.max_speed
+        speeds = np.zeros(len(actuators.reaction_wheels))
+        speeds[2] = sat
+        st = replace(self._state(), wheel_speeds=speeds)
+        assert apply_reaction_wheel(st, cfg, cfg.max_torque, 2, sim.step_s) == pytest.approx(0.0)
+        assert apply_reaction_wheel(st, cfg, cfg.max_torque, 0, sim.step_s) == pytest.approx(cfg.max_torque)
+
+    # --- the frame question (D4) -----------------------------------------
+
+    def test_clamp_uses_the_body_relative_wheel_speed(self) -> None:
+        """Body rotation must not move the saturation limit.
+
+        D4: max_momentum is a motor speed limit in momentum units. The motor
+        cannot exceed its speed relative to its own stator, which is bolted to
+        the spacecraft, and the tachometer measures that same relative
+        quantity. state.wheel_speeds holds the relative rate throughout;
+        dynamics converts to absolute where the gyrostat needs it.
+
+        The discriminating case: a saturated wheel, with the body then
+        rotating against the spin axis. Absolute momentum drops below the
+        limit while the motor stays pinned at maximum speed. A clamp keyed on
+        absolute momentum would release and permit a spin-up command - free
+        control authority conjured from a modelling artifact, and precisely
+        the kind of thing a policy finds and exploits.
+
+        With a 1 rad/s body rate the difference is J*a'w/dt = 4.8e-5 N.m
+        against an expected exactly zero.
+
+        Note this passes because apply_reaction_wheel does not read
+        omega_body at all, not because a relative-versus-absolute calculation
+        was checked and found correct. The test guards against a future change
+        that introduces the body rate here - it is not a check on present
+        arithmetic. Do not delete it as vacuous.
+        """
+        cfg = self._config()
+        sat = cfg.max_speed
+        still = self._state(sat)
+        counter = self._state(sat, omega=-1.0 * cfg.spin_axis_body)
+        assert apply_reaction_wheel(counter, cfg, cfg.max_torque, 0, sim.step_s) == pytest.approx(
+            apply_reaction_wheel(still, cfg, cfg.max_torque, 0, sim.step_s)
+        )
+
+    # --- friction (D53) ---------------------------------------------------
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="D53: friction_viscous and friction_coulomb are 0.0 and eventsat.py never sets them",
+    )
+    def test_friction_opposes_rotation(self) -> None:
+        """A spinning wheel under zero command must feel a retarding torque.
+
+        Paluszek Eq. 10.14 is implemented in apply_reaction_wheel and inert in
+        every run: both friction lines execute each step and subtract zero.
+        This test is the visible marker for that, rather than leaving the gap
+        absent from the suite.
+
+        strict=True is deliberate. When bench coefficients land this starts
+        passing, and an unexpected pass fails the suite - forcing someone to
+        remove the marker and turn this into a real assertion on magnitude,
+        instead of a marker that quietly disarms itself.
+
+        Note the coupling recorded against the power model: the fitted power
+        curve already contains this friction, so closing D53 requires
+        restructuring power_reaction_wheel, not just filling in two fields.
+        """
+        cfg = actuators.reaction_wheels[0]
+        assert apply_reaction_wheel(self._state(100.0), cfg, 0.0, 0, sim.step_s) < 0.0
+        assert apply_reaction_wheel(self._state(-100.0), cfg, 0.0, 0, sim.step_s) > 0.0
+
+    # --- power ------------------------------------------------------------
+
+    def test_idle_wheel_draws_no_command_dependent_power(self) -> None:
+        """At rest under zero command the function returns exactly zero.
+
+        Pins the deliberate exclusion of the quiescent term. P_fit carries a
+        constant of 0.0836 W per wheel - the driver's battery-rail draw while
+        enabled - subtracted because a constant contributes nothing to a
+        policy gradient (§5.6), matching power_magnetorquer returning exactly
+        zero at zero command.
+
+        The subtraction is self-cancelling arithmetic and an obvious target
+        for tidying up. This is what stops that being silent: without it four
+        idle wheels would report 0.334 W.
+        """
+        assert power_reaction_wheel(self._config(), 0.0, 0.0) == 0.0
+
+    def test_holding_cost_is_symmetric_in_speed(self) -> None:
+        """A wheel costs the same to hold either way round.
+
+        Dissipation is even in speed; the linear coefficient multiplies
+        |Omega|. Without the absolute value the linear term subtracts at
+        negative speed and power would FALL as a wheel spun faster in reverse.
+        Half the digitised data was negative-momentum and fitted the same
+        magnitudes on both sides.
+        """
+        cfg = self._config()
+        for w in (50.0, 300.0, cfg.max_speed):
+            assert power_reaction_wheel(cfg, 0.0, w) == pytest.approx(
+                power_reaction_wheel(cfg, 0.0, -w)
+            )
+
+    def test_holding_cost_rises_with_speed(self) -> None:
+        """Faster wheels cost more to hold, monotonically.
+
+        Follows from both speed-dependent coefficients being positive, but it
+        is the property that gives an agent a reason to keep wheels slow, and
+        the only reason this model is worth having in a reward at all.
+        """
+        cfg = self._config()
+        speeds = np.linspace(0.0, cfg.max_speed, 12)
+        held = [power_reaction_wheel(cfg, 0.0, float(w)) for w in speeds]
+        assert np.all(np.diff(held) > 0.0)
+
+    def test_braking_costs_only_the_holding_power(self) -> None:
+        """Torque opposing the spin adds nothing; the driver dissipates.
+
+        Measured, not assumed: the ICD torque traces go flat at a few mA on
+        the braking side rather than negative, so the mechanical term clamps
+        at zero rather than crediting regeneration.
+
+        Asserted against the zero-command case at the same speed, so the
+        expected value comes from the function under a different input rather
+        than from the model's coefficients.
+        """
+        cfg = self._config()
+        w, t = 500.0, 0.5 * cfg.max_torque
+        holding = power_reaction_wheel(cfg, 0.0, w)
+        assert power_reaction_wheel(cfg, -t, w) == pytest.approx(holding)
+        assert power_reaction_wheel(cfg, t, w) > holding
+
+    def test_mechanical_term_scales_with_torque_and_speed(self) -> None:
+        """Above the holding cost, power is linear in commanded torque.
+
+        The discriminating test for the model form. A copper term k_cu*tau^2
+        would make this quadratic; it is omitted because the motor's
+        resistance and torque constant are not published, and this is what
+        pins that omission rather than leaving it to the docstring.
+
+        The ratio assertion is independent - no config coefficient on the
+        right-hand side, so it cannot pass by restating P_fit. The second
+        assertion does restate the model, but tau*Omega is exact physics
+        rather than a fitted form, so a failure there is a unit error.
+
+        The mechanical term is tau*Omega divided by mechanical_power_scale:
+        the flywheel receives tau*Omega, the battery supplies more. The ratio
+        assertion is unaffected by that divisor, which is a small sign it was
+        written the right way round.
+
+        Copper loss k_cu*tau^2 is not merely unmodelled for want of published
+        motor constants - it is REFUTED by the torque traces: gap/tau^2 spans
+        4.6x across the three torques while gap/tau spans 1.27x. The loss
+        scales with torque, not torque squared.
+        """
+        cfg = self._config()
+        w, t = 500.0, 0.25 * cfg.max_torque
+        holding = power_reaction_wheel(cfg, 0.0, w)
+        single = power_reaction_wheel(cfg, t, w) - holding
+        double = power_reaction_wheel(cfg, 2.0 * t, w) - holding
+        assert double == pytest.approx(2.0 * single)
+        assert single == pytest.approx(t * w / cfg.mechanical_power_scale)
+
+    def test_power_and_torque_saturate_at_the_same_command(self) -> None:
+        """Both functions stop responding at the same commanded torque.
+
+        The _bounded_motor_torque guard. If either grew its own copy of the
+        clip they could drift, and the simulation would bill power for a motor
+        torque it was not applying - silent, and wrong every step.
+
+        Asserts each function is flat between two over-bound commands rather
+        than checking either against a value, so it passes only if they agree
+        and says nothing about whether the shared bound is correct.
+        """
+        cfg = self._config()
+        w, over = 500.0, 1.5 * cfg.max_torque
+        st = self._state(w)
+        assert power_reaction_wheel(cfg, over, w) == pytest.approx(
+            power_reaction_wheel(cfg, 2.0 * over, w)
+        )
+        assert apply_reaction_wheel(st, cfg, over, 0, sim.step_s) == pytest.approx(
+            apply_reaction_wheel(st, cfg, 2.0 * over, 0, sim.step_s)
+        )
+
+    def test_power_is_never_negative(self) -> None:
+        """Dissipation has one sign, across both signs of speed and command.
+
+        Weak today - implied by positive coefficients and the max(0, .) clamp.
+        Its value is prospective: when bench friction coefficients land, the
+        tau_drag subtraction is the term that could push this negative at high
+        speed without breaking anything else here.
+        """
+        cfg = self._config()
+        for w in np.linspace(-cfg.max_speed, cfg.max_speed, 9):
+            for t in np.linspace(-2.0 * cfg.max_torque, 2.0 * cfg.max_torque, 9):
+                assert power_reaction_wheel(cfg, float(t), float(w)) >= 0.0
+
+    # --- the friction restructure (exercised with non-zero coefficients) ---
+
+    def test_friction_is_billed_once_not_twice(self) -> None:
+        """Holding a wheel costs the same whether or not friction is modelled.
+
+        The whole point of subtracting tau_drag(Omega)*Omega from P_fit. The
+        fitted curve is the zero-NET-torque condition, not zero motor torque:
+        the motor works throughout, so the friction power is already inside
+        the coefficients. Once friction is non-zero the controller must
+        command tau = tau_drag to hold speed, and without the subtraction
+        tau*Omega would bill those same watts a second time.
+
+        So the total is invariant - the watts move from P_fit into the
+        mechanical term rather than appearing. Without the subtraction the
+        frictional case would read 2*tau_drag*Omega higher.
+
+        Runs with non-zero coefficients because with EventSat's current zeroes
+        (D53) this code path is never exercised.
+        """
+        cfg = self._config(friction_coulomb=1.0e-5, friction_viscous=2.0e-8)
+        w = 500.0
+        tau_drag = cfg.friction_coulomb + cfg.friction_viscous * w
+        frictionless = power_reaction_wheel(self._config(), 0.0, w)
+        held = power_reaction_wheel(cfg, tau_drag, w)
+        assert held == pytest.approx(frictionless)
+
+    def test_friction_coefficients_cannot_exceed_the_fitted_curve(self) -> None:
+        """The holding cost must stay non-negative once friction is removed.
+
+        [P_fit(|Omega|) - c - tau_drag*Omega] is (b - f_c/eta)*|Omega| +
+        (a - sigma_v/eta)*Omega^2, so the model requires f_c < eta*b and
+        sigma_v < eta*a. Physically: the bearing cannot dissipate more than the
+        battery supplies.
+
+        That is a real constraint on the pending bench measurement, and this
+        is what makes it falsifiable rather than a sentence in a docstring.
+        The bench must return coefficients BELOW the ones the contaminated
+        power fits produced; if it does not, one of the two measurements is
+        wrong.
+        """
+        cfg = self._config()
+        eta = cfg.mechanical_power_scale
+        assert cfg.friction_coulomb < eta * cfg.power_fit_lin_param
+        assert cfg.friction_viscous < eta * cfg.power_fit_square_param
+        edge = self._config(
+            friction_coulomb=0.99 * eta * cfg.power_fit_lin_param,
+            friction_viscous=0.99 * eta * cfg.power_fit_square_param,
+        )
+        for w in np.linspace(0.0, cfg.max_speed, 9):
+            assert power_reaction_wheel(edge, 0.0, float(w)) >= 0.0
+
+    def test_fit_reproduces_the_torque_traces(self) -> None:
+        """Regression check on the fitted residual. NOT an independent test.
+
+        The three torque traces were held out of the original fit, and
+        predicting them was the only check in this suite capable of detecting a
+        systematic error rather than an internal inconsistency. It did its job:
+        it found the model reading 29-45% low, which is why
+        mechanical_power_scale exists at all.
+
+        Closing that deficiency consumed the check. The coefficient was fitted
+        across all 62 digitised points from these traces, so they are now
+        training data and this test can only confirm the fit still reproduces
+        them. Nothing in the suite can now detect a systematic error in these
+        coefficients, and any future change to them has no external evidence
+        behind it.
+
+        The residual is NOT uniform and the mean is not an accuracy figure.
+        Overall mean -3.6%, but by trace, averaged over each trace's full
+        momentum range: -9.7% at 0.53 mNm, -4.6% at 1.27, +4.2% at 2.02. The
+        one-sided shortfall was traded for a torque-dependent tilt. An agent
+        using the full torque range sees the bias largely average out; one
+        settling into a narrow band sees up to 10% systematic rather than 24%.
+
+        That tilt is a property of the full dataset and is NOT visible at the
+        three h ~ 6 points this test uses, where the residual is a shallow U:
+        -8.2%, -5.8%, -8.1%. So this test pins magnitude only. An earlier
+        version asserted the ordering and passed by 0.15 percentage points on
+        points that do not exhibit the property - a refit or a digitisation
+        tweak would have flipped it. The tilt information lives in the
+        breakdown above, not in an assertion.
+
+        The bound below is the measured spread, not a tolerance.
+
+        Points digitised from ADCS ICD p.45 (16 V). V and J_AXIS are local
+        constants describing how the measurement was taken, not properties of
+        the wheel, which is why neither is a config field.
+        """
+        cfg = self._config()
+        V, J_AXIS = 16.0, 9.0718e-6
+
+        # (tau [N.m], momentum [mNms], measured current [mA]), h ~ 6 mNms
+        POINTS = [
+            (0.53e-3, 6.195095785440612, 77.15517241379312),
+            (1.27e-3, 6.0548659003831435, 121.55172413793106),
+            (2.02e-3, 6.071264367816092, 175.4310344827586),
+        ]
+        for tau, h, measured_mA in POINTS:
+            omega = h * 1e-3 / J_AXIS
+            predicted_mA = power_reaction_wheel(cfg, tau, omega) / V * 1000.0
+            err = predicted_mA / measured_mA - 1.0
+            assert abs(err) < 0.15, (
+                f"tau={tau * 1e3:.2f} mNm, h={h:.2f} mNms: predicted "
+                f"{predicted_mA:.1f} mA against measured {measured_mA:.1f} mA "
+                f"({err:+.1%}). The fitted residual at these points is within "
+                "10%; a larger error means a coefficient or the digitisation "
+                "has moved."
+            )
 
 @requires_orekit
 def test_orbit_propagation_physics() -> None:

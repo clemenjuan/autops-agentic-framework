@@ -200,18 +200,36 @@ _wheel_axes_pyramid = np.array(
 PYRAMID_TO_BODY = np.eye(3)  # PLACEHOLDER
 
 _WHEEL_INERTIA = 9.51e-6      # kg*m^2, 9510 g*mm^2  (CubeWheel ICD p.16)
-_WHEEL_MAX_TORQUE = 4.0e-3    # N*m     (CMO p.23, CW0057 Pyramid)
-_WHEEL_MAX_MOMENTUM = 5.7e-3  # N*m*s   (CubeWheel PD p.11)
+_WHEEL_MAX_TORQUE = 4.0e-3    # N*m     (CMO p.23, CW0057 Pyramid) PLACEHOLDER
+_WHEEL_MAX_SPEED = 10000.0 * (2 * np.pi / 60)  # rad/s   (CubeWheel PD p.11: 10000 RPM)
+_FRICTION_VISCOUS = 0.0 # PLAACEHOLDER
+_FRICTION_COULOMB = 0.0 # PLACEHOLDER
+
+# Power Model fit parameters: 
+# P_fit(omega) = 0.0836 + 5.007e-4*|omega| + 5.487e-7*omega^2
+# Fitted from the zero torque curve in Figure 37, ADCS ICD p. 45 (digitized with 49 points)
+_POWER_FIT_SQUARE_PARAM = 5.487e-7
+_POWER_FIT_LIN_PARAM = 5.007e-4
+_POWER_FIT_CONST_PARAM = 0.0836
+
+# Fitted across 62 digitised points from the three torque traces, ADCS ICD p.45, 16 V.
+_MECHANICAL_POWER_SCALE = 0.6759
 
 _reaction_wheels = [
     ReactionWheelConfig(
         name=f"rwl{i}",
         spin_axis_body=PYRAMID_TO_BODY @ _wheel_axes_pyramid[i],
         max_torque=_WHEEL_MAX_TORQUE,
-        max_momentum=_WHEEL_MAX_MOMENTUM,
+        max_speed=_WHEEL_MAX_SPEED,
         wheel_inertia=_WHEEL_INERTIA,
+        friction_viscous=_FRICTION_VISCOUS,
+        friction_coulomb=_FRICTION_COULOMB,
+        power_fit_square_param = _POWER_FIT_SQUARE_PARAM,
+        power_fit_lin_param = _POWER_FIT_LIN_PARAM,
+        power_fit_const_param = _POWER_FIT_CONST_PARAM,
+        mechanical_power_scale = _MECHANICAL_POWER_SCALE,
     )
-    for i in range(4)
+    for i in range(4) # 4 wheels in the pyramid
 ]
 
 # -----------------------------------------------------------------------------

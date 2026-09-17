@@ -2,6 +2,12 @@
 
 A modular and configurable Attitude Determination and Control System (ADCS) simulation for the **EventSat 6U CubeSat**, designed as an RL training/evaluation environment and reconfigurable for other CubeSat missions.
 
+**Status Update 17.09.2026:** Power model for the magnetoruers and for the reaction 
+are imlemented in actuators.py. Magnetorquer model is physics based. Reaction wheel
+one is almost entirely empirical, made out of two parts: the zero torque power - fitted
+from the zero torque curve in Figure 37, ADCS ICD p. 45 and
+an empirically scalled physics based torque term.
+
 **Status Update 04.09.2026:** Earth horizon sensor implemented in `sensors.py`.
 The boresight is mounted ~69 deg off nadir so it lands on the limb, modeled after the 
 information from the ADCS PD and EHS PD, but not confirmed for eventsat. Field of view 
@@ -181,8 +187,8 @@ untouched. (A future YAML loader will replace the hand-written instances.)
 - [x] Real OreKit integration
 - [x] Replace dynamics dummy with real physics
 - [x] Replace actuator dummy with real actuator dynamics
-- [ ] Replace sensor dummy with real measurement models
-- [ ] Full mission config (orbit, simulation parameters, ...)
+- [x] Replace sensor dummy with real measurement models
+- [x] Full mission config (orbit, simulation parameters, ...)
 - [ ] Replace MEKF dummy with real Kalman filter
 - [ ] Replace control sdummy with real control laws
 - [ ] Gymnasium wrapper for RL training

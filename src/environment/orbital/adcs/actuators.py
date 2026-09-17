@@ -24,6 +24,54 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def _bounded_motor_torque(
+    config: ReactionWheelConfig,
+    command: float,    
+) -> float:
+    
+    """Helper function, checks if the commanded motor torque is within the physical
+     limits of the motor [N·m], scalar.
+
+    The actuator's torque capability bound, applied to the raw command. This
+    is not the torque the flywheel ends up receiving: apply_reaction_wheel
+    subtracts friction and then applies a separate momentum-rate limit, and
+    returns that net value instead. 
+
+    Args:
+        config: This wheel's configuration.
+        command: Commanded motor torque along the spin axis [N·m].
+
+    Returns:
+        The commanded motor torque, bounded to ±max_torque [N·m].
+    """
+
+    bounded_motor_torque = float(np.clip(command, -config.max_torque, config.max_torque))
+
+    return bounded_motor_torque
+
+def _friction_torque(
+    speed: float,
+    config: ReactionWheelConfig,   
+) -> float:
+
+    """Helper function for calculating the total torque due to friction
+    folowing the friction model from Paluszek Eq. 10.14.
+
+    No stiction included, but will think about it.
+
+    Args:
+        speed: Supplies this wheel's current speed.
+        config: This wheel's configuration.
+    Returns:
+        The torque along ``config.spin_axis_body`` due to friction [N·m].
+    """
+    
+    friction_torque = float(
+        config.friction_coulomb * np.sign(speed) + 
+        config.friction_viscous * speed
+    )
+
+    return friction_torque
 
 def apply_reaction_wheel(
     state: SatState,
@@ -44,20 +92,91 @@ def apply_reaction_wheel(
         The achieved motor torque along ``config.spin_axis_body`` [N·m].
     """
 
-    torque = float(np.clip(command, -config.max_torque, config.max_torque)) # Torque Clamping
+    torque = _bounded_motor_torque(config, command) # Torque Clamping
     speed = float(state.wheel_speeds[wheel_index])
-    
-    torque -= config.friction_coulomb * np.sign(speed)  # Friction (Paluszek Eq. 10.14)
-    torque -= config.friction_viscous * speed           # No stiction included, but will think about it
+      
+    torque -= _friction_torque(speed, config)        
 
     momentum = config.wheel_inertia * speed
 
     # Saturation/Momentum limit
-    lower_m = min(0.0, (-config.max_momentum - momentum) / dt)
-    upper_m = max(0.0, (config.max_momentum - momentum) / dt)
+    lower_m = min(0.0, (-config.momentum_at_max_speed - momentum) / dt)
+    upper_m = max(0.0, (config.momentum_at_max_speed - momentum) / dt)
     torque = float(np.clip(torque, lower_m, upper_m))
 
     return torque
+
+def power_reaction_wheel(
+    config: ReactionWheelConfig, 
+    command: float, 
+    wheel_speed: float,    
+) -> float:
+
+    """Command-dependent electrical power drawn by one wheel [W], scalar.
+
+        P(Omega, tau) = [P_fit(|Omega|) - c − tau_drag(omega)*Omega/d] + max(0, tau_bounded * Omega/d)
+        P_fit(Omega)  = c + b*|Omega| + a*Omega^2
+
+    P_fit(Omega) is the empirically derived least-squares fit to 49 points
+    digitised from the ADCS ICD p.45 steady-state plot. The constant 
+    term is substracted back in the P(Omega, tau) equation in order to 
+    exclude the idle power draw and keep the model consistent with the 
+    magnetorquer power model.
+
+    tau_drag(omega)*Omega: the friction is already included in the fit
+    and in tau_bounded (the controller commands tau = tau_drag to hold speed, 
+    and that command arrives as command), so it needs to be subtracted 
+    in order to prevent counting it twice in P(Omega, tau).
+
+    max(0, tau_bounded * Omega) is the mechanical work of then commanded torque.
+    
+    tau_bounded is the commanded motor torque after the torque clip, not the
+    net torque apply_reaction_wheel returns.
+
+    d is an empirical correction for the torque term, that is added to the fitted
+    power equation. 
+
+    ASSUMPTIONs:
+      - 16 V. The ICD characterises at 8 V and 16 V; EventSat's bus
+        is 12-16.2 V (CMO), so 16 V was chosen as the only curve inside the range.
+      - plot-axis inertia. CubeSpace measured speed and multiplied by an
+        inertia, and their documents carry two different inertia values (ICD Table 16
+        gives 9.51e-6; the PD's 5.7 mNms at 6000 rpm implies 9.07e-6).
+
+    Not modelled:
+      - Copper loss. Requires the motor's resistance and torque
+        constant, neither published.
+      - Bus voltage. See the 16 V assumption above; the model has no voltage
+        argument.
+      - The ICD torque traces spike to 150-220 mA near
+        zero momentum, which a steady model does not capture.
+      - Temperature. 
+
+    Regeneration. The driver dissipates rather than returning charge. 
+    ICD traces go flat rather than negative
+
+    Args:
+        config: This wheel's configuration.
+        command: Commanded motor torque along the spin axis [N·m].
+        wheel_speed: This wheel's speed relative to the body [rad/s], signed.
+
+    Returns:
+        Command-dependent electrical power [W], always >= 0.
+    """
+    
+    power_fit = (
+        config.power_fit_const_param + 
+        config.power_fit_lin_param * abs(wheel_speed) + 
+        config.power_fit_square_param * wheel_speed ** 2
+    )
+
+    cmd_dependent_power = (
+        power_fit - config.power_fit_const_param - 
+        _friction_torque(wheel_speed, config) * wheel_speed / config.mechanical_power_scale + 
+        max(0.0, _bounded_motor_torque(config, command) * wheel_speed / config.mechanical_power_scale)
+    )
+
+    return cmd_dependent_power
 
 def _bounded_avg_dipole(
     config: MagnetorquerConfig,
