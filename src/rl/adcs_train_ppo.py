@@ -3,10 +3,26 @@
 Trains a policy on EventSatEnv: 7 continuous actions (4 reaction-wheel torques,
 3 magnetorquer dipoles) against the 11D attitude-error observation.
 
-Requires ray[rllib] and wandb.
-Run with:
+Requires ray[rllib] and wandb, both in the `rl` extra:
 
+    uv sync --extra dev --extra rl
+
+Which mission is trained, and how it is configured, comes from the command
+line -- see `parse_args` for the full list:
+
+    # the default mission, full-length run
     uv run python -m src.rl.adcs_train_ppo
+
+    # a different mission, with two of its config fields changed
+    uv run python -m src.rl.adcs_train_ppo --mission target_track \
+        --mission-override num_targets=3 --mission-override tolerance_deg=2.0
+
+    # continue the last run of that mission
+    uv run python -m src.rl.adcs_train_ppo --mission target_track --resume
+
+Checkpoints are per mission, under data/trained_models/adcs_ppo/<mission>/,
+because a policy trained on one mission restored into another is wrong
+rather than an error.
 """
 from __future__ import annotations
 
@@ -26,7 +42,7 @@ try:
 except ImportError as exc:  # pragma: no cover - dependency is optional
     raise ImportError(
         "ray[rllib] is required for ADCS PPO training but is not installed. "
-        'Install it with: uv pip install "ray[rllib]" wandb'
+        "Install it with: uv sync --extra dev --extra rl"
     ) from exc
 
 try:
@@ -35,12 +51,20 @@ try:
 except ImportError:  # pragma: no cover - logging is optional
     WANDB_AVAILABLE = False
     wandb = None  # type: ignore
-from src.mission.registry import MISSION_TYPES
 
 from src.environment.orbital.adcs.adcs_gymnasium_wrapper import EventSatEnv
-from src.environment.orbital.adcs.eventsat import actuators
-from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, DEFAULT_MISSION, MISSION_CONFIGS
-from src.environment.orbital.adcs.configs import MissionConfig
+from src.environment.orbital.adcs.configs import AdcsEnvConfig, MissionConfig
+from src.environment.orbital.adcs.eventsat import (
+    DEFAULT_MISSION,
+    MISSION_CONFIGS,
+    actuators,
+    env as EVENTSAT_ENV_CONFIG,
+)
+from src.mission.registry import MISSION_TYPES
+
+# =============================================================================
+# Constants and paths
+# =============================================================================
 
 # Repo root is three levels up: rl -> src -> root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -48,8 +72,37 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # One id, used both to register the env with Ray and to request it in PPOConfig.
 # These drifting apart is silent: RLlib just fails to find the env.
 ENV_ID = "gymnasium_env/adcs_sim-v0"
+
+# Default seed, overridable with --seed.
 SEED = 42
 
+# Result keys that are not scalar metrics and would only bloat the W&B run.
+EXCLUDED_RESULT_KEYS = {"config", "hist_stats"}
+
+# W&B is opt-out via the environment, so a run can be made without touching the
+# code and without an account: WANDB_MODE=offline or WANDB_MODE=disabled.
+USE_WANDB = WANDB_AVAILABLE and os.environ.get("WANDB_MODE", "").lower() != "disabled"
+
+# Checkpoints go to the git-ignored data/ tree (see .gitignore: data/trained_models/*/).
+# Writing them next to the source, e.g. adcs/checkpoints/, is NOT git-ignored and
+# would end up committed.
+CHECKPOINT_ROOT = REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
+
+
+def checkpoint_dir(mission: str) -> Path:
+    """Where `mission`'s policy is read from and written to.
+
+    Per mission rather than one shared directory: the checkpoints are not
+    interchangeable. A policy trained on one mission restored into another
+    is wrong rather than an error. A single directory means
+    training the second mission overwrites the first.
+    """
+    return CHECKPOINT_ROOT / mission
+
+
+# =============================================================================
+# Reward bound and PPO hyperparameters
+# =============================================================================
 
 def estimate_return_bound(config) -> float:
     """Rough bound on |episode return|, used to size vf_clip_param.
@@ -108,28 +161,31 @@ def ppo_hyperparams(env_config) -> Dict[str, Any]:
     )
 
 
-# Result keys that are not scalar metrics and would only bloat the W&B run.
-EXCLUDED_RESULT_KEYS = {"config", "hist_stats"}
+# =============================================================================
+# RLlib API-stack shims
+# =============================================================================
+# RLlib renamed these between the old and new API stacks. Preferring the new
+# name and falling back keeps the script working across both rather than
+# failing at the first save, an hour into a run.
 
-# Checkpoints go to the git-ignored data/ tree (see .gitignore: data/trained_models/*/).
-# Writing them next to the source, e.g. adcs/checkpoints/, is NOT git-ignored and
-# would end up committed.
-CHECKPOINT_ROOT= REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
+def build_algo(config):
+    builder = getattr(config, "build_algo", None) or config.build
+    return builder()
 
-def checkpoint_dir(mission:str) -> Path:
-    """Where `mission`'s policy is read from and written to.
 
-    Per mission rather than one shared directory: the checkpoints are not
-    interchangeable. A policy trained on one mission restored into another
-    is wrong rather than an error. A single directory means
-    training the second mission overwrites the first.
-    """
-    return CHECKPOINT_ROOT / mission
+def save_checkpoint(algo, path: Path) -> None:
+    saver = getattr(algo, "save_to_path", None) or algo.save
+    saver(str(path))
 
-# W&B is opt-out via the environment, so a run can be made without touching the
-# code and without an account: WANDB_MODE=offline or WANDB_MODE=disabled.
-USE_WANDB = WANDB_AVAILABLE and os.environ.get("WANDB_MODE", "").lower() != "disabled"
 
+def restore_checkpoint(algo, path: Path) -> None:
+    restorer = getattr(algo, "restore_from_path", None) or algo.restore
+    restorer(str(path))
+
+
+# =============================================================================
+# Metrics and W&B logging
+# =============================================================================
 
 def flatten_metrics(result, parent_key="", sep="/"):
     """Flattens RLlib's nested result dict into a flat {name: float} mapping.
@@ -200,24 +256,6 @@ def get_mean_episode_len(result):
     return _get_metric(result, "episode_len_mean", "episode_length_mean")
 
 
-# RLlib renamed these between the old and new API stacks. Preferring the new
-# name and falling back keeps the script working across both rather than
-# failing at the first save, an hour into a run.
-def build_algo(config):
-    builder = getattr(config, "build_algo", None) or config.build
-    return builder()
-
-
-def save_checkpoint(algo, path: Path) -> None:
-    saver = getattr(algo, "save_to_path", None) or algo.save
-    saver(str(path))
-
-
-def restore_checkpoint(algo, path: Path) -> None:
-    restorer = getattr(algo, "restore_from_path", None) or algo.restore
-    restorer(str(path))
-
-
 def _loggable(value: Any) -> Any:
     """Coerce a config value into something W&B can serialise.
 
@@ -261,6 +299,10 @@ def wandb_config(env_config, hyperparams: Dict[str, Any], **extra) -> Dict[str, 
         **{f"reward_weight/{key}": value for key, value in weights.items()},
         **extra,
     }
+
+# =============================================================================
+# Command line
+# =============================================================================
 
 def parse_mission_overrides(
     pairs: Sequence[str], mission_cfg: MissionConfig
@@ -424,13 +466,85 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
 
 
 
+# =============================================================================
+# Entry point
+# =============================================================================
+
+def build_env_config(args: argparse.Namespace) -> AdcsEnvConfig:
+    """The env config this run trains against.
+
+    The mission named by ``--mission`` with any ``--mission-override`` fields
+    applied, carried on the EventSat env config at the run's seed. The mission
+    *type* is baked in here rather than passed through RLlib's env_config,
+    because `with_overrides` rebuilds a nested dataclass with
+    `replace(current, **value)` and so can only change a mission's fields,
+    never its class.
+
+    Args:
+        args: Parsed command line. `mission_override` is already a dict by
+            this point -- `parse_args` validates and converts it.
+
+    Returns:
+        The config handed to the env creator and to `ppo_hyperparams`.
+    """
+    mission_cfg = replace(MISSION_CONFIGS[args.mission], **args.mission_override)
+    return replace(EVENTSAT_ENV_CONFIG, mission=mission_cfg, seed=args.seed)
+
+
+def train(
+    algo,
+    num_iterations: int,
+    checkpoints: Path,
+    checkpoint_interval: int,
+) -> None:
+    """Run the training loop, logging and checkpointing as it goes.
+
+    Separate from `main` so that the try/except/finally around it reads as
+    what it is -- save on interrupt, always stop the algo -- rather than
+    wrapping thirty lines of loop body.
+
+    Args:
+        algo: The built RLlib algorithm, already restored if resuming.
+        num_iterations: Training iterations to run.
+        checkpoints: Directory to save into.
+        checkpoint_interval: Iterations between saves. The final policy is
+            always saved, whether or not it lands on the interval.
+    """
+    print("Starting training...")
+    for i in range(num_iterations):
+        result = algo.train()
+        mean_reward = get_mean_reward(result)
+        mean_episode_len = get_mean_episode_len(result)
+        # algo.iteration reflects the true global iteration count (correct
+        # even after resuming from a checkpoint), unlike the loop index i.
+        iteration = algo.iteration
+        print(f"Iteration: {iteration}, Mean Reward: {mean_reward:.3f}, Mean Episode Length: {mean_episode_len:.1f}")
+
+        # Everything RLlib reported this iteration, plus the few derived
+        # values the loop itself owns.
+        metrics, dropped = flatten_metrics(result)
+        metrics.update({
+            "iteration": iteration,
+            "mean_reward": mean_reward,
+            "metrics_dropped_non_finite": dropped,
+        })
+        if USE_WANDB:
+            wandb.log(metrics)
+
+        if (i + 1) % checkpoint_interval == 0:
+            save_checkpoint(algo, checkpoints)
+            print(f"  Checkpoint saved at iteration {iteration}")
+
+    # Always checkpoint the final policy, even if it doesn't land on the interval
+    save_checkpoint(algo, checkpoints)
+
+
 def main(argv: Optional[Sequence[str]] = None):
     args = parse_args(argv=argv)
-    
 
-    # 2. Initialize Ray. No runtime_env: the rollout workers are processes on
-    # this machine and inherit the driver's working directory, so they import
-    # src.* straight from the repo.
+    # Ray. No runtime_env: the rollout workers are processes on this machine
+    # and inherit the driver's working directory, so they import src.*
+    # straight from the repo.
     #
     # TODO(cluster): a multi-node run needs the code shipped, i.e. a
     # runtime_env working_dir -- and that reintroduces a bug, so do not simply
@@ -442,24 +556,21 @@ def main(argv: Optional[Sequence[str]] = None):
     # configure(). Our archive is also patched (it carries an IGRF.COF the
     # stock distribution omits), so the fix is not "install the data package":
     # see the decision brief on how the archive should reach a node.
-    ray.init(ignore_reinit_error=True)  
+    ray.init(ignore_reinit_error=True)
 
-    mission_cfg = replace(MISSION_CONFIGS[args.mission], **args.mission_override)
-    selected = replace(
-        EVENTSAT_ENV_CONFIG,
-          mission=mission_cfg,
-          seed=args.seed)
-    
+    selected = build_env_config(args)
+
     def make_env(env_config):
         return EventSatEnv(config=selected.with_overrides(env_config))
-    
+
     register_env(ENV_ID, make_env)
-    # 3. Configure PPO
+
+    # PPO configuration
     hyperparams = ppo_hyperparams(selected)
     batch_size = hyperparams["train_batch_size_per_learner"]
     num_iterations = max(1, args.timesteps // batch_size)
     checkpoints = args.checkpoint_dir or checkpoint_dir(args.mission)
-    
+
     config = (
         PPOConfig()
         .environment(ENV_ID)
@@ -476,7 +587,7 @@ def main(argv: Optional[Sequence[str]] = None):
     print(f"vf_clip_param: {hyperparams['vf_clip_param']:.0f} (from the reward weights)")
     print(f"Training for {num_iterations} iterations x {batch_size} steps = {num_iterations * batch_size:,} env steps")
 
-    # 4. W&B logging (run `wandb login` once, or set WANDB_MODE=offline/disabled)
+    # W&B logging (run `wandb login` once, or set WANDB_MODE=offline/disabled)
     if USE_WANDB:
         wandb.init(
             project="CubeSat-ADCS-ReactionWheels",
@@ -491,7 +602,7 @@ def main(argv: Optional[Sequence[str]] = None):
     else:
         print("W&B logging disabled (not installed, or WANDB_MODE=disabled).")
 
-    # 5. Build and Train
+    # Build and train
     algo = None
     checkpoints.mkdir(parents=True, exist_ok=True)
 
@@ -505,33 +616,7 @@ def main(argv: Optional[Sequence[str]] = None):
             else:
                 print(f"No checkpoint found at {checkpoints}, starting from scratch.")
 
-        print("Starting training...")
-        for i in range(num_iterations):
-            result = algo.train()
-            mean_reward = get_mean_reward(result)
-            mean_episode_len = get_mean_episode_len(result)
-            # algo.iteration reflects the true global iteration count (correct
-            # even after resuming from a checkpoint), unlike the loop index i.
-            iteration = algo.iteration
-            print(f"Iteration: {iteration}, Mean Reward: {mean_reward:.3f}, Mean Episode Length: {mean_episode_len:.1f}")
-
-            # Everything RLlib reported this iteration, plus the few derived
-            # values the loop itself owns.
-            metrics, dropped = flatten_metrics(result)
-            metrics.update({
-                "iteration": iteration,
-                "mean_reward": mean_reward,
-                "metrics_dropped_non_finite": dropped,
-            })
-            if USE_WANDB:
-                wandb.log(metrics)
-
-            if (i + 1) % args.checkpoint_interval == 0:
-                save_checkpoint(algo, checkpoints)
-                print(f"  Checkpoint saved at iteration {iteration}")
-
-        # Always checkpoint the final policy, even if it doesn't land on the interval
-        save_checkpoint(algo, checkpoints)
+        train(algo, num_iterations, checkpoints, args.checkpoint_interval)
 
     except (KeyboardInterrupt, Exception):
         # Best-effort: the algo may have failed during build, and the save
