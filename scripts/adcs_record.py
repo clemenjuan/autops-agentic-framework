@@ -48,6 +48,9 @@ Defaults, for the EventSat mission config (``step_s = 0.2``, ``max_steps =
     r_eci              (N, 3)   float64   m
     v_eci              (N, 3)   float64   m/s
     target_q_eci_body  (N, 4)   float64   current setpoint
+    target_positions   (N, T, 3)float64   m
+    target_velocities  (N, T, 3)float64   m/s
+    target_status      (N, T,)  float64   
     target_idx         (N,)     int32
     hold_timer         (N,)     float64   s inside tolerance
     phase              (N,)     <U16
@@ -284,6 +287,23 @@ def _mtq_dipole(frame: Frame) -> Optional[np.ndarray]:
         return None
     return commanded[frame.env.satellite.wheel_axes.shape[1] :]
 
+def _target_positions(frame:Frame) -> Optional[np.ndarray]:
+    """Target positions [m], (n_targets, 3)"""
+    targets = frame.env.mission_state.extra[0]
+    return np.array([tgt.r_eci(frame.env.state.t) for tgt in targets])
+
+def _target_velocities(frame:Frame) -> Optional[np.ndarray]:
+    """Target velocities [m/s], (n_targets, 3)"""
+    targets = frame.env.mission_state.extra[0]
+    return np.array([tgt.v_eci(frame.env.state.t) for tgt in targets])
+
+def _target_status(frame:Frame) -> Optional[np.ndarray]:
+    """Per target status: 0 untracked, 1 cleared, 2 currently tracked (n_targets,)"""
+    targets, cleared, current = frame.env.mission_state.extra
+    return np.fromiter(
+        (2 if i == current else 1 if i in cleared else 0 for i in range(len(targets))),
+        dtype=np.int8, count=len(targets),
+    )
 
 DEFAULT_CHANNELS: Tuple[Channel, ...] = (
     Channel("t", lambda f: f.env.state.t, doc="s since epoch"),
@@ -354,6 +374,12 @@ DEFAULT_CHANNELS: Tuple[Channel, ...] = (
     ),
 )
 
+TARGET_TRACK_CHANNELS: Tuple[Channel, ...] = (*DEFAULT_CHANNELS,
+    Channel("target_positions", _target_positions, doc="m, ECI, (n_targets,3)"),
+    Channel("target_velocities", _target_velocities, doc="m/s, ECI, (n_targets,3)"),
+    Channel("target_status", _target_status, dtype= np.dtype(np.int8), 
+            doc="0 untracked, 1 cleared, 2 tracked")
+)
 
 class EpisodeRecorder:
     """Accumulates one episode row by row, then stacks it into arrays.
