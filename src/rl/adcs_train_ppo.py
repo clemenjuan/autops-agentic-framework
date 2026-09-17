@@ -3,10 +3,7 @@
 Trains a policy on EventSatEnv: 7 continuous actions (4 reaction-wheel torques,
 3 magnetorquer dipoles) against the 11D attitude-error observation.
 
-Requires ray[rllib] and wandb, which are NOT declared in pyproject.toml yet:
-
-    uv pip install "ray[rllib]" wandb
-
+Requires ray[rllib] and wandb.
 Run with:
 
     uv run python -m src.rl.adcs_train_ppo
@@ -14,9 +11,11 @@ Run with:
 from __future__ import annotations
 
 import os
+import argparse
+import ast
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Sequence, Optional
 
 import numpy as np
 
@@ -36,10 +35,12 @@ try:
 except ImportError:  # pragma: no cover - logging is optional
     WANDB_AVAILABLE = False
     wandb = None  # type: ignore
+from src.mission.registry import MISSION_TYPES
 
 from src.environment.orbital.adcs.adcs_gymnasium_wrapper import EventSatEnv
 from src.environment.orbital.adcs.eventsat import actuators
-from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG
+from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, DEFAULT_MISSION, MISSION_CONFIGS
+from src.environment.orbital.adcs.configs import MissionConfig
 
 # Repo root is three levels up: rl -> src -> root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -47,9 +48,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # One id, used both to register the env with Ray and to request it in PPOConfig.
 # These drifting apart is silent: RLlib just fails to find the env.
 ENV_ID = "gymnasium_env/adcs_sim-v0"
-
 SEED = 42
-ENV_CONFIG = replace(EVENTSAT_ENV_CONFIG, seed=SEED)
 
 
 def estimate_return_bound(config) -> float:
@@ -82,28 +81,32 @@ def estimate_return_bound(config) -> float:
     return 1.5 * (max(worst_step, best_step) * config.mission.max_steps + events)
 
 
-# Single source of truth for the PPO hyperparameters: these are unpacked into
-# PPOConfig.training() *and* logged as the W&B run config, so what is recorded
-# can never drift from what was actually trained with.
-PPO_HYPERPARAMS = dict(
-    lr=3e-4,
-    num_epochs=10,            # 30 (RLlib's default) collapsed the policy's std early on
-    # gamma, lambda and the timestep dt -- really the controller update rate --
-    # are the main parameters for how much change can be observed before an
-    # update occurs, and thus how much gradient can be identified.
-    gamma=0.99,
-    lambda_=0.98,
-    vf_loss_coeff=1.0,  # Might be unneeded since the policy and
-                        # value function network are not set to share layers
-    vf_clip_param=estimate_return_bound(ENV_CONFIG),
-    entropy_coeff=0.005,      # keeps exploration alive through the early slew-learning phase
-    clip_param=0.2,
-    # Must stay well above max_steps: batches smaller than a few episodes leave
-    # iterations that finished no episode at all, and episode_return_mean comes
-    # back NaN.
-    train_batch_size_per_learner=16000,
-    minibatch_size=1024,      # RLlib's default of 128 against a 16k batch is both slow and noisy
-)
+def ppo_hyperparams(env_config) -> Dict[str, Any]:
+    """
+    Single source of truth for the PPO hyperparameters: these are unpacked into
+    PPOConfig.training() *and* logged as the W&B run config, so what is recorded
+    can never drift from what was actually trained with.
+    """
+    return dict(
+        lr=3e-4,
+        num_epochs=10,            # 30 (RLlib's default) collapsed the policy's std early on
+        # gamma, lambda and the timestep dt -- really the controller update rate --
+        # are the main parameters for how much change can be observed before an
+        # update occurs, and thus how much gradient can be identified.
+        gamma=0.99,
+        lambda_=0.98,
+        vf_loss_coeff=1.0,  # Might be unneeded since the policy and
+                                # value function network are not set to share layers
+        vf_clip_param=estimate_return_bound(env_config),
+        entropy_coeff=0.005,      # keeps exploration alive through the early slew-learning phase
+        clip_param=0.2,
+        # Must stay well above max_steps: batches smaller than a few episodes leave
+        # iterations that finished no episode at all, and episode_return_mean comes
+        # back NaN.
+        train_batch_size_per_learner=16000,
+        minibatch_size=1024,      # RLlib's default of 128 against a 16k batch is both slow and noisy
+    )
+
 
 # Result keys that are not scalar metrics and would only bloat the W&B run.
 EXCLUDED_RESULT_KEYS = {"config", "hist_stats"}
@@ -111,26 +114,21 @@ EXCLUDED_RESULT_KEYS = {"config", "hist_stats"}
 # Checkpoints go to the git-ignored data/ tree (see .gitignore: data/trained_models/*/).
 # Writing them next to the source, e.g. adcs/checkpoints/, is NOT git-ignored and
 # would end up committed.
-CHECKPOINT_DIR = REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
+CHECKPOINT_ROOT= REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
+
+def checkpoint_dir(mission:str) -> Path:
+    """Where `mission`'s policy is read from and written to.
+
+    Per mission rather than one shared directory: the checkpoints are not
+    interchangeable. A policy trained on one mission restored into another
+    is wrong rather than an error. A single directory means
+    training the second mission overwrites the first.
+    """
+    return CHECKPOINT_ROOT / mission
 
 # W&B is opt-out via the environment, so a run can be made without touching the
 # code and without an account: WANDB_MODE=offline or WANDB_MODE=disabled.
 USE_WANDB = WANDB_AVAILABLE and os.environ.get("WANDB_MODE", "").lower() != "disabled"
-
-
-# 1. Register the custom environment with Ray
-def env_creator(env_config):
-    """Build one EventSatEnv for an RLlib rollout worker.
-
-    RLlib builds an env per rollout worker, each in its own process, so what it
-    is handed is this recipe rather than an env object.
-
-    ENV_CONFIG is closed over rather than routed through RLlib's env_config:
-    putting it there means serialising it with `asdict`, which is recursive and
-    flattens `mission` into a plain dict. env_config then carries only what a
-    sweep varies per trial, merged on top.
-    """
-    return EventSatEnv(config=ENV_CONFIG.with_overrides(env_config))
 
 
 def flatten_metrics(result, parent_key="", sep="/"):
@@ -220,28 +218,215 @@ def restore_checkpoint(algo, path: Path) -> None:
     restorer(str(path))
 
 
-def wandb_config(env_config, **extra) -> Dict[str, Any]:
+def _loggable(value: Any) -> Any:
+    """Coerce a config value into something W&B can serialise.
+
+    Mission configs carry numpy: the pointing vectors are ndarrays and any
+    angle built with np.deg2rad is a np.float64, neither of which is JSON
+    serialisable. Only the mission fields are passed through here -- the env
+    fields and the reward weights are plain scalars by construction.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+
+def wandb_config(env_config, hyperparams: Dict[str, Any], **extra) -> Dict[str, Any]:
     """Run config for W&B, built from the same objects the run is configured
-    with rather than a hand-maintained copy."""
+    with rather than a hand-maintained copy.
+
+    Args:
+        env_config: The config the run trains against.
+        hyperparams: What was passed to PPOConfig.training(). Required rather
+            than optional: a run logged without them looks complete and is
+            not reproducible.
+        **extra: Run parameters that live outside both, e.g. num_env_runners.
+    """
     # Popped rather than read: both are nested, and left in env_fields they
     # would log as one opaque blob each instead of as sweepable scalars.
     env_fields = asdict(env_config)
     weights = env_fields.pop("reward_weights", {}) or {}
     mission = env_fields.pop("mission", {}) or {}
     return {
-        **PPO_HYPERPARAMS,
-        "seed": SEED,
+        **hyperparams,
+        # Off the config rather than passed in: it is the seed the run was
+        # actually built with, so the two cannot disagree.
+        "seed": env_config.seed,
         **{f"env/{key}": value for key, value in env_fields.items()},
         # sigma is a property rather than a field, so asdict never sees it.
         "env/sigma": env_config.mission.sigma,
-        **{f"mission/{key}": value for key, value in mission.items()},
+        **{f"mission/{key}": _loggable(value) for key, value in mission.items()},
         **{f"reward_weight/{key}": value for key, value in weights.items()},
         **extra,
     }
 
+def parse_mission_overrides(
+    pairs: Sequence[str], mission_cfg: MissionConfig
+) -> Dict[str, Any]:
+    """Turn ``--mission-override KEY=VALUE`` strings into a field dict.
 
-def main():
-    register_env(ENV_ID, env_creator)
+    Args:
+        pairs: Raw ``KEY=VALUE`` strings, as argparse collected them.
+        mission_cfg: The config they will be applied to. Read for its field
+            names and their current types, so a typo is caught here rather
+            than surfacing as a TypeError from dataclasses.replace.
+
+    Returns:
+        Field name -> coerced value, ready for ``dataclasses.replace``.
+
+    Raises:
+        ValueError: On a malformed pair, an unknown field, or an attempt to
+            override ``type``.
+    """
+    fields = mission_cfg.__dataclass_fields__
+    overrides: Dict[str, Any] = {}
+
+    for pair in pairs:
+        key, sep, raw = pair.partition("=")
+        key = key.strip()
+        if not sep or not key:
+            raise ValueError(
+                f"malformed --mission-override {pair!r}; expected KEY=VALUE"
+            )
+
+        # `type` selects the mission class and the config class has to match
+        # it. Overriding it hands the registry a config of the wrong class --
+        # which builds the wrong mission, or dies on a field the other
+        # mission's config does not have.
+        if key == "type":
+            raise ValueError(
+                "--mission-override cannot change 'type'; use --mission to "
+                f"pick a mission (one of {sorted(MISSION_TYPES)})"
+            )
+        if key not in fields:
+            raise ValueError(
+                f"unknown mission field {key!r}; "
+                f"{type(mission_cfg).__name__} accepts {sorted(fields)}"
+            )
+
+        # literal_eval rather than eval: it reads ints, floats, bools and
+        # lists and nothing else. A bare word is not a Python literal, so it
+        # falls back to the string it already is.
+        try:
+            value = ast.literal_eval(raw)
+        except (ValueError, SyntaxError):
+            value = raw
+
+        # Match the field's current type where it is not a plain scalar. The
+        # pointing vectors are ndarrays, and a list would work by accident in
+        # some places and not others.
+        current = getattr(mission_cfg, key)
+        if isinstance(current, np.ndarray):
+            value = np.asarray(value, dtype=float)
+        elif isinstance(current, float) and isinstance(value, int):
+            value = float(value)
+
+        overrides[key] = value
+
+    return overrides
+
+
+def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
+    """CLI: which mission, how it is configured, and how long to train.
+
+    Args:
+        argv: Argument list. None reads sys.argv, so the CLI behaves
+            normally; passing a list lets a test drive the parser without a
+            subprocess.
+
+    Returns:
+        The parsed arguments.
+    """
+    parser = argparse.ArgumentParser(
+        prog="adcs_train_ppo",
+        description="Train an ADCS attitude-control policy with PPO.",
+    )
+    parser.add_argument(
+        "--mission",
+        # Read from the registry, so a mission added there is offered by the
+        # CLI without a second edit.
+        choices=sorted(MISSION_TYPES),
+        default=DEFAULT_MISSION,
+        help="which mission to train on (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--mission-override",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="override one field of the mission config, e.g. num_targets=3. "
+             "Repeatable. The mission `type` cannot be overridden: it is what "
+             "selects the mission class, and the config class has to match it.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=SEED,
+        help="env, policy and RLlib seed (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--timesteps",
+        type=int,
+        default=1_500_000,
+        help="total env steps to train for (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--env-runners",
+        type=int,
+        default=6,
+        help="parallel rollout workers; 0 samples on the driver "
+             "(default: %(default)s)",
+    )
+    parser.add_argument(
+        "--checkpoint-interval",
+        type=int,
+        default=10,
+        help="iterations between checkpoints; the final policy is always "
+             "saved (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--checkpoint-dir",
+        type=Path,
+        default=None,
+        # Spelled out rather than %(default)s: the default is None, and what
+        # is worth showing is the path it resolves to.
+        help=f"where to read and write checkpoints "
+             f"(default: {CHECKPOINT_ROOT}/<mission>)",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="continue from the checkpoint directory instead of from scratch",
+    )
+
+    args = parser.parse_args(argv)
+
+    # `type` cannot express "positive". parser.error gives the usage message
+    # and exit code 2 that a CLI should, rather than a traceback.
+    if args.timesteps < 1:
+        parser.error("--timesteps must be >= 1")
+    if args.env_runners < 0:
+        parser.error("--env-runners must be >= 0")
+    if args.checkpoint_interval < 1:
+        parser.error("--checkpoint-interval must be >= 1")
+
+    #Check if the mission config overwrites are valid
+    try:
+        args.mission_override = parse_mission_overrides(
+            args.mission_override, MISSION_CONFIGS[args.mission]
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
+
+    return args
+
+
+
+def main(argv: Optional[Sequence[str]] = None):
+    args = parse_args(argv=argv)
+    
 
     # 2. Initialize Ray. No runtime_env: the rollout workers are processes on
     # this machine and inherit the driver's working directory, so they import
@@ -257,30 +442,38 @@ def main():
     # configure(). Our archive is also patched (it carries an IGRF.COF the
     # stock distribution omits), so the fix is not "install the data package":
     # see the decision brief on how the archive should reach a node.
-    ray.init(ignore_reinit_error=True)
+    ray.init(ignore_reinit_error=True)  
 
+    mission_cfg = replace(MISSION_CONFIGS[args.mission], **args.mission_override)
+    selected = replace(
+        EVENTSAT_ENV_CONFIG,
+          mission=mission_cfg,
+          seed=args.seed)
+    
+    def make_env(env_config):
+        return EventSatEnv(config=selected.with_overrides(env_config))
+    
+    register_env(ENV_ID, make_env)
     # 3. Configure PPO
-    total_timesteps = 1_500_000
-    batch_size = PPO_HYPERPARAMS["train_batch_size_per_learner"]
-    num_iterations = max(1, total_timesteps // batch_size)
-    checkpoint_interval = 10  # save a checkpoint every N iterations, plus always at the end
-    num_env_runners = 6
-    resume_from_checkpoint = False  # Set to True to continue from the last checkpoint instead of from scratch
-
+    hyperparams = ppo_hyperparams(selected)
+    batch_size = hyperparams["train_batch_size_per_learner"]
+    num_iterations = max(1, args.timesteps // batch_size)
+    checkpoints = args.checkpoint_dir or checkpoint_dir(args.mission)
+    
     config = (
         PPOConfig()
         .environment(ENV_ID)
-        .env_runners(num_env_runners=num_env_runners)
-        .training(**PPO_HYPERPARAMS)
+        .env_runners(num_env_runners=args.env_runners)
+        .training(**hyperparams)
         # RLlib's default of 100 averages episode_return_mean over the last 100
         # episodes, which at a few dozen episodes per iteration lags real
         # progress by several iterations and smears early learning away.
         .reporting(metrics_num_episodes_for_smoothing=20)
-        .debugging(seed=SEED)
+        .debugging(seed=args.seed)
     )
 
-    print(f"Env config: {ENV_CONFIG}")
-    print(f"vf_clip_param: {PPO_HYPERPARAMS['vf_clip_param']:.0f} (from the reward weights)")
+    print(f"Env config: {selected}")
+    print(f"vf_clip_param: {hyperparams['vf_clip_param']:.0f} (from the reward weights)")
     print(f"Training for {num_iterations} iterations x {batch_size} steps = {num_iterations * batch_size:,} env steps")
 
     # 4. W&B logging (run `wandb login` once, or set WANDB_MODE=offline/disabled)
@@ -288,8 +481,9 @@ def main():
         wandb.init(
             project="CubeSat-ADCS-ReactionWheels",
             config=wandb_config(
-                ENV_CONFIG,
-                num_env_runners=num_env_runners,
+                selected,
+                hyperparams=hyperparams,
+                num_env_runners=args.env_runners,
                 num_iterations=num_iterations,
                 total_timesteps=num_iterations * batch_size,
             ),
@@ -299,17 +493,17 @@ def main():
 
     # 5. Build and Train
     algo = None
-    CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
+    checkpoints.mkdir(parents=True, exist_ok=True)
 
     try:
         algo = build_algo(config)
 
-        if resume_from_checkpoint:
-            if any(CHECKPOINT_DIR.iterdir()):
-                restore_checkpoint(algo, CHECKPOINT_DIR)
-                print(f"Resumed training from checkpoint at {CHECKPOINT_DIR}")
+        if args.resume:
+            if any(checkpoints.iterdir()):
+                restore_checkpoint(algo, checkpoints)
+                print(f"Resumed training from checkpoint at {checkpoints}")
             else:
-                print(f"No checkpoint found at {CHECKPOINT_DIR}, starting from scratch.")
+                print(f"No checkpoint found at {checkpoints}, starting from scratch.")
 
         print("Starting training...")
         for i in range(num_iterations):
@@ -332,12 +526,12 @@ def main():
             if USE_WANDB:
                 wandb.log(metrics)
 
-            if (i + 1) % checkpoint_interval == 0:
-                save_checkpoint(algo, CHECKPOINT_DIR)
+            if (i + 1) % args.checkpoint_interval == 0:
+                save_checkpoint(algo, checkpoints)
                 print(f"  Checkpoint saved at iteration {iteration}")
 
         # Always checkpoint the final policy, even if it doesn't land on the interval
-        save_checkpoint(algo, CHECKPOINT_DIR)
+        save_checkpoint(algo, checkpoints)
 
     except (KeyboardInterrupt, Exception):
         # Best-effort: the algo may have failed during build, and the save
@@ -345,7 +539,7 @@ def main():
         if algo is not None:
             print("Training interrupted, saving checkpoint before exiting...")
             try:
-                save_checkpoint(algo, CHECKPOINT_DIR)
+                save_checkpoint(algo, checkpoints)
             except Exception as save_error:
                 print(f"Warning: could not save checkpoint: {save_error}")
         raise
