@@ -353,14 +353,13 @@ _reward_weights = {
     "mission_done_bonus": 500.0,
 }
 
-# body_rate_thresh: the wheel cluster stores h = 1.02e-2 N*m*s about any body
-# axis (4 wheels x 5.7e-3 N*m*s, pyramid geometry), which against the largest
-# principal inertia I_yy = 9.68e-2 kg*m^2 is 0.105 rad/s -- so above ~0.1 rad/s
+# body_rate_thresh: the wheel cluster stores h = 1.78e-2 N*m*s about any body
+# axis (4 wheels x 9.96e-3 N*m*s, pyramid geometry), which against the largest
+# principal inertia I_yy = 9.68e-2 kg*m^2 is 0.184 rad/s -- so above ~0.184 rad/s
 # the wheels can no longer take the body momentum back out.
 # TODO max_body_rate had some consideration, but still needs to be fixed with a concrete calculation 
 env = AdcsEnvConfig(
-    body_rate_thresh=0.1,
-    max_body_rate=0.4,
+    body_rate_thresh=0.1, # raise it to 0.184 if preferred
     start_step=0,
     seed=None,
     reward_weights=_reward_weights,
