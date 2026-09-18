@@ -38,6 +38,11 @@ the two raw dicts. Both are re-exported here, but importing *this* module to
 get at them pulls in the env and with it the Orekit JVM, which a reader has no
 use for.
 
+Which channels a file carries depends on the mission it recorded:
+:data:`MISSION_CHANNELS` maps a mission type to its set, and
+``record_episode`` picks from it unless handed an explicit list. The three
+``target_*`` channels below are target_track only; everything else is common.
+
 Defaults, for the EventSat mission config (``step_s = 0.2``, ``max_steps =
 2000``):
 
@@ -48,9 +53,9 @@ Defaults, for the EventSat mission config (``step_s = 0.2``, ``max_steps =
     r_eci              (N, 3)   float64   m
     v_eci              (N, 3)   float64   m/s
     target_q_eci_body  (N, 4)   float64   current setpoint
-    target_positions   (N, T, 3)float64   m
-    target_velocities  (N, T, 3)float64   m/s
-    target_status      (N, T,)  float64   
+    target_positions   (N, T, 3)float64   m, target_track only
+    target_velocities  (N, T, 3)float64   m/s, target_track only
+    target_status      (N, T)   int8      0/1/2, target_track only
     target_idx         (N,)     int32
     hold_timer         (N,)     float64   s inside tolerance
     phase              (N,)     <U16
@@ -93,6 +98,11 @@ policy actually saw, so that is not the path.
 Usage
 -----
     uv run python scripts/adcs_record.py --policy checkpoint --seed 42
+    uv run python scripts/adcs_record.py --policy checkpoint --mission target_track
+
+The mission decides three things: which channels are recorded, which
+per-mission checkpoint ``--policy checkpoint`` loads, and which subdirectory
+of ``data/records/`` the file lands in.
 """
 from __future__ import annotations
 
@@ -131,7 +141,8 @@ from scripts.episode_io import (  # noqa: F401
     save_episode,
 )
 from src.environment.orbital.adcs.configs import AdcsEnvConfig
-from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, sim as EVENTSAT_SIM
+from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, sim as EVENTSAT_SIM,DEFAULT_MISSION, MISSION_CONFIGS
+from src.mission.registry import MISSION_TYPES
 
 # Repo root is two levels up: scripts -> root. Artifacts belong in the
 # git-ignored data/ tree, not next to the source, same as adcs_train_ppo.
@@ -141,9 +152,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # imported:
 # importing it would pull in ray at module import time, and the whole point of
 # the pluggable policy is that recording works without ray installed.
-CHECKPOINT_DIR = REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
+CHECKPOINT_ROOT = REPO_ROOT / "data" / "trained_models" / "adcs_ppo"
 
-RECORD_DIR = REPO_ROOT / "data" / "records"
+RECORD_ROOT = REPO_ROOT / "data" / "records"
 
 SEED = 42
 
@@ -380,6 +391,12 @@ TARGET_TRACK_CHANNELS: Tuple[Channel, ...] = (*DEFAULT_CHANNELS,
     Channel("target_status", _target_status, dtype= np.dtype(np.int8), 
             doc="0 untracked, 1 cleared, 2 tracked")
 )
+
+MISSION_CHANNELS: Dict[str, Tuple[Channel, ...]] = {
+    "slew": DEFAULT_CHANNELS,
+    "target_track": TARGET_TRACK_CHANNELS
+}
+
 
 class EpisodeRecorder:
     """Accumulates one episode row by row, then stacks it into arrays.
@@ -642,10 +659,10 @@ def load_checkpoint(checkpoint_path: Optional[Path | str] = None) -> Policy:
     except ImportError as exc:
         raise ImportError(
             'ray[rllib] and torch are required to load a trained policy. '
-            'Install with: uv pip install "ray[rllib]" torch'
+            "Install with: uv sync --extra dev --extra rl"
         ) from exc
 
-    root = Path(checkpoint_path or CHECKPOINT_DIR)
+    root = Path(checkpoint_path or CHECKPOINT_ROOT)
     if not root.exists():
         raise FileNotFoundError(f"no checkpoint at {root}")
 
@@ -674,6 +691,33 @@ def load_checkpoint(checkpoint_path: Optional[Path | str] = None) -> Policy:
 
     return policy
 
+def _jsonable(value: Any) -> Any:
+    """Coerce a config value into something json.dumps accepts.
+
+    Mission configs carry numpy -- TargetTrackConfig's pointing vectors are
+    ndarrays -- and `asdict` copies them through verbatim, unlike the
+    hardware fields below which are converted one by one. np.float64 needs
+    no help (it subclasses float), but np.int64 does.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, np.generic):
+        return value.item()
+    return value
+
+def _git_commit() -> Optional[str]:
+    """Short HEAD hash, or None outside a git checkout or without git."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
 
 def build_meta(
     recorder: EpisodeRecorder,
@@ -748,7 +792,8 @@ def build_meta(
         "body_rate_thresh": config.body_rate_thresh,
         "max_body_rate": config.max_body_rate,
         "reward_weights": dict(config.reward_weights or {}),
-        "mission": asdict(config.mission),
+        "mission": {k: _jsonable(v) for k, v in asdict(config.mission).items()},
+
 
         # Which reward channels are paid every step and which only on an event.
         # Recorded rather than inferred: the two are indistinguishable in the
@@ -777,7 +822,7 @@ def record_episode(
     *,
     seed: int = SEED,
     config: Optional[AdcsEnvConfig] = None,
-    channels: Sequence[Channel] = DEFAULT_CHANNELS,
+    channels: Sequence[Channel] = None,
     max_steps: Optional[int] = None,
     policy_name: str = "unknown",
     checkpoint_path: Optional[Path] = None,
@@ -793,13 +838,16 @@ def record_episode(
         policy: Deterministic `policy(obs) -> action`.
         seed: Seed for the env RNG, and recorded in the metadata.
         config: Env config. Defaults to the EventSat config.
-        channels: What to record. Defaults to DEFAULT_CHANNELS.
+        channels: What to record. None picks the set MISSION_CHANNELS holds
+            for the config's mission.
         max_steps: Override the mission's step cap, for short test episodes.
 
     Returns:
         (arrays, meta) -- ready to hand to `save_episode`.
     """
     config = config or EVENTSAT_ENV_CONFIG
+    if channels is None:
+        channels = MISSION_CHANNELS[config.mission.type]
 
     # Modify the config with given parameters  
     if max_steps is not None:
@@ -840,23 +888,11 @@ def record_episode(
     return arrays, meta
 
 
-def _git_commit() -> Optional[str]:
-    """Short HEAD hash, or None outside a git checkout or without git."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(REPO_ROOT), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=True,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return result.stdout.strip() or None
 
 
-def _default_output_path(seed: int, policy_name: str) -> Path:
-    """`data/records/adcs_ep_<policy>_seed<seed>.npz`.
+
+def _default_output_path(seed: int, policy_name: str, mission: str) -> Path:
+    """`data/records/<mission>/adcs_ep_<policy>_seed<seed>.npz`.
 
     Absolute, so the file lands in the same place whatever the working
     directory. The name carries the two inputs that define the episode, which
@@ -866,7 +902,17 @@ def _default_output_path(seed: int, policy_name: str) -> Path:
     Creates nothing: `save_episode` makes the directory when it writes, so
     asking for the default path stays free of side effects.
     """
-    return RECORD_DIR / f"adcs_ep_{policy_name}_seed{seed}.npz"
+    return RECORD_ROOT / mission / f"adcs_ep_{policy_name}_seed{seed}.npz"
+
+def checkpoint_dir(mission: str) -> Path:
+    """Where `mission`'s trained policy is read from.
+
+    Mirrors `adcs_train_ppo.checkpoint_dir`, which writes there. The layout is
+    duplicated rather than imported for the same reason CHECKPOINT_ROOT is:
+    importing it would pull in ray. A change to the scheme has to be made in
+    both places or recording silently stops finding policies.
+    """
+    return CHECKPOINT_ROOT / mission
 
 
 # Policy builders by --policy name. Both this dispatch and the CLI's `choices`
@@ -930,12 +976,20 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         help="what drives the episode (default: %(default)s)",
     )
     parser.add_argument(
+        "--mission",
+        # Read from the registry, so a mission added there is offered by the
+        # CLI without a second edit.
+        choices=sorted(MISSION_TYPES),
+        default=DEFAULT_MISSION,
+        help="which mission to record on (default: %(default)s)",
+    )
+    parser.add_argument(
         "--checkpoint",
         type=Path,
         default=None,
         # Spelled out rather than %(default)s: the default is None, and what is
         # worth showing is the path load_checkpoint falls back to.
-        help=f"RLlib checkpoint directory (default: {CHECKPOINT_DIR})",
+        help=f"RLlib checkpoint directory (default: {CHECKPOINT_ROOT}/<mission>)",
     )
     parser.add_argument(
         "--seed",
@@ -953,7 +1007,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "--out",
         type=Path,
         default=None,
-        help="output path (default: data/records/adcs_ep_<policy>_seed<seed>.npz)",
+        help="output path (default: data/records/<mission>/adcs_ep_<policy>_seed<seed>.npz)",
     )
 
     args = parser.parse_args(argv)
@@ -983,14 +1037,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # None for the other policies, which never read it -- recording a path that
     # was ignored would be worse than recording nothing.
     checkpoint_path = (
-        (args.checkpoint or CHECKPOINT_DIR) if args.policy == "checkpoint" else None
+        (args.checkpoint or checkpoint_dir(args.mission)) if args.policy == "checkpoint" else None
     )
+
+    config = replace(EVENTSAT_ENV_CONFIG, mission=MISSION_CONFIGS[args.mission])
 
     # Only the anticipated failures: no ray, no checkpoint, unknown name. An
     # unexpected exception should still surface as a traceback rather than be
     # flattened into an exit code.
     try:
-        policy = _build_policy(args.policy, args.seed, args.checkpoint)
+        policy = _build_policy(args.policy, args.seed, checkpoint_path)
     except (ImportError, FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -998,13 +1054,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     arrays, meta = record_episode(
         policy,
         seed=args.seed,
+        config=config,
         max_steps=args.max_steps,
         policy_name=args.policy,
         checkpoint_path=checkpoint_path,
     )
 
     path = save_episode(
-        arrays, args.out or _default_output_path(args.seed, args.policy), meta
+        arrays, args.out or _default_output_path(args.seed, args.policy, args.mission), meta
     )
 
     # Path first and on its own line, so it can be copied or piped.
