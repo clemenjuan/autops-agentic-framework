@@ -26,7 +26,7 @@ from dataclasses import replace
 from src.environment.orbital.propagator import get_environment, configure
 
 from src.environment.orbital.adcs.simulation import (step, initial_state)
-from src.environment.orbital.adcs.eventsat import (_WHEEL_MAX_TORQUE, _MTQ_MAX_DIPOLE, _WHEEL_MAX_MOMENTUM, _WHEEL_INERTIA, satellite, sim, actuators, sensors, env, orbit)
+from src.environment.orbital.adcs.eventsat import (_WHEEL_MAX_TORQUE, _MTQ_MAX_DIPOLE, _WHEEL_MAX_SPEED, satellite, sim, actuators, sensors, env, orbit)
 from src.environment.orbital.adcs.estimator import initial_estimator_state
 from src.environment.orbital.adcs.sensors import initial_sensor_state
 from src.environment.orbital.adcs.actuators import ControlCommand
@@ -35,14 +35,15 @@ from src.environment.orbital.adcs.adcs_rewards import (
     REWARD_COMPONENTS,
     get_total_reward,
 )
-from src.environment.orbital.adcs.configs import AdcsEnvConfig
+from src.environment.orbital.adcs.configs import(
+    AdcsEnvConfig,
+    ReactionWheelConfig,
+)
 from src.mission.slew_sequence_mission import SlewSequenceMission
 
 
 use_state_flag = True
 
-
-_WHEEL_MAX_SPEED = _WHEEL_MAX_MOMENTUM/_WHEEL_INERTIA #TODO adjust to fixed value if available
 
 register(
     id="gymnasium_env/adcs_sim-v0",
