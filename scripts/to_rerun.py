@@ -2,12 +2,10 @@
 import rerun as rr
 import rerun.blueprint as rrb
 import argparse
-import os          # DEBUG ONLY: REMOVE LATER -- only used by _viewer_executable
-import shlex
 import sys
 import numpy as np
 
-from typing import Optional, Sequence, Dict, Callable, List
+from typing import Optional, Sequence, Dict, Callable, List, Tuple
 from pathlib import Path
 from src.environment.orbital.adcs.constants import R_EARTH, MU_EARTH
 from src.environment.orbital.adcs.eventsat import satellite
@@ -24,33 +22,11 @@ M_TO_KM = 1e-3
 # marker is sized as a fraction of Earth's radius and only its proportions are real
 MARKER_FRACTION = 0.1
 
-# --- DEBUG ONLY: REMOVE BEFORE COMMITTING ---------------------------------
-# Put here whatever you would otherwise type after `to_rerun` on the command
-# line, as one string. Non-empty means it wins over sys.argv, so hitting "Run
-# and Debug" with no launch.json arguments still parses a real argument list.
-# Relative paths here resolve against the debugger's working directory, which
-# VS Code sets to the workspace root unless launch.json says otherwise.
-# Set back to "" (or delete this block and the `or None` in __main__) to go
-# back to the normal CLI.
-DEBUG_ARGV = "data/records/adcs_ep_checkpoint_seed42.npz"
-# --------------------------------------------------------------------------
-
-
-# --- DEBUG ONLY: REMOVE BEFORE COMMITTING ---------------------------------
-# Whole function goes when the debug block does.
-def _viewer_executable() -> Path:
-    """The viewer binary rerun-sdk ships, located without consulting PATH.
-
-    `spawn=True` finds the viewer by searching PATH for `rerun` and has no
-    fallback (see rerun/_spawn.py). `uv run` puts .venv/Scripts on PATH so the
-    CLI works; the debugger launches .venv/Scripts/python.exe directly without
-    activating the venv, so PATH never gets it and spawn raises
-    "Failed to find Rerun Viewer executable in PATH". The binary is installed
-    either way -- only the lookup fails -- so point at it directly.
-    """
-    exe = "rerun.exe" if os.name == "nt" else "rerun"
-    return Path(rr.__file__).parent.parent / "rerun_cli" / exe
-# --------------------------------------------------------------------------
+# Same reasoning for the target markers, which are points rather than boxes and
+# so carry a radius. Points3D defaults to a radius in scene units, and the scene
+# here is measured in kilometres across a ~13000 km span, so the default is
+# sub-pixel.
+TARGET_MARKER_FRACTION = 0.025
 
 ############################################################################
 # Helpers
@@ -277,8 +253,13 @@ TARGET_PALETTE = np.array([[120,120,120], [40,160,60], [255,80,40]], dtype=np.ui
 
 def log_targets(rec:Recording)->None:
     pos = rec["target_positions"] * M_TO_KM #(T, num_targets, 3)
-    num_targets = pos.shape[1]  
+    num_targets = pos.shape[1]
     colors = TARGET_PALETTE[rec["target_status"]] # (T, num_targets, 3)
+
+    # One radius per point rather than one for the entity: every column handed
+    # to `partition` has to share the flattened length, so a scalar would not
+    # line up with `positions`.
+    radii = np.full(pos.shape[0] * num_targets, TARGET_MARKER_FRACTION * R_EARTH * M_TO_KM)
 
     rr.send_columns(
         "world/targets/markers",
@@ -286,6 +267,7 @@ def log_targets(rec:Recording)->None:
         columns=rr.Points3D.columns(
             positions=pos.reshape(-1,3),
             colors=colors.reshape(-1,3),
+            radii=radii,
     ).partition([num_targets] * pos.shape[0])
     )
 
@@ -545,29 +527,27 @@ def parse_args(argv: Optional[Sequence[str]] = None):
             )
     return args
 
+MISSION_SCENES: Dict[str, Tuple[Callable[[Recording], None], ...]] = {
+    "slew": (),
+    "target_track": (log_target_orbits, log_targets)
+}
+
 def main(argv: Optional[Sequence[str]] = None):
     args = parse_args(argv)
 
     #Open the recording
     rec = Recording.load(args.record)
 
-    
-    # --- DEBUG ONLY: REMOVE BEFORE COMMITTING -----------------------------
-    # Restore the line below and delete the two after it. `rr.init` has no
-    # executable_path parameter, which is why this has to be two calls.
-    #rr.init("rerun_viewer_test", spawn=True)
-    rr.init("rerun_viewer_test")
-    rr.spawn(executable_path=str(_viewer_executable()))
-    # ----------------------------------------------------------------------
+    rr.init("Simulation Analysis", spawn=True)
 
-    # This creates blueprints which has everything prearanged 
+    # This creates blueprints which has everything prearanged
     # and overwrites how the user left the viewer 
     rr.send_blueprint(BLUEPRINTS[args.blueprint](args.plots))
-   
+
+    ### General (mission unspecific) calls ###
     # All static object created and logged 
     log_earth()
     log_orbit_path(rec=rec)
-    log_target_orbits(rec=rec)
     log_orbit_track(rec=rec)
     log_satellite_marker()
     log_satellite_geometry()
@@ -577,21 +557,18 @@ def main(argv: Optional[Sequence[str]] = None):
 
     # Temporal pass
     log_orbit_motion(rec=rec)
-    log_targets(rec=rec)
     log_attitude(rec=rec)
     log_scalars(rec=rec)
     log_thresholds(rec=rec)
     # log_events()
+
+    ### Mission specific calls ###
+    for log_scene in MISSION_SCENES.get(rec.mission_type, ()):
+        log_scene(rec)
 
     return 0
 
 
 
 if __name__ == "__main__":
-    # DEBUG ONLY: drop the conditional and call main() once DEBUG_ARGV goes.
-    # A fallback, not an override: DEBUG_ARGV applies only when the command
-    # line carried nothing, which is the debugger's case. Passing it whenever
-    # it is non-empty would swallow every real flag -- argparse ignores
-    # sys.argv entirely once main() is handed an argv.
-    # raise(main())
-    raise SystemExit(main(shlex.split(DEBUG_ARGV) if len(sys.argv) == 1 else None))
+    raise SystemExit(main())
