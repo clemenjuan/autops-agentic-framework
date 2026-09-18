@@ -360,6 +360,7 @@ _reward_weights = {
 # TODO max_body_rate had some consideration, but still needs to be fixed with a concrete calculation 
 env = AdcsEnvConfig(
     body_rate_thresh=0.1, # raise it to 0.184 if preferred
+    max_body_rate=0.4,
     start_step=0,
     seed=None,
     reward_weights=_reward_weights,
