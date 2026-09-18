@@ -118,7 +118,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
-from src.environment.orbital.adcs.adcs_gymnasium_wrapper import EventSatEnv, _WHEEL_MAX_SPEED
+from src.environment.orbital.adcs.adcs_gymnasium_wrapper import EventSatEnv
 from src.environment.orbital.adcs.adcs_rewards import (
     EVENT_COMPONENTS,
     REWARD_COMPONENTS,
@@ -141,7 +141,11 @@ from scripts.episode_io import (  # noqa: F401
     save_episode,
 )
 from src.environment.orbital.adcs.configs import AdcsEnvConfig
-from src.environment.orbital.adcs.eventsat import env as EVENTSAT_ENV_CONFIG, sim as EVENTSAT_SIM,DEFAULT_MISSION, MISSION_CONFIGS
+from src.environment.orbital.adcs.eventsat import(
+    env as EVENTSAT_ENV_CONFIG, 
+    sim as EVENTSAT_SIM,DEFAULT_MISSION, 
+    MISSION_CONFIGS,
+    _WHEEL_MAX_SPEED)
 from src.mission.registry import MISSION_TYPES
 
 # Repo root is two levels up: scripts -> root. Artifacts belong in the
