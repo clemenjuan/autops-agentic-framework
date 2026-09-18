@@ -729,18 +729,25 @@ def _spec_names() -> List[str]:
     return [ALL, *FIGURES, *PANELS]
 
 
-def _default_out_dir(record: Path) -> Path:
-    """`data/figures/<record stem>/`, absolute.
+def _default_out_dir(record: Path, mission: str) -> Path:
+    """`data/figures/<mission>/<record stem>/`, absolute.
 
     One directory per recording, named after it, so the figures from two
     policies or two seeds do not overwrite each other and a directory listing
     says which episode it came from. Absolute, so output lands in the same
     place whatever the working directory.
 
+    The mission leads, because the stem alone no longer identifies an episode:
+    `adcs_record` puts the mission in the recording's directory rather than its
+    filename, so a slew and a target_track run of the same policy and seed
+    share a stem and would otherwise overwrite each other. Taken from the
+    archive's own `mission_type` rather than from the path it was read from,
+    so a recording moved or renamed still files itself correctly.
+
     Creates nothing: the writer makes the directory when it writes, so asking
     for the default path stays free of side effects.
     """
-    return FIGURE_DIR / record.stem
+    return FIGURE_DIR / mission / record.stem
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
@@ -818,11 +825,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         parser.error(f"no such recording: {args.record}")
 
     # Naming an output directory is asking for output. Without this, `--out
-    # somewhere/` writes nothing at all and says nothing about why.
+    # somewhere/` writes nothing at all and says nothing about why. Left at
+    # None otherwise: the default path needs the archive's mission, which only
+    # `main` has once it has loaded the recording.
     if args.out is not None:
         args.save = True
-    else:
-        args.out = _default_out_dir(args.record)
 
     # Showing is the default when nothing is being written, and off when
     # something is -- a batch regenerating every thesis figure should not stop
@@ -862,13 +869,17 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
+    # Resolved here rather than in parse_args: the default path is keyed by the
+    # archive's mission, which is only known once it has been read.
+    out_dir = args.out or _default_out_dir(args.record, rec.mission_type)
+
     for name, panels in _resolve(args.figure):
         fig = compose(rec, panels, name=name)
 
         if args.save:
             # Path first and on its own line, so it can be copied or piped,
             # same as adcs_record.
-            for path in _savefig(fig, args.out, name, args.format):
+            for path in _savefig(fig, out_dir, name, args.format):
                 print(path)
 
         # Nothing will look at it again, and matplotlib warns once more than
