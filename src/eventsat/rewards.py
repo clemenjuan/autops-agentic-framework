@@ -5,6 +5,9 @@ Adapted from autops-rl reward modelling (Juan Oliver et al., EUCASS 2025).
 Decomposes reward into three components:
   R_total = alpha * [R_resource + R_action + R_mission]
 
+Diagnostic RL runs may add policy-invariant potential shaping inside the same
+scale: alpha * [R_resource + R_action + R_mission + k*(gamma*Phi(s') - Phi(s))].
+
 Current implementation: delivery-aligned Individual Negative (Case 2).
 Resource and failed-action penalties provide shaping, while successful
 pipeline actions are neutral by default and mission progress is measured from
@@ -16,6 +19,8 @@ Future multi-satellite (Vyoma 12-sat): extend to Collective Negative
 """
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from typing import Any, Dict
 
 
@@ -28,9 +33,18 @@ class EventSatRewardFunction:
       R_mission:  penalty proportional to the unmet delivered-data target
     """
 
-    def __init__(self, config: Dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        config: Dict[str, Any] | None = None,
+        *,
+        discount_factor: float = 1.0,
+    ) -> None:
         cfg = config or {}
         self.reward_scale = cfg.get("reward_scale", 0.01)
+
+        self.discount_factor = float(discount_factor)
+        if not 0.0 <= self.discount_factor <= 1.0:
+            raise ValueError("discount_factor must be between 0 and 1")
 
         # Resource penalty parameters (Eq. 3)
         self.resource_penalty_factor = cfg.get("resource_penalty_factor", 1.0)
@@ -47,6 +61,29 @@ class EventSatRewardFunction:
         self.failed_action_penalty = cfg.get("failed_action_penalty", 0.1)
         self.comm_reward_factor = cfg.get("comm_reward_factor", 1.0)
         self.comm_reward_cap = cfg.get("comm_reward_cap", 5.0)
+        # Diagnostic ablation: an in-contact radio attempt with an empty OBC is
+        # neutral when False. Out-of-contact attempts always remain failures.
+        self.empty_downlink_is_failure = bool(
+            cfg.get("empty_downlink_is_failure", True)
+        )
+
+        # Optional potential-based shaping for RL learnability experiments.
+        # Stage weights are fixed by the three transitions from compressed
+        # data to delivery (1/3, 2/3, 1), rather than tuned reward fractions.
+        pipeline_shaping = cfg.get("pipeline_shaping", {})
+        if not isinstance(pipeline_shaping, dict):
+            raise ValueError("pipeline_shaping must be a mapping")
+        self.pipeline_shaping_enabled = bool(
+            pipeline_shaping.get("enabled", False)
+        )
+        self.pipeline_potential_type = pipeline_shaping.get("potential", "delivery")
+        if self.pipeline_potential_type not in {"delivery", "raw_progress"}:
+            raise ValueError("pipeline_shaping.potential must be delivery or raw_progress")
+        # k scales the potential itself (Phi' = k*Phi), so shaping stays
+        # potential-based (Ng et al., 1999) while matching penalty magnitudes.
+        self.pipeline_shaping_scale = float(pipeline_shaping.get("scale", 1.0))
+        if not math.isfinite(self.pipeline_shaping_scale) or self.pipeline_shaping_scale < 0.0:
+            raise ValueError("pipeline_shaping.scale must be finite and non-negative")
 
         # Mission penalty parameters (Eq. 7 -- Individual Negative)
         self.mission_scale = cfg.get("mission_scale", 1.0)
@@ -100,39 +137,26 @@ class EventSatRewardFunction:
                   and the environment clamped it to a non-safety fallback
                 - storage_overflow: bool, observation caused storage cap
                 - had_data_to_compress: bool
+                - data_sent_mb: float, MB transferred from Jetson to OBC
                 - pass_active: bool, ground pass available for comm
                 - data_downlinked_mb: float, MB actually downlinked this step
+                - communication_failure: optional reason for zero downlink
         """
-        if action_info.get("constraint_violation", False):
+        if self.is_failed_action(mode, action_info):
             return -self.failed_action_penalty
 
         if mode == "payload_observe":
-            if action_info.get("storage_overflow", False):
-                return -self.failed_action_penalty
             return self.observe_reward
 
-        if mode == "payload_compress":
-            if action_info.get("had_data_to_compress", False):
-                return self.compress_reward
-            return -self.failed_action_penalty
-
-        if mode == "payload_detect":
-            if action_info.get("had_data_to_detect", False):
-                return self.compress_reward  # Same as compress — productive Jetson work
-            return -self.failed_action_penalty
+        if mode in {"payload_compress", "payload_detect"}:
+            return self.compress_reward
 
         if mode == "payload_send":
-            if action_info.get("had_data_to_send", False):
-                return self.compress_reward * 0.5  # Moving data, less value than processing
-            return -self.failed_action_penalty
+            return self.compress_reward * 0.5  # Moving data, less value than processing
 
         if mode == "communication":
-            if action_info.get("pass_active", False):
-                dl = action_info.get("data_downlinked_mb", 0.0)
-                if dl <= 0.0:
-                    return -self.failed_action_penalty
-                return min(self.comm_reward_factor * dl, self.comm_reward_cap)
-            return -self.failed_action_penalty
+            dl = action_info.get("data_downlinked_mb", 0.0)
+            return min(self.comm_reward_factor * dl, self.comm_reward_cap)
 
         if mode == "charging":
             return -self.standby_penalty
@@ -144,6 +168,134 @@ class EventSatRewardFunction:
             return -self.standby_penalty
 
         return 0.0
+
+    def is_failed_action(self, mode: str, action_info: Dict[str, Any]) -> bool:
+        """Shared failure classification for the reward and diagnostic logging."""
+        if action_info.get("constraint_violation", False):
+            return True
+        if mode == "payload_observe":
+            return bool(action_info.get("storage_overflow", False))
+        if mode == "payload_compress":
+            return not action_info.get("had_data_to_compress", False)
+        if mode == "payload_detect":
+            return not action_info.get("had_data_to_detect", False)
+        if mode == "payload_send":
+            return not action_info.get("had_data_to_send", False)
+        if mode == "communication":
+            if not action_info.get("pass_active", False):
+                return True
+            if action_info.get("data_downlinked_mb", 0.0) > 0.0:
+                return False
+            if action_info.get("communication_failure") == "no_contact":
+                return True
+            return self.empty_downlink_is_failure
+        return False
+
+    def pipeline_potential(
+        self,
+        state: Mapping[str, Any],
+        *,
+        compression_ratio: float,
+        downlink_target_mb: float,
+    ) -> float:
+        """Return normalized progress through the physical data pipeline.
+
+        Ng, Harada & Russell (1999): use this state potential only through
+        gamma * Phi(next) - Phi(previous). The legacy delivery potential gives
+        compressed/OBC/ground credits of 1/3, 2/3, 1. raw_progress gives
+        raw/compressed/OBC/ground credits of 1/4, 1/2, 3/4, 1 and interpolates
+        compression progress for ONE raw product. All stages share a single
+        raw-equivalent mission-target cap, with furthest-stage priority.
+        """
+        if not self.pipeline_shaping_enabled:
+            return 0.0
+
+        ratio = float(compression_ratio)
+        if ratio <= 0.0:
+            raise ValueError("compression_ratio must be positive")
+
+        target_raw_mb = max(0.0, float(downlink_target_mb)) * ratio
+        if target_raw_mb == 0.0:
+            return 0.0
+
+        compressed_raw_mb = max(
+            0.0, float(state.get("jetson_compressed_mb", 0.0))
+        ) * ratio
+        obc_raw_mb = max(0.0, float(state.get("obc_raw_equivalent_mb", 0.0)))
+        ground_raw_mb = max(
+            0.0, float(state.get("downlink_raw_equivalent_mb", 0.0))
+        )
+
+        # Credit at most one target's worth of data across all stages. Assign
+        # eligibility from the furthest stage backwards to avoid rewarding a
+        # backlog once the corresponding mission target is already delivered.
+        remaining_raw_mb = target_raw_mb
+        credited_ground_mb = min(ground_raw_mb, remaining_raw_mb)
+        remaining_raw_mb -= credited_ground_mb
+        credited_obc_mb = min(obc_raw_mb, remaining_raw_mb)
+        remaining_raw_mb -= credited_obc_mb
+        credited_compressed_mb = min(compressed_raw_mb, remaining_raw_mb)
+        remaining_raw_mb -= credited_compressed_mb
+
+        if self.pipeline_potential_type == "raw_progress":
+            raw_mb = max(0.0, float(state.get("jetson_raw_mb", 0.0)))
+            credited_raw_mb = min(raw_mb, remaining_raw_mb)
+            # Progress belongs to one product, never the entire raw backlog.
+            product_mb = max(0.0, float(state.get("observation_size_mb", 0.0)))
+            progress = min(1.0, max(
+                0.0, float(state.get("compression_progress_fraction", 0.0))
+            ))
+            processing_mb = (
+                min(product_mb, credited_raw_mb)
+                if float(state.get("uncompressed_observations", 0.0)) >= 1.0
+                and raw_mb >= product_mb > 0.0
+                else 0.0
+            )
+            return min(1.0, max(0.0, (
+                credited_ground_mb
+                + 0.75 * credited_obc_mb
+                + 0.5 * credited_compressed_mb
+                + 0.25 * credited_raw_mb
+                + 0.25 * progress * processing_mb
+            ) / target_raw_mb))
+
+        weighted_progress_mb = (
+            credited_ground_mb
+            + (2.0 / 3.0) * credited_obc_mb
+            + (1.0 / 3.0) * credited_compressed_mb
+        )
+        return min(1.0, max(0.0, weighted_progress_mb / target_raw_mb))
+
+    def pipeline_shaping_reward(
+        self,
+        previous_state: Mapping[str, Any],
+        next_state: Mapping[str, Any],
+        *,
+        compression_ratio: float,
+        downlink_target_mb: float,
+        is_final_step: bool,
+    ) -> float:
+        """Compute policy-invariant shaping ``k * (gamma * Phi(s') - Phi(s))``."""
+        if not self.pipeline_shaping_enabled:
+            return 0.0
+
+        previous_potential = self.pipeline_potential(
+            previous_state,
+            compression_ratio=compression_ratio,
+            downlink_target_mb=downlink_target_mb,
+        )
+        next_potential = (
+            0.0
+            if is_final_step
+            else self.pipeline_potential(
+                next_state,
+                compression_ratio=compression_ratio,
+                downlink_target_mb=downlink_target_mb,
+            )
+        )
+        return self.pipeline_shaping_scale * (
+            self.discount_factor * next_potential - previous_potential
+        )
 
     def mission_penalty(
         self,
@@ -203,8 +355,11 @@ class EventSatRewardFunction:
         episode_step: int,
         max_steps: int,
         is_final_step: bool,
+        pipeline_state_before: Mapping[str, Any] | None = None,
+        pipeline_state_after: Mapping[str, Any] | None = None,
+        compression_ratio: float = 1.0,
     ) -> float:
-        """Compute total reward: R = alpha * [R_resource + R_action + R_mission]."""
+        """Compute task reward plus optional potential-based shaping."""
         r_resource = self.resource_penalty(battery_soc, data_stored_mb, storage_capacity_mb)
         r_action = self.action_reward(mode, action_info)
         r_mission = self.mission_penalty(
@@ -216,7 +371,22 @@ class EventSatRewardFunction:
             episode_steps=episode_step,
             max_mission_steps=max_steps,
         )
-        return self.reward_scale * (r_resource + r_action + r_mission)
+        r_shaping = 0.0
+        if self.pipeline_shaping_enabled:
+            if pipeline_state_before is None or pipeline_state_after is None:
+                raise ValueError(
+                    "pipeline shaping requires both previous and next pipeline state"
+                )
+            r_shaping = self.pipeline_shaping_reward(
+                pipeline_state_before,
+                pipeline_state_after,
+                compression_ratio=compression_ratio,
+                downlink_target_mb=downlink_target_mb,
+                is_final_step=is_final_step,
+            )
+        return self.reward_scale * (
+            r_resource + r_action + r_mission + r_shaping
+        )
 
 
 class MultiEventsatRewardFunction:

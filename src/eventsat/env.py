@@ -239,7 +239,10 @@ class EventSatEnvironment(SatelliteEnvironment):
             self.scenario.get("rewards", {}),
             config.get("reward_config", {}),
         )
-        self.reward_fn = EventSatRewardFunction(reward_cfg)
+        self.reward_fn = EventSatRewardFunction(
+            reward_cfg,
+            discount_factor=float(config.get("reward_discount_factor", 1.0)),
+        )
 
         # Mission targets (scaled to episode length)
         objectives = self.scenario.get("objectives", {})
@@ -862,6 +865,18 @@ class EventSatEnvironment(SatelliteEnvironment):
             "total_detections": self.total_detections,
         }
 
+    def _pipeline_potential_state(self) -> Dict[str, Any]:
+        """Physical pipeline state plus the derived fields read by
+        ``EventSatRewardFunction.pipeline_potential``."""
+        return {
+            **self._pipeline_state(),
+            "observation_size_mb": self.observation_size_mb,
+            "compression_progress_fraction": min(
+                1.0,
+                self.compression_progress / max(1, math.ceil(self.compression_time_factor)),
+            ),
+        }
+
     def _accept_pipeline_state(self, state: Dict[str, Any]) -> None:
         """Commit a state previously projected by the pure transition helper."""
 
@@ -922,6 +937,11 @@ class EventSatEnvironment(SatelliteEnvironment):
         constraint_violation=False,
     ):
         """Apply state transitions and compute structured reward."""
+        pipeline_state_before = (
+            self._pipeline_potential_state()
+            if self.reward_fn.pipeline_shaping_enabled
+            else None
+        )
         # Explicit outcome contracts let higher-level scenarios distinguish an
         # action that merely resolved to a mode from one whose physical state
         # transition was actually admitted.  In particular, SSA must never
@@ -953,6 +973,7 @@ class EventSatEnvironment(SatelliteEnvironment):
 
         elif mode == "payload_compress":
             had_data = self.uncompressed_observations > 0
+            action_info["data_compressed_mb"] = 0.0
             if had_data:
                 # P1: multi-step compression
                 self.compression_progress += 1
@@ -961,9 +982,14 @@ class EventSatEnvironment(SatelliteEnvironment):
                         self._pipeline_state(), self._pipeline_parameters()
                     )
                     if outcome.accepted:
+                        compressed_before_mb = self.jetson_compressed_mb
                         self._accept_pipeline_state(outcome.state)
                         self.compression_progress = 0
                         action_info["compression_completed"] = True
+                        action_info["data_compressed_mb"] = max(
+                            0.0,
+                            self.jetson_compressed_mb - compressed_before_mb,
+                        )
                     else:
                         # The product remains untouched; retry after the
                         # inconsistent/capacity condition is cleared.
@@ -1042,6 +1068,23 @@ class EventSatEnvironment(SatelliteEnvironment):
             episode_step=self.current_step,
             max_steps=self.max_steps,
             is_final_step=is_final,
+            pipeline_state_before=pipeline_state_before,
+            pipeline_state_after=(
+                self._pipeline_potential_state()
+                if self.reward_fn.pipeline_shaping_enabled
+                else None
+            ),
+            compression_ratio=self.compression_ratio,
+        )
+        # Signed contribution in the same units as the returned reward; exclude
+        # safe-mode and resource penalties even when their magnitudes coincide.
+        # The flag is reward-independent, so it holds even when the penalty is 0.
+        failed_action = self.reward_fn.is_failed_action(mode, action_info)
+        action_info["failed_action"] = failed_action
+        action_info["failed_action_penalty"] = (
+            -self.reward_fn.reward_scale * self.reward_fn.failed_action_penalty
+            if failed_action
+            else 0.0
         )
         return reward, action_info
 

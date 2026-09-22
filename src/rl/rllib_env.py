@@ -277,6 +277,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             "max_steps": self.config.max_steps,
             "scenario": scenario,
             "seed": self.config.seed,
+            "reward_discount_factor": float(
+                self.config.behaviour_config.get("gamma", 1.0)
+            ),
         }
         from src.core.scenario_registry import get_scenario_spec
 

@@ -284,6 +284,28 @@ Single-satellite and one-agent-per-satellite cases preserve the legacy
     Katsikopoulos & Engelbrecht, 2003).
   - Manifests record the schema; `SubsymbolicEventSat` rejects a missing manifest or another
     schema/shape. World-model and Gymnasium encoders keep the legacy 25D vector.
+- **Pipeline shaping** (diagnostic; disabled in canonical configs): potential-based
+  `k * (gamma * Phi(s') - Phi(s))` with the PPO gamma and zero terminal potential (Ng,
+  Harada & Russell, 1999). `potential: delivery` credits compressed/OBC/ground at 1/3,
+  2/3, 1; `raw_progress` credits raw/compressed/OBC/ground at 1/4, 1/2, 3/4, 1
+  (compression interpolated and retracted if interrupted). `scale` sets k (default 1).
+  Stage weights are experimental choices, not a learnability guarantee.
+- **Failed-action classification**: `is_failed_action` is shared by the reward and the
+  `failed_action_penalty` step info. `empty_downlink_is_failure` (default true, Oliver et
+  al. EUCASS 2025) can make an in-contact downlink of an empty OBC neutral; out-of-contact
+  attempts always fail.
+- **Reward configuration**: the reward terms are individually configurable, from a
+  natural reward (all penalty terms 0: only ground-delivered MB, so wasted actions cost
+  only the time and energy the physics charges) to the scenario default with explicit
+  feedback (resource, failed-action, safe and mission penalties; Oliver et al., EUCASS
+  2025), either optionally with pipeline shaping. The benchmark choice is still under
+  evaluation; asymmetric outcome penalties can be exploited (specification gaming,
+  Amodei et al., 2016).
+- **Energy feasibility**: with the Jetson-based onboard core (+7 W outside Jetson modes),
+  even always-charging drains the canonical 70 Wh battery to unrecoverable safe mode in
+  ~33 h, so Jetson-based onboard cells are energy-infeasible on the canonical battery
+  regardless of reward. RL diagnostics use an enlarged battery; the canonical value is an
+  open benchmark-level decision.
 - **reason()**: Returns top mode probabilities as structured explanation steps
 - **update()**: Backward-compatible hook; PPO training is offline via `RLLibPPOTrainer`
 - **Orthogonality**: Works with the fixed SDA decision driver and all configured ops paradigms

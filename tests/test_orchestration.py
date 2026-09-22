@@ -138,6 +138,27 @@ class TestExperimentConfig:
         assert env.max_steps == 10
         assert env.step_duration_s == 60
 
+    def test_runner_passes_discount_factor_to_reward_function(self) -> None:
+        cfg = ExperimentConfig(
+            seed=42,
+            max_steps=10,
+            behaviour_config={"gamma": 0.91},
+            environment={
+                "scenario": "eventsat",
+                "constellation_size": 1,
+                "timestep_seconds": 60,
+                "max_steps": 10,
+                "scenario_config": {
+                    "reward_config": {"pipeline_shaping": {"enabled": True}},
+                },
+            },
+        )
+
+        env = ExperimentRunner(config=cfg)._create_environment()
+
+        assert env.reward_fn.pipeline_shaping_enabled is True
+        assert env.reward_fn.discount_factor == pytest.approx(0.91)
+
 
 class TestCombinationGuardrails:
     """Degenerate (rep × loop × paradigm) triple warnings."""

@@ -400,6 +400,9 @@ class ExperimentRunner:
             "max_steps": self.config.max_steps,
             "scenario": scenario,
             "seed": self.config.seed,
+            "reward_discount_factor": float(
+                self.config.behaviour_config.get("gamma", 1.0)
+            ),
         }
 
         # anomaly_requires_ground_pass is derived from the paradigm's

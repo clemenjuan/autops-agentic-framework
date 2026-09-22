@@ -212,6 +212,24 @@ class TestRLLibEnv:
         expected *= train_env._environment.reward_fn.reward_scale
         assert rewards["central_agent"] == pytest.approx(expected)
 
+    def test_pipeline_shaping_uses_ppo_discount_factor(self) -> None:
+        pytest.importorskip("gymnasium")
+        from src.core.config_loader import ExperimentConfig
+        from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv
+
+        # Independent of diagnostic configs: only the gamma wiring is checked.
+        raw = _minimal_config()
+        raw["behaviour_config"]["gamma"] = 0.97
+        raw["environment"]["scenario_config"]["reward_config"] = {
+            "pipeline_shaping": {"enabled": True}
+        }
+        config = ExperimentConfig(**raw)
+        env = AUTOPSRLLibMultiAgentEnv({"experiment_config": config.model_dump()})
+
+        assert env._environment.reward_fn.pipeline_shaping_enabled is True
+        assert env._environment.reward_fn.discount_factor == pytest.approx(0.97)
+        env.close()
+
     def test_terminal_step_infos_match_returned_observations(self) -> None:
         pytest.importorskip("gymnasium")
         from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv

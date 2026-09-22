@@ -1,0 +1,108 @@
+experiment_id: eventsat_sas_ao_rl_shaped
+description: >
+  Diagnostic EventSat SAS autonomous-onboard PPO run with a 400 Wh battery
+  (the always-on Jetson makes the canonical 70 Wh energy-negative even when
+  idle); log-product pipeline and attitude-settling observations (schema
+  eventsat_log_pipeline_attitude_pass_v4); natural reward = MB delivered to the
+  ground, with no action/safe/mission/resource penalty terms, plus
+  policy-invariant delivery potential shaping at k=1 (Ng et al., 1999) and
+  gamma=0.999. The training budget is set by the executor.
+seed: 42
+agent_organization: sas
+decision_procedure: sda
+representation: rl
+behaviour: emergent
+operations_paradigm: autonomous_onboard
+agent_organization_config: {}
+decision_procedure_config:
+  sense_encode: true
+  decide_act: true
+representation_config:
+  rl_mock: false
+  # PPO learns a stochastic policy; greedy evaluation breaks this checkpoint's pipeline.
+  deterministic: false
+  checkpoint_path: ''
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+behaviour_config:
+  # PPO: Schulman et al. (2017), arXiv:1707.06347.
+  # Local diagnostic settings are a tuning hypothesis, not validated optima.
+  timesteps: 100000
+  # Intermediate checkpoints under data/trained_models/<id>/step_<sampled_steps>.
+  checkpoint_every_timesteps: 50000
+  mechanism: ppo
+  mode: emergent
+  rollout_fragment: 128
+  # ~1.6 episodes per update: delivery events are too rare in 4096-step batches.
+  train_batch_size: 16384
+  num_env_runners: 0
+  num_gpus: 0
+  # Constant 1e-3: learned delivery in earlier runs (then degraded with rising KL);
+  # 1e-4 -> 1e-5 did not learn. Watch KL in the second half of training.
+  lr: 0.001
+  lr_schedule:
+  - - 0
+    - 0.001
+  - - 1000000
+    - 0.001
+  # ~1000-step horizon spans the gaps between ground-pass clusters.
+  gamma: 0.999
+  gae_lambda: 0.98
+  clip_ratio: 0.2
+  ppo_epochs: 10
+  entropy_coef: 0.01
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+operations_paradigm_config: {}
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+    # Diagnostic only: enlarged battery. With the Jetson-based onboard core,
+    # always-charging drains 70 Wh to permanent safe mode in ~33 h; 400 Wh keeps an
+    # idle week survivable (~47 Wh margin) while operations cost real energy.
+    scenario_overrides:
+      power:
+        battery:
+          capacity_wh: 400.0
+    reward_config:
+      # Natural reward: only ground-delivered MB (1 per MB before reward_scale).
+      # Wasted actions, safe mode and resource use cost time and energy through
+      # the physics instead of hand-written penalties.
+      # 1 per MB: at 0.01 the critic saw ~1e-5 losses (vf_explained_var -0.97..0.84);
+      # a positive scale leaves the optimal policy unchanged.
+      reward_scale: 1.0
+      failed_action_penalty: 0.0
+      safe_penalty: 0.0
+      standby_penalty: 0.0
+      mission_scale: 0.0
+      resource_penalty_factor: 0.0
+      comm_reward_factor: 1.0
+      comm_reward_cap: 5.0
+      pipeline_shaping:
+        # Policy-invariant exploration aid from the physical pipeline state.
+        enabled: true
+        potential: delivery
+        scale: 1.0
+memory_config:
+  history_depth: 100
+num_episodes: 5
+max_steps: 10080
+metrics:
+  enabled:
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
+  collection_frequency: per_step
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO
