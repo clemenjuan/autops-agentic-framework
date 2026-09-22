@@ -327,6 +327,48 @@ class TestCheckConstraints(unittest.TestCase):
         ))
 
 
+    def _slew_state(self, **overrides):
+        return _make_state(
+            settling_time_steps=2,
+            transition_steps_remaining=1,
+            transition_target_mode="payload_observe",
+            previous_mode="charging",
+            attitude_maneuver_modes=["communication", "payload_observe"],
+            **overrides,
+        )
+
+    def test_command_during_slew_is_ignored_not_a_violation(self):
+        for mode in ("communication", "safe", "payload_observe"):
+            result = check_constraints(
+                state=self._slew_state(battery_soc=0.35), proposed_mode=mode
+            )
+            self.assertTrue(result["command_ignored"])
+            self.assertTrue(result["feasible"])
+            self.assertEqual(result["violations"], [])
+            self.assertFalse(result["productive_this_step"])
+            self.assertEqual(result["resolved_mode_this_step"], "charging")
+            self.assertEqual(result["transition_target_mode"], "payload_observe")
+
+    def test_forced_safe_preempts_slew(self):
+        result = check_constraints(
+            state=self._slew_state(battery_soc=0.15), proposed_mode="safe"
+        )
+        self.assertFalse(result["command_ignored"])
+        self.assertEqual(result["resolved_mode_this_step"], "safe")
+        self.assertEqual(result["transition_steps_required"], 0)
+
+    def test_evaluate_plan_treats_commands_during_slew_as_equivalent(self):
+        results = {
+            mode: evaluate_plan(state=self._slew_state(), proposed_mode=mode)
+            for mode in ("charging", "payload_observe", "communication")
+        }
+        self.assertEqual(
+            {r["recommendation"] for r in results.values()}, {"proceed"}
+        )
+        self.assertTrue(all(r["command_ignored"] for r in results.values()))
+        self.assertEqual({r["estimated_utility"] for r in results.values()}, {0.0})
+
+
 class TestRecallHistory(unittest.TestCase):
     """Test recall_history tool."""
 

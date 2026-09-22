@@ -328,6 +328,104 @@ class TestModeTransition:
         env.reset(seed=0)
         assert env.transition_target_mode is None
 
+    def test_slew_keeps_initial_target_when_command_changes(self):
+        """A retarget during settling is ignored: no settling time is reused."""
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        ignored = env.step({"eventsat_0": {"mode": "communication"}})
+
+        assert ignored.info["command_ignored"] is True
+        assert ignored.info["forced"] is False
+        assert env.previous_mode == "payload_observe"
+        productive = env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert productive.info["resolved_mode"] == "payload_observe"
+        assert productive.info["observation_accepted"] is True
+        # The command changed during settling was not queued.
+        retarget = env.step({"eventsat_0": {"mode": "communication"}})
+        assert retarget.info["in_transition"] is True
+        assert env.transition_target_mode == "communication"
+
+    def test_requested_safe_during_slew_is_ignored(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        result = env.step({"eventsat_0": {"mode": "safe"}})
+
+        assert result.info["resolved_mode"] == "charging"
+        assert result.info["in_transition"] is True
+        assert result.info["safety_safe"] == 0.0
+        assert env.previous_mode == "payload_observe"
+
+    @pytest.mark.parametrize("settling_steps", [2, 3])
+    def test_forced_safe_aborts_slew_immediately(self, settling_steps):
+        env = self._make_env_with_transition(settling_steps=settling_steps)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = env.min_soc
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["resolved_mode"] == "safe"
+        assert result.info["in_transition"] is False
+        assert result.info["safety_safe"] == 1.0
+        assert result.info["constraint_violation"] is False
+        assert env.transition_steps_remaining == 0
+        assert env.transition_target_mode is None
+        assert env.previous_mode == "safe"
+
+    def test_forced_safe_is_not_delayed_by_leaving_attitude_mode(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        for _ in range(3):
+            env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = env.min_soc
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["resolved_mode"] == "safe"
+        assert result.info["in_transition"] is False
+
+    def test_invalid_command_during_slew_is_not_a_violation(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = 0.35  # above min_soc, below the observe threshold
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["command_ignored"] is True
+        assert result.info["forced"] is False
+        assert result.info["constraint_violation"] is False
+        assert env.previous_mode == "payload_observe"
+
+    @pytest.mark.parametrize("commands,forced_safe_at", [
+        (["payload_observe", "communication", "payload_observe", "communication"], None),
+        (["payload_observe", "safe", "payload_observe", "payload_compress"], None),
+        (["payload_observe", "payload_observe", "payload_observe"], 1),
+    ])
+    def test_world_model_surrogate_matches_environment_slew_rule(
+        self, commands, forced_safe_at
+    ):
+        from src.eventsat.world_model import _WorldModelPlanner
+
+        env = self._make_env_with_transition(settling_steps=2)
+        planner = _WorldModelPlanner({}, method="cem")
+        sim = {
+            "battery_soc": env.battery_soc,
+            "battery_min_soc": env.min_soc,
+            "health_status": "nominal",
+            "mode_min_battery_soc": {"payload_observe": 0.4, "payload_compress": 0.3},
+            "settling_time_steps": env.settling_time_steps,
+            "transition_steps_remaining": 0,
+            "attitude_maneuver_modes": sorted(env.attitude_maneuver_modes),
+            "previous_mode": "charging",
+            "transition_target_mode": None,
+        }
+        for step, command in enumerate(commands):
+            if step == forced_safe_at:
+                env.battery_soc = env.min_soc
+            sim["battery_soc"] = env.battery_soc
+            result = env.step({"eventsat_0": {"mode": command}})
+            effective, _, in_transition, _ = planner._resolve_surrogate_step(sim, command)
+            assert effective == result.info["resolved_mode"]
+            assert in_transition == result.info["in_transition"]
+            assert sim["previous_mode"] == env.previous_mode
+            assert sim["transition_target_mode"] == env.transition_target_mode
+            assert sim["transition_steps_remaining"] == env.transition_steps_remaining
+
     def test_one_step_transition_never_exposes_stale_target(self):
         env = self._make_env_with_transition(settling_steps=1)
         env.step({"eventsat_0": {"mode": "payload_observe"}})

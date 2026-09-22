@@ -277,6 +277,7 @@ def eventsat_observation_to_vector(
             str(mode) for mode in (meta.get("attitude_maneuver_modes") or [])
         ],
         "previous_mode": str(meta.get("previous_mode", current_mode)),
+        "transition_target_mode": meta.get("transition_target_mode"),
     }
     return EncodedEventSatState(
         bound_observation_vector(vec, signed_indices=(4, 5)), raw
@@ -1476,23 +1477,40 @@ class _WorldModelPlanner:
         maneuver_modes = {
             str(mode) for mode in (sim.get("attitude_maneuver_modes") or [])
         }
+        target = sim.get("transition_target_mode")
         in_transition = False
 
-        if settling_steps > 0:
+        # Same fixed-target slew rule as the environment: safety preempts
+        # settling; ordinary commands during settling are ignored, not queued.
+        if (
+            sim.get("health_status", "nominal") != "nominal"
+            or _float(sim.get("battery_soc"), 0.5)
+            <= _float(sim.get("battery_min_soc"), 0.20)
+        ):
+            remaining = 0
+            target = None
+            effective = "safe"
+        elif settling_steps > 0:
             if remaining > 0:
+                # The ignored command has no effect; report the slew target.
+                forced = False
+                resolved = str(target or previous)
                 effective = "charging"
                 remaining -= 1
                 in_transition = True
                 if remaining == 0:
                     previous = resolved
+                    target = None
             elif previous != resolved and (
                 resolved in maneuver_modes or previous in maneuver_modes
             ):
                 remaining = max(0, settling_steps - 1)
                 effective = "charging"
                 in_transition = True
+                target = resolved
                 if remaining == 0:
                     previous = resolved
+                    target = None
             else:
                 effective = resolved
         else:
@@ -1501,6 +1519,7 @@ class _WorldModelPlanner:
         if not in_transition:
             previous = effective
         sim["transition_steps_remaining"] = remaining
+        sim["transition_target_mode"] = target
         sim["previous_mode"] = previous
         sim["in_transition"] = in_transition
         return effective, forced, in_transition, resolved

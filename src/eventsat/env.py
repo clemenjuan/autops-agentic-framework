@@ -377,25 +377,29 @@ class EventSatEnvironment(SatelliteEnvironment):
             # an OBC-priced analytic rollout never silently inherits +7 W.
             self._jetson_active_this_step = False
         resolved_mode = self._resolve_mode(requested_mode)
-        forced = resolved_mode != requested_mode
-        # An invalid operational request that is clamped to charging remains a
-        # failed action for reward purposes.  Safety-forced ``safe`` mode is an
-        # exogenous protection response and is scored by ``safe_penalty``
-        # instead of being misclassified as an agent constraint violation.
-        constraint_violation = forced and resolved_mode != "safe"
+        safety_forced = self._safety_forces_safe()
 
-        # P2: Mode transition overhead
+        # P2: Mode transition overhead. A slew keeps the target commanded when
+        # it started: ordinary commands during settling are ignored and not
+        # queued, so a retarget cannot reuse settling time already spent.
+        # Safety interventions (anomaly, critical battery) preempt settling.
         in_transition = False
-        if self.settling_time_steps > 0:
+        ignored_command = False
+        if safety_forced:
+            self.transition_steps_remaining = 0
+            self.transition_target_mode = None
+            effective_mode = "safe"
+        elif self.settling_time_steps > 0:
             if self.transition_steps_remaining > 0:
                 # Already mid-transition: execute as charging (non-productive)
+                ignored_command = True
                 effective_mode = "charging"
                 self.transition_steps_remaining -= 1
                 in_transition = True
-                # On the last transition step, mark previous_mode as the target
-                # so the next step doesn't re-trigger the transition
+                # The completed slew reaches its initial target, so the next
+                # step doesn't re-trigger the transition.
                 if self.transition_steps_remaining == 0:
-                    self.previous_mode = resolved_mode
+                    self.previous_mode = self.transition_target_mode or self.previous_mode
                     self.transition_target_mode = None
             elif self._requires_attitude_maneuver(self.previous_mode, resolved_mode):
                 # New transition needed: start it, first step is non-productive
@@ -413,6 +417,13 @@ class EventSatEnvironment(SatelliteEnvironment):
                 effective_mode = resolved_mode
         else:
             effective_mode = resolved_mode
+
+        # An ignored command has no effect, so it is neither forced nor a
+        # violation. An invalid executed request clamped to charging remains a
+        # failed action for reward purposes; safety-forced ``safe`` mode is an
+        # exogenous protection response scored by ``safe_penalty`` instead.
+        forced = resolved_mode != requested_mode and not ignored_command
+        constraint_violation = forced and resolved_mode != "safe"
 
         in_sun = self._is_in_sunlight()
         pass_active = self._is_ground_pass_active()
@@ -485,11 +496,13 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "requested_mode": requested_mode,
                 "forced": forced,
                 # Pre-transition safety classification: resolved_mode BEFORE the
-                # transition/settling mask (which reports effective_mode="charging"
-                # during a forced-safe step's settling window). M-05/M-13 key off this
-                # so an anomaly/critical-battery safe step is scored as a safety
+                # settling mask (a requested safe that starts a slew executes as
+                # charging). Forced safe preempts settling, and a command ignored
+                # during settling is no safe step. M-05/M-13 key off this so an
+                # anomaly/critical-battery safe step is scored as a safety
                 # override, never as a charging constraint violation.
-                "safety_safe": float(resolved_mode == "safe"),
+                "safety_safe": float(resolved_mode == "safe" and not ignored_command),
+                "command_ignored": ignored_command,
                 "anomaly": anomaly_event,
                 **action_info,           # per-step values (e.g. data_downlinked_mb per step)
                 **self._step_metrics,    # cumulative values overwrite — data_downlinked_mb is always cumulative here
@@ -751,6 +764,10 @@ class EventSatEnvironment(SatelliteEnvironment):
         if from_mode == to_mode:
             return False
         return to_mode in self.attitude_maneuver_modes or from_mode in self.attitude_maneuver_modes
+
+    def _safety_forces_safe(self) -> bool:
+        """Anomaly or critical battery: safe mode preempts any command or slew."""
+        return self.active_anomaly is not None or self.battery_soc <= self.min_soc
 
     def _resolve_mode(self, requested):
         if requested not in VALID_MODES:

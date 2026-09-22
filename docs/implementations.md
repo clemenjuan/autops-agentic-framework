@@ -910,6 +910,17 @@ is a separate research question on optimal uplink timing.
   log including anomaly injection/clearance, component initialization, and
   (at DEBUG level) LLM prompt summaries and responses.
 
+### EventSat attitude slews (all cells)
+
+Switching to or from `payload_observe`/`communication` costs 135 s of ADCS settling,
+executed as charging. A slew keeps the target commanded when it started, so a retarget
+cannot reuse elapsed settling time (trained PPO policies exploited this on 72–79% of
+slews; Amodei et al., 2016). Ordinary commands during settling, including a requested
+`safe`, are ignored, not queued and not counted as forced or M-13 violations
+(`info["command_ignored"]`); environment-enforced safe mode (anomaly, SoC ≤ `min_soc`)
+preempts settling immediately. The world-model surrogate, `check_constraints`/
+`evaluate_plan` and the LLM/agentic prompts apply the same rule (environment parity test).
+
 ### EventSat diagnostic initial conditions
 
 `environment.scenario_config` accepts `initial_obc_data_mb`,

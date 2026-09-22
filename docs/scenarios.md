@@ -72,7 +72,7 @@ Seven operational modes (from PDR Chapter 3 & Table 3.1):
 | `payload_send` | CAN-bus Jetson→OBC transfer (~8 Mbps; up to ~60 MB/step) | SoC > 0.3 |
 | `safe` | UHF only; entered via FDIR on anomaly | — |
 
-Mode transitions to `payload_observe` or `communication` incur 135s ADCS attitude settling overhead (P2, from ADCS thesis).
+Mode transitions to or from `payload_observe` or `communication` incur 135s ADCS attitude settling overhead (P2, from ADCS thesis), executed as charging. A slew keeps its initial target: ordinary commands during settling are ignored and not queued, while environment-enforced safe mode aborts the slew immediately.
 
 ### Data Pipeline
 
