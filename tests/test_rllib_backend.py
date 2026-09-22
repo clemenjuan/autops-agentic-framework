@@ -94,6 +94,73 @@ class TestPolicySharing:
 
 
 class TestRLLibEnv:
+    def test_episode_diagnostics_include_terminal_step_and_reset(self, monkeypatch) -> None:
+        pytest.importorskip("ray.rllib")
+        from types import SimpleNamespace
+        from src.rl.rllib_env import (
+            AUTOPSEpisodeDiagnostics,
+            AUTOPSRLLibMultiAgentEnv,
+            _empty_eventsat_diagnostics,
+        )
+        from src.rl.space_adapters import MODE_LIST
+
+        config = _minimal_config(max_steps=3)
+        config["environment"]["scenario_config"]["initial_obc_data_mb"] = 20.0
+        bridge = AUTOPSRLLibMultiAgentEnv({"experiment_config": config})
+        bridge.reset(seed=0)
+        env = bridge._environment
+        env.settling_time_steps = 0
+        monkeypatch.setattr(env, "_is_ground_pass_active", lambda: True)
+        monkeypatch.setattr(env, "_contact_seconds", lambda: 60.0)
+        for mode in ("communication", "payload_compress", "communication"):
+            observations, rewards, terminateds, _, infos = bridge.step(
+                {"central_agent": np.asarray([MODE_LIST.index(mode)])}
+            )
+        assert terminateds["__all__"]
+        assert observations == infos == {}
+        expected_downlink = 2 * 60 * env.downlink_rate_kbps / 8 / 1000
+        expected_penalty = -env.reward_fn.reward_scale * env.reward_fn.failed_action_penalty
+        assert bridge.get_episode_diagnostics() == pytest.approx({
+            **_empty_eventsat_diagnostics(),
+            "downlinked_mb": expected_downlink,
+            "failed_action_penalty": expected_penalty,
+            # Two in-contact downlinks; compressing without raw data fails.
+            "comm_steps_in_contact": 2.0,
+            "failed_compress": 1.0,
+            "final_obc_mb": 20.0 - expected_downlink,
+        })
+
+        # Use env_index, not the first environment; then ensure reset cannot
+        # alter the completed episode's history or leak totals to the next one.
+        base_env = SimpleNamespace(get_sub_environments=lambda: [None, bridge])
+        episode = SimpleNamespace(hist_data={})
+        AUTOPSEpisodeDiagnostics().on_episode_end(
+            episode=episode, base_env=base_env, env_index=1,
+        )
+        bridge.reset(seed=1)
+        assert bridge.get_episode_diagnostics() == _empty_eventsat_diagnostics()
+        assert episode.hist_data["eventsat_downlinked_mb"] == pytest.approx([expected_downlink])
+        assert episode.hist_data["eventsat_failed_action_penalty"] == pytest.approx([expected_penalty])
+        assert episode.hist_data["eventsat_comm_steps_in_contact"] == [2.0]
+        assert episode.hist_data["eventsat_failed_compress"] == [1.0]
+
+    def test_failed_action_counters_do_not_depend_on_penalty(self) -> None:
+        pytest.importorskip("ray.rllib")
+        from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv
+        from src.rl.space_adapters import MODE_LIST
+
+        config = _minimal_config(max_steps=3)
+        config["environment"]["scenario_config"]["reward_config"] = {
+            "failed_action_penalty": 0.0
+        }
+        bridge = AUTOPSRLLibMultiAgentEnv({"experiment_config": config})
+        bridge.reset(seed=0)
+        bridge.step({"central_agent": np.asarray([MODE_LIST.index("payload_compress")])})
+
+        diagnostics = bridge.get_episode_diagnostics()
+        assert diagnostics["failed_action_penalty"] == 0.0
+        assert diagnostics["failed_compress"] == 1.0
+
     def test_sas_env_exposes_one_agent_multiagent_api(self) -> None:
         pytest.importorskip("gymnasium")
         from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv
@@ -369,19 +436,100 @@ class TestRLLibTrainerImport:
         manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
         assert manifest["observation_schema_id"] == EVENTSAT_OBS_SCHEMA_ID
 
-    def test_episode_reward_mean_reads_env_runner_metric(self, tmp_path) -> None:
+    def test_intermediate_checkpoints_follow_sampled_step_interval(self, tmp_path) -> None:
+        import json
+
+        from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
+        from src.core.config_loader import load_config
+        from src.rl.policy_mapping import PolicySharingConfig
+
+        class FakeAlgo:
+            def save(self, path):
+                return path
+
+        disabled = RLLibPPOTrainer(
+            load_config("configs/experiments/eventsat_sas_ao_rl.yaml"),
+            checkpoint_dir=tmp_path / "disabled",
+        )
+        assert disabled._maybe_save_intermediate_checkpoint(
+            FakeAlgo(), PolicySharingConfig(), ["shared_policy"], 60_000, 1_000_000
+        ) is None
+        assert not (tmp_path / "disabled").exists()
+
+        config = load_config("configs/experiments/eventsat_sas_ao_rl.yaml")
+        config.behaviour_config["checkpoint_every_timesteps"] = 50_000
+        trainer = RLLibPPOTrainer(config, checkpoint_dir=tmp_path)
+        trainer._policy_observation_shapes = {"shared_policy": [33]}
+        trainer._policy_action_nvec = {"shared_policy": [7]}
+
+        saved = [
+            trainer._maybe_save_intermediate_checkpoint(
+                FakeAlgo(), PolicySharingConfig(), ["shared_policy"], steps, 1_000_000
+            )
+            # 204,800 crosses 150k and 200k in one iteration; the last step is
+            # covered by the final save.
+            for steps in (40_960, 53_248, 98_304, 204_800, 1_003_520)
+        ]
+
+        assert [path is not None for path in saved] == [False, True, False, True, False]
+        for steps in (53_248, 204_800):
+            step_dir = tmp_path / f"step_{steps:07d}"
+            manifest = json.loads((step_dir / "manifest.json").read_text(encoding="utf-8"))
+            assert manifest["sampled_steps"] == steps
+            assert manifest["checkpoint_path"] == str(step_dir)
+            assert manifest["policy_observation_shapes"] == {"shared_policy": [33]}
+        assert not (tmp_path / "manifest.json").exists()
+
+    @pytest.mark.parametrize("container", [None, "env_runners", "sampler_results"])
+    @pytest.mark.parametrize("last_reward", [-94.25, 0.0])
+    def test_episode_reward_last_ignores_smoothed_mean(
+        self, tmp_path, container, last_reward
+    ) -> None:
         from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
 
         trainer = RLLibPPOTrainer(
             _minimal_config(max_steps=2), timesteps=1, checkpoint_dir=tmp_path
         )
 
-        assert trainer._episode_reward_mean({"episode_reward_mean": 1.25}) == 1.25
-        assert trainer._episode_reward_mean({"env_runners": {"episode_reward_mean": -0.5}}) == -0.5
-        assert (
-            trainer._episode_reward_mean({"env_runners": {"episode_return_mean": -0.75}}) == -0.75
+        metrics = {
+            "episode_reward_mean": -49.0,
+            "hist_stats": {"episode_reward": [-44.0, -50.0, last_reward]},
+        }
+        result = metrics if container is None else {container: metrics}
+        assert trainer._episode_metrics_last(result)["reward"] == last_reward
+
+    def test_episode_reward_last_waits_for_completed_episode(self, tmp_path) -> None:
+        from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
+
+        trainer = RLLibPPOTrainer(
+            _minimal_config(max_steps=2), timesteps=1, checkpoint_dir=tmp_path
         )
-        assert trainer._episode_reward_mean({}) is None
+        assert trainer._episode_metrics_last({}) is None
+        assert trainer._episode_metrics_last({"episode_reward_mean": -49.0}) is None
+        assert trainer._episode_metrics_last(
+            {"env_runners": {"hist_stats": {"episode_reward": []}}}
+        ) is None
+
+    def test_episode_diagnostics_stay_aligned_with_reward(self, tmp_path) -> None:
+        from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
+
+        trainer = RLLibPPOTrainer(_minimal_config(), checkpoint_dir=tmp_path)
+        history = {
+            "episode_reward": [-40.0, -51.0],
+            "eventsat_downlinked_mb": [6.0, 0.0],
+            "eventsat_failed_action_penalty": [-0.1, -0.6],
+            "eventsat_observations": [4.0, 1.0],
+        }
+        result = {"env_runners": {"hist_stats": history}}
+        assert trainer._episode_metrics_last(result) == {
+            "reward": -51.0, "downlinked_mb": 0.0, "failed_action_penalty": -0.6,
+            "observations": 1.0, "comm_steps_in_contact": None,
+        }
+        history["episode_reward"].append(-52.0)
+        assert trainer._episode_metrics_last(result) == {
+            "reward": -52.0, "downlinked_mb": None, "failed_action_penalty": None,
+            "observations": None, "comm_steps_in_contact": None,
+        }
 
 
 class TestAUTOPSActorCriticModel:

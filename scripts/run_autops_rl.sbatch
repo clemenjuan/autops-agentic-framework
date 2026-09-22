@@ -7,7 +7,7 @@
 #   sbatch -p lrz-hgx-a100-80x4 scripts/run_autops_rl.sbatch
 
 ##SBATCH -p lrz-hgx-h100-94x4
-#SBATCH --job-name=autops-run
+#SBATCH --job-name=autops-rl-run
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8
@@ -26,6 +26,7 @@ MARKER_FILE="$PROJECT_DIR/.container_autops_pytorch_25_02_installed"
 
 # Default PPO training command.
 AUTOPS_CONFIG="configs/experiments/eventsat_sas_ao_rl.yaml"
+#AUTOPS_CONFIG="configs/diagnostics/eventsat_sas_ao_rl_shaped.yaml"
 AUTOPS_TIMESTEPS="10000000"
 TRAIN_COMMAND="autops train $AUTOPS_CONFIG --timesteps $AUTOPS_TIMESTEPS"
 EVAL_COMMAND="autops run $AUTOPS_CONFIG"

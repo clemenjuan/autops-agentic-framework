@@ -5,10 +5,12 @@ from __future__ import annotations
 from typing import Any, Dict, List, Tuple
 
 try:
+    from ray.rllib.algorithms.callbacks import DefaultCallbacks
     from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
     RLLIB_AVAILABLE = True
 except ImportError:
+    DefaultCallbacks = object  # type: ignore[misc,assignment]
     MultiAgentEnv = object  # type: ignore[misc,assignment]
     RLLIB_AVAILABLE = False
 
@@ -21,6 +23,69 @@ from src.core.config_loader import ExperimentConfig, validate_runtime_support
 from src.rl.space_adapters import RLSpaceAdapter, make_space_adapter
 
 _GROUND_ONLY_PARADIGMS = {"autonomous_ground", "conventional_ground"}
+
+# Per-episode EventSat behaviour counters for training logs. Physical contact
+# truth is used only here, never as a policy input.
+_FAILED_MODE_KEYS = {
+    "payload_observe": "failed_observe",
+    "payload_compress": "failed_compress",
+    "payload_detect": "failed_detect",
+    "payload_send": "failed_send",
+    "communication": "failed_comm",
+}
+
+
+def _empty_eventsat_diagnostics() -> Dict[str, float]:
+    keys = (
+        "downlinked_mb",
+        "failed_action_penalty",
+        "observations",
+        "compressions",
+        "settling_steps",
+        "comm_steps_in_contact",
+        "comm_steps_no_contact",
+        *_FAILED_MODE_KEYS.values(),
+        "failed_clamped",
+        "final_raw_mb",
+        "final_compressed_mb",
+        "final_obc_mb",
+    )
+    return {key: 0.0 for key in keys}
+
+
+def _accumulate_eventsat_diagnostics(
+    diagnostics: Dict[str, float], info: Dict[str, Any]
+) -> None:
+    """Add one EventSat step; downlink and buffer levels in ``info`` are totals."""
+    diagnostics["downlinked_mb"] = float(info["data_downlinked_mb"])
+    penalty = float(info["failed_action_penalty"])
+    diagnostics["failed_action_penalty"] += penalty
+    mode = info.get("resolved_mode")
+    diagnostics["observations"] += float(bool(info.get("observation_accepted")))
+    diagnostics["compressions"] += float(bool(info.get("compression_completed")))
+    diagnostics["settling_steps"] += float(bool(info.get("in_transition")))
+    if mode == "communication":
+        if info.get("communication_failure") == "no_contact":
+            diagnostics["comm_steps_no_contact"] += 1.0
+        elif info.get("pass_active"):
+            diagnostics["comm_steps_in_contact"] += 1.0
+    if info.get("failed_action"):
+        # A failed charging step is an operational command clamped to charging.
+        diagnostics[_FAILED_MODE_KEYS.get(mode, "failed_clamped")] += 1.0
+    diagnostics["final_raw_mb"] = float(info.get("jetson_raw_mb", 0.0))
+    diagnostics["final_compressed_mb"] = float(info.get("jetson_compressed_mb", 0.0))
+    diagnostics["final_obc_mb"] = float(info.get("obc_data_mb", 0.0))
+
+
+class AUTOPSEpisodeDiagnostics(DefaultCallbacks):
+    """Attach EventSat totals to each completed RLlib episode (PPO, Schulman 2017)."""
+
+    def on_episode_end(self, *, episode, base_env, env_index, **kwargs) -> None:
+        if isinstance(episode, Exception):
+            return
+        env = base_env.get_sub_environments()[env_index]
+        for key, value in env.get_episode_diagnostics().items():
+            episode.hist_data[f"eventsat_{key}"] = [value]
 
 
 class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
@@ -97,6 +162,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             agent_id: self._adapter_for(agent_id).action_space for agent_id in self.possible_agents
         }
         self._last_observation: Any = None
+        self._episode_diagnostics: Dict[str, float] = {}
 
     def reset(
         self,
@@ -111,6 +177,11 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             self._operations_paradigm.reset()
         self.agents = list(self.possible_agents)
         self._last_observation = self._environment.reset(seed=seed)
+        self._episode_diagnostics = (
+            _empty_eventsat_diagnostics()
+            if self.config.environment.scenario == "eventsat"
+            else {}
+        )
         bind_communication_topology(self._organization, self._environment)
         self._last_observation = self._environment.get_observation()
         observations = self._encode_current_observations(done=False)
@@ -168,6 +239,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             ground_pass_active,
         )
         step_result = self._environment.step(env_actions)
+        if self._episode_diagnostics:
+            # Read before dropping terminal observations/infos.
+            _accumulate_eventsat_diagnostics(self._episode_diagnostics, step_result.info)
         self._last_observation = step_result.observation
         done = bool(self._environment.is_done())
 
@@ -196,6 +270,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
 
     def render(self) -> None:
         return None
+
+    def get_episode_diagnostics(self) -> Dict[str, float]:
+        return dict(self._episode_diagnostics)
 
     def close(self) -> None:
         return None

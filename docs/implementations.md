@@ -698,6 +698,18 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
 - **Output**: `data/trained_models/<experiment_id>/` containing an RLlib checkpoint and manifest
+- **Training progress**: the log line shows `last_episode_reward` (undiscounted return of
+  the last completed episode, `n/a` before the first) and, for EventSat, the episode's
+  delivered MB, failed-action penalty, observations and in-contact communication steps.
+  Display only; PPO updates are unchanged.
+- **EventSat episode counters**: `AUTOPSEpisodeDiagnostics` writes per-episode totals to
+  `hist_stats.eventsat_*` (downlink, observations, compressions, settling steps,
+  communication in/out of contact, failed actions by mode, final buffers). They read step
+  `info` only, never a policy input; failed actions use the reward-independent
+  `info["failed_action"]` flag (`is_failed_action`), so they are counted under any reward.
+- **Intermediate checkpoints**: `checkpoint_every_timesteps` (default 0) saves
+  `step_<sampled_steps>` snapshots with their own manifest; evaluate one by setting
+  `representation_config.checkpoint_path`, to evaluate policies other than the final one.
 - **Bridge**: `src/rl/rllib_env.py` exposes AUTOPS as an RLlib `MultiAgentEnv`; `src/rl/policy_mapping.py` controls shared, role-based, or per-agent policies.
 - **Schema contract**: manifests include the observation schema identifier plus each policy's observation shape and action `nvec`. SSA inference requires `ssa_local_compact_v1` with the exact expected shape, so pre-30D checkpoints fail with an explicit compatibility error.
 
