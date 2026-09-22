@@ -674,8 +674,8 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
             state=state, loop_type="sda", memory=None, enrichments={}, loop_metadata={}
         )
         action = self.repr.select_action(context)
-        # Should be grounded to charging (no pass)
-        self.assertEqual(action["eventsat_0"]["mode"], "charging")
+        # The environment must observe and price the radio attempt, even without a pass.
+        self.assertEqual(action["eventsat_0"]["mode"], "communication")
         self.repr._policy.get_action = original_get_action
 
     def test_reason_returns_list(self):

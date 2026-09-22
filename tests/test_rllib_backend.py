@@ -199,14 +199,18 @@ class TestRLLibEnv:
                 memory=None,
             )
         )
-        assert evaluation_action == {"eventsat_0": {"mode": "charging"}}
+        assert evaluation_action == {"eventsat_0": {"mode": "communication"}}
 
         _, rewards, _, _, infos = train_env.step({"central_agent": np.asarray([1])})
         assert train_obs["central_agent"].shape == (25,)
-        assert infos["central_agent"]["requested_mode"] == "charging"
-        assert infos["central_agent"]["resolved_mode"] == "charging"
+        assert infos["central_agent"]["requested_mode"] == "communication"
+        assert infos["central_agent"]["resolved_mode"] == "communication"
+        assert infos["central_agent"]["communication_failure"] == "no_contact"
+        assert infos["central_agent"]["step_downlinked_mb"] == 0.0
         assert infos["central_agent"]["constraint_violation"] is False
-        assert rewards["central_agent"] == pytest.approx(0.0)
+        expected = -train_env._environment.reward_fn.failed_action_penalty
+        expected *= train_env._environment.reward_fn.reward_scale
+        assert rewards["central_agent"] == pytest.approx(expected)
 
     def test_terminal_step_infos_match_returned_observations(self) -> None:
         pytest.importorskip("gymnasium")

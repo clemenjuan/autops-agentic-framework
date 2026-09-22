@@ -255,10 +255,12 @@ Single-satellite and one-agent-per-satellite cases preserve the legacy
 - **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 25->256->256 (Tanh, orthogonal init), one 7-logit actor head, one critic head. The implementation still builds one head per declared categorical action dimension.
 - **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-lambda (lambda=0.95) and a categorical mode log-probability.
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
-- **Symbolic grounding** (same constraints as LLMEventSat):
+- **RL safety grounding**:
   - Anomaly → forced safe (cannot be overridden)
   - SoC < 0.20 → forced charging
-  - Communication without active pass → forced charging
+  - Communication without an active pass is a radio attempt, not a clamp: it settles,
+    pays radio power, delivers nothing and reports `communication_failure: no_contact`
+    as a failed action (not an M-13 charging clamp). No action mask is added.
   - The controller-visible shield is a shared EventSat RL action-contract helper:
     it is applied after PPO action decoding in both the RLlib training bridge and
     checkpoint evaluation. The environment still applies its representation-neutral
@@ -893,6 +895,16 @@ is a separate research question on optimal uplink timing.
 - **Experiment log** (`data/results/<exp_id>/experiment.log`): Full timestamped
   log including anomaly injection/clearance, component initialization, and
   (at DEBUG level) LLM prompt summaries and responses.
+
+### EventSat diagnostic initial conditions
+
+`environment.scenario_config` accepts `initial_obc_data_mb`,
+`initial_jetson_compressed_mb` and integer `initial_raw_observations` (all default 0)
+to start an episode with preloaded science data. Values must be finite and within
+OBC/Jetson capacity; reset restores product counters and raw-equivalent provenance
+without counting the preloaded data as capture or delivery. They are engineering
+diagnostics (e.g. isolating the downlink stage), not O-framework components, and are
+unused by the benchmark configs.
 
 ---
 

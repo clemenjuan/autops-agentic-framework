@@ -38,6 +38,7 @@ Data transfer (payload_send):
 """
 from __future__ import annotations
 import logging, random
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
@@ -140,6 +141,21 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.observation_size_mb = stor.get("observation_size_mb", 9.41)  # Raw data size per observation (PDR measurement)
         # P3: compression ratio 
         self.compression_ratio = stor.get("compression_ratio", 1)  # For compatibility, but PDR measurement: 6.64 MB raw → 1.84 MB compressed = 5.11
+        # Diagnostic initial condition: preloaded compressed science data, not
+        # observations acquired in this episode. Canonical episodes start empty.
+        self.initial_obc_data_mb = float(config.get("initial_obc_data_mb", 0.0))
+        if not math.isfinite(self.initial_obc_data_mb) or not 0 <= self.initial_obc_data_mb <= self.storage_capacity_mb:
+            raise ValueError("initial_obc_data_mb must be finite and within OBC capacity")
+        self.initial_jetson_compressed_mb = float(config.get("initial_jetson_compressed_mb", 0.0))
+        raw_count = float(config.get("initial_raw_observations", 0))
+        if not math.isfinite(raw_count) or raw_count < 0 or not raw_count.is_integer():
+            raise ValueError("initial_raw_observations must be a non-negative integer")
+        self.initial_raw_observations = int(raw_count)
+        initial_jetson_mb = self.initial_jetson_compressed_mb + raw_count * self.observation_size_mb
+        if (not math.isfinite(self.initial_jetson_compressed_mb)
+                or self.initial_jetson_compressed_mb < 0
+                or initial_jetson_mb > self.jetson_capacity_mb):
+            raise ValueError("initial Jetson data must be finite and within capacity")
         # P3: Jetson→OBC transfer rate (CAN bus, ~1 MB/s by default).
         self.jetson_to_obc_rate_kbps = stor.get("jetson_to_obc_rate_kbps", 8000)
 
@@ -251,20 +267,22 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.current_step = 0
         self.battery_soc = self.initial_soc
         # 3-pool storage reset
-        self.jetson_raw_mb = 0.0
-        self.jetson_compressed_mb = 0.0
-        self.obc_data_mb = 0.0
-        self.data_stored_mb = 0.0
+        self.jetson_raw_mb = self.initial_raw_observations * self.observation_size_mb
+        self.jetson_compressed_mb = self.initial_jetson_compressed_mb
+        self.obc_data_mb = self.initial_obc_data_mb
+        self.data_stored_mb = self.obc_data_mb + self.jetson_raw_mb + self.jetson_compressed_mb
         self.data_downlinked_mb = 0.0
         self.total_raw_captured_mb = 0.0
-        self.obc_raw_equivalent_mb = 0.0
+        self.obc_raw_equivalent_mb = self.initial_obc_data_mb * self.compression_ratio
         self.downlink_raw_equivalent_mb = 0.0
-        self.uncompressed_observations = 0
+        self.uncompressed_observations = self.initial_raw_observations
         self.total_observation_s = 0.0
         self.current_mode = "charging"
         self.compression_progress = 0
         self.detection_progress = 0
-        self.undetected_observations = 0
+        self.undetected_observations = int(
+            self.initial_jetson_compressed_mb * self.compression_ratio / self.observation_size_mb
+        )
         self.total_detections = 0
         self.total_pass_duration_s = 0.0
         self.transition_steps_remaining = 0
@@ -742,8 +760,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             return "charging"
         if requested == "payload_send" and self.battery_soc < self.send_min_soc:
             return "charging"
-        if requested == "communication" and not self._is_ground_pass_active():
-            return "charging"
+        # Contact gates delivery, not radio activation. An out-of-contact attempt
+        # pays communication power after settling and reports a failed action.
         return requested
 
     def _update_battery(self, mode, in_sun) -> Dict[str, float]:
@@ -961,6 +979,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["data_sent_mb"] = sent_mb
 
         elif mode == "communication":
+            action_info["data_downlinked_mb"] = 0.0
+            action_info["communication_failure"] = "no_contact"
             if pass_active:
                 # P3: downlink from OBC at the S-band protocol rate, over only the
                 # seconds actually in contact this step (short passes downlink less).
@@ -974,6 +994,9 @@ class EventSatEnvironment(SatelliteEnvironment):
                 if outcome.accepted:
                     self._accept_pipeline_state(outcome.state)
                 action_info["data_downlinked_mb"] = outcome.transferred_mb
+                action_info["communication_failure"] = (
+                    None if outcome.transferred_mb > 0.0 else outcome.reason
+                )
 
         # --- Reward computation ---
         obs_hours = self.total_observation_s / 3600.0

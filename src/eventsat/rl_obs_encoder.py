@@ -51,15 +51,13 @@ def ground_eventsat_mode(
 ) -> str:
     """Apply the controller-visible EventSat safety shield to one mode.
 
-    This deliberately uses the onboard contact-window estimate, rather than
-    the simulator's hidden physical-link truth. The environment remains the
-    final physical authority, but PPO training and checkpoint evaluation must
-    execute the same shielded action for a given controller state.
+    Contact availability is an observation, not a command veto: a radio attempt
+    without contact must reach the environment and incur its physical cost and
+    failed-action reward. Keep the contact argument for caller compatibility.
+    Training and evaluation retain the same health/battery protections.
     """
     if health_status != "nominal":
         return "safe"
-    if mode == "communication" and not ground_pass_active:
-        return "charging"
     if battery_soc < battery_min_soc and mode != "charging":
         return "charging"
     return mode

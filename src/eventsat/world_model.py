@@ -1438,8 +1438,7 @@ class _WorldModelPlanner:
         critical_soc = _float(sim.get("battery_min_soc"), 0.20)
         if soc <= critical_soc and requested != "safe":
             return "safe", True
-        if requested == "communication" and not sim.get("ground_pass_active", False):
-            return "charging", True
+        # Match the environment: lack of contact prevents delivery, not radio use.
         configured_minima = sim.get("mode_min_battery_soc") or {}
         observe_min = _float(configured_minima.get("payload_observe"), 0.40)
         compress_min = _float(configured_minima.get("payload_compress"), 0.30)

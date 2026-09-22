@@ -353,6 +353,53 @@ class TestIntegrationWithEnv:
         assert result.info["constraint_violation"] is True
         assert result.rewards["total"] == pytest.approx(-0.1)
 
+    @pytest.mark.parametrize("onboard", [False, True])
+    def test_out_of_contact_attempt_pays_radio_power_and_preserves_data(self, monkeypatch, onboard):
+        env = self._constraint_reward_env()
+        env.consumption = {
+            "communication": {"eclipse_w": 33.24},
+            "charging": {"eclipse_w": 4.32},
+        }
+        env.onboard_compute_active = onboard
+        env.battery_soc = 0.8
+        env.obc_data_mb = 5.0
+        monkeypatch.setattr(env, "_is_ground_pass_active", lambda: False)
+        monkeypatch.setattr(env, "_is_in_sunlight", lambda: False)
+
+        attempt = env.step({"eventsat_0": {"mode": "communication"}})
+        energy = (33.24 + (env.onboard_compute_w if onboard else 0)) / 60.0
+        assert attempt.info["requested_mode"] == "communication"
+        assert attempt.info["resolved_mode"] == "communication"
+        assert attempt.info["communication_failure"] == "no_contact"
+        assert attempt.info["step_downlinked_mb"] == 0.0
+        assert attempt.info["gross_energy_consumed_wh"] == pytest.approx(energy)
+        assert env.battery_soc == pytest.approx(0.8 - energy / env.battery_capacity_wh)
+        assert env.obc_data_mb == 5.0
+        assert attempt.rewards["total"] == pytest.approx(-0.1)
+        assert attempt.info["constraint_violation"] is False
+
+        charging = env.step({"eventsat_0": {"mode": "charging"}})
+        assert charging.info["gross_energy_consumed_wh"] < energy
+        assert charging.rewards["total"] == pytest.approx(0.0)
+
+    def test_out_of_contact_attempt_respects_settling_and_safe_mode(self, monkeypatch):
+        env = self._constraint_reward_env()
+        env.settling_time_steps = 3
+        env.attitude_maneuver_modes = {"communication", "payload_observe"}
+        monkeypatch.setattr(env, "_is_ground_pass_active", lambda: False)
+        results = [env.step({"eventsat_0": {"mode": "communication"}}) for _ in range(4)]
+        assert [r.info["resolved_mode"] for r in results] == [
+            "charging", "charging", "charging", "communication",
+        ]
+        assert all("communication_failure" not in r.info for r in results[:3])
+        assert results[-1].info["communication_failure"] == "no_contact"
+        env.settling_time_steps = 0
+        env.battery_soc = 0.19
+        protected = env.step({"eventsat_0": {"mode": "communication"}})
+        assert protected.info["resolved_mode"] == "safe"
+        assert "communication_failure" not in protected.info
+        assert protected.rewards["total"] == pytest.approx(-0.3)
+
     def test_env_does_not_misclassify_forced_safe_as_constraint_failure(self):
         env = self._constraint_reward_env()
         env.battery_soc = 0.19

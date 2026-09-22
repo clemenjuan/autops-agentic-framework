@@ -9,6 +9,54 @@ from src.core.decision_procedure.context import DecisionContext
 from src.eventsat.env import EventSatEnvironment
 
 
+def test_preloaded_obc_reset_preserves_provenance():
+    env = EventSatEnvironment(config={"initial_obc_data_mb": 20.0})
+    env.reset(seed=42)
+    assert env.obc_data_mb == env.data_stored_mb == 20.0
+    assert env.obc_raw_equivalent_mb == pytest.approx(20 * env.compression_ratio)
+    assert env.total_raw_captured_mb == env.data_downlinked_mb == 0.0
+    env.obc_data_mb = 0.0
+    env.reset(seed=42)
+    assert env.obc_data_mb == 20.0
+    default = EventSatEnvironment(config={})
+    default.reset(seed=42)
+    assert default.obc_data_mb == 0.0
+
+
+@pytest.mark.parametrize("amount", [-1, float("nan"), float("inf"), 1e9])
+def test_preloaded_obc_rejects_invalid_amount(amount):
+    with pytest.raises(ValueError, match="initial_obc_data_mb"):
+        EventSatEnvironment(config={"initial_obc_data_mb": amount})
+
+
+def test_preloaded_jetson_products_can_be_processed():
+    env = EventSatEnvironment(config={"initial_jetson_compressed_mb": 20,
+                                     "initial_raw_observations": 12})
+    env.reset(seed=42)
+    assert env.uncompressed_observations == 12
+    assert env.jetson_raw_mb == pytest.approx(12 * env.observation_size_mb)
+    assert env.jetson_compressed_mb == 20
+    assert env.data_stored_mb == pytest.approx(20 + 12 * env.observation_size_mb)
+    assert env.total_raw_captured_mb == env.data_downlinked_mb == 0
+    from src.eventsat.transitions import apply_compress, apply_can_transfer
+    compressed = apply_compress(env._pipeline_state(), env._pipeline_parameters())
+    assert compressed.accepted
+    sent = apply_can_transfer(compressed.state, env._pipeline_parameters())
+    assert sent.accepted and sent.state["obc_data_mb"] > 0
+
+
+@pytest.mark.parametrize("config", [
+    {"initial_raw_observations": -1}, {"initial_raw_observations": 0.5},
+    {"initial_raw_observations": float("nan")},
+    {"initial_jetson_compressed_mb": -1},
+    {"initial_jetson_compressed_mb": float("inf")},
+    {"initial_raw_observations": 10**9},
+])
+def test_preloaded_jetson_rejects_invalid_products(config):
+    with pytest.raises(ValueError):
+        EventSatEnvironment(config=config)
+
+
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------
@@ -343,12 +391,14 @@ class TestDataPipeline:
         # No pass active in default fallback, so test with manual obc manipulation
         env.obc_data_mb = 5.0
         env.data_stored_mb = 15.0
-        # With no ground pass, comm falls back to charging
+        # Without a pass, the radio attempt cannot deliver either pool.
         result = env.step({"eventsat_0": {"mode": "communication"}})
-        # Resolved to charging (no pass), so no data downlinked; physical gate is counted.
+        # No command override: the failed attempt keeps its communication cost.
         assert env.data_downlinked_mb == pytest.approx(initial_dl, abs=0.01)
-        assert result.info["forced"] is True
-        assert result.info["forced_mode"] == pytest.approx(1.0)
+        assert result.info["forced"] is False
+        assert result.info["forced_mode"] == pytest.approx(0.0)
+        assert result.info["communication_failure"] == "no_contact"
+        assert env.obc_data_mb == 5.0
 
     def test_data_stored_mb_is_total(self):
         """data_stored_mb = jetson_raw + jetson_compressed + obc_data."""
