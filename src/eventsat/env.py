@@ -215,6 +215,8 @@ class EventSatEnvironment(SatelliteEnvironment):
         # P2: transition state
         self.transition_steps_remaining = 0
         self.previous_mode = "charging"
+        # Commanded attitude target while settling; flight software knows it.
+        self.transition_target_mode: Optional[str] = None
         # Misc
         self._orbital_ctx: Optional[OrbitalContext] = None
         self._onboard_contact_plan: tuple[Dict[str, Any], ...] = ()
@@ -287,6 +289,7 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.total_pass_duration_s = 0.0
         self.transition_steps_remaining = 0
         self.previous_mode = "charging"
+        self.transition_target_mode = None
         self.active_anomaly = None
         self.forced_safe_steps = 0
         self._last_anomaly_duration_steps = 0
@@ -393,16 +396,19 @@ class EventSatEnvironment(SatelliteEnvironment):
                 # so the next step doesn't re-trigger the transition
                 if self.transition_steps_remaining == 0:
                     self.previous_mode = resolved_mode
+                    self.transition_target_mode = None
             elif self._requires_attitude_maneuver(self.previous_mode, resolved_mode):
                 # New transition needed: start it, first step is non-productive
                 self.transition_steps_remaining = max(0, self.settling_time_steps - 1)
                 effective_mode = "charging"
                 in_transition = True
+                self.transition_target_mode = resolved_mode
                 # A one-step transition has no later countdown branch in which
                 # to latch the target. Without this, settling_time_steps == 1
                 # restarted forever and the productive mode was unreachable.
                 if self.transition_steps_remaining == 0:
                     self.previous_mode = resolved_mode
+                    self.transition_target_mode = None
             else:
                 effective_mode = resolved_mode
         else:
@@ -558,6 +564,9 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "battery_min_soc": self.min_soc,
                 "settling_time_steps": self.settling_time_steps,
                 "transition_steps_remaining": self.transition_steps_remaining,
+                # Mode the in-progress slew was commanded towards (None when
+                # not settling): onboard ADCS mode-manager state.
+                "transition_target_mode": self.transition_target_mode,
                 "attitude_maneuver_modes": sorted(self.attitude_maneuver_modes),
                 "previous_mode": self.previous_mode,
                 "mode_min_battery_soc": {

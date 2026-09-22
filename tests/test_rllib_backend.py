@@ -103,7 +103,7 @@ class TestRLLibEnv:
 
         assert env.possible_agents == ["central_agent"]
         assert list(obs) == ["central_agent"]
-        assert obs["central_agent"].shape == (25,)
+        assert obs["central_agent"].shape == (33,)
         assert list(env.action_space.nvec) == [7]
         assert list(env.action_spaces["central_agent"].nvec) == [7]
         assert env._space_adapter.decode_action([0]) == {"eventsat_0": {"mode": "charging"}}
@@ -202,7 +202,7 @@ class TestRLLibEnv:
         assert evaluation_action == {"eventsat_0": {"mode": "communication"}}
 
         _, rewards, _, _, infos = train_env.step({"central_agent": np.asarray([1])})
-        assert train_obs["central_agent"].shape == (25,)
+        assert train_obs["central_agent"].shape == (33,)
         assert infos["central_agent"]["requested_mode"] == "communication"
         assert infos["central_agent"]["resolved_mode"] == "communication"
         assert infos["central_agent"]["communication_failure"] == "no_contact"
@@ -327,6 +327,29 @@ class TestRLLibTrainerImport:
         assert manifest["observation_schema_id"] == SSA_OBS_SCHEMA_ID
         assert manifest["policy_observation_shapes"] == {"shared_policy": [90]}
         assert manifest["policy_action_nvec"] == {"shared_policy": [8, 8, 8]}
+
+    def test_eventsat_manifest_records_log_observation_schema(self, tmp_path) -> None:
+        import json
+
+        from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer
+        from src.core.config_loader import load_config
+        from src.eventsat.rl_obs_encoder import EVENTSAT_OBS_SCHEMA_ID
+        from src.rl.policy_mapping import PolicySharingConfig
+
+        trainer = RLLibPPOTrainer(
+            load_config("configs/experiments/eventsat_sas_ao_rl.yaml"),
+            checkpoint_dir=tmp_path,
+        )
+        trainer._policy_observation_shapes = {"shared_policy": [33]}
+        trainer._policy_action_nvec = {"shared_policy": [7]}
+        trainer._write_manifest(
+            str(tmp_path / "checkpoint_000001"),
+            PolicySharingConfig(),
+            ["shared_policy"],
+        )
+
+        manifest = json.loads((tmp_path / "manifest.json").read_text(encoding="utf-8"))
+        assert manifest["observation_schema_id"] == EVENTSAT_OBS_SCHEMA_ID
 
     def test_episode_reward_mean_reads_env_runner_metric(self, tmp_path) -> None:
         from src.core.behaviour.rllib_training_pipeline import RLLibPPOTrainer

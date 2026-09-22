@@ -135,7 +135,7 @@ No operations paradigm or environment wrapper forces a communication action at a
 
 **Status:** implemented | **Scale:** configurable N satellites | **Primary use:** multi-agent RL / RLlib bridge validation
 
-MultiEventsat composes N EventSat-class satellites (`sat_0` ... `sat_{N-1}`) inside one integrated environment. Each satellite keeps the EventSat power, data-pipeline, anomaly, reward, and 25D RL observation contract, while the environment exposes per-satellite `SatelliteState` and reward dictionaries for the multi-agent bridge.
+MultiEventsat composes N EventSat-class satellites (`sat_0` ... `sat_{N-1}`) inside one integrated environment. Each satellite keeps the EventSat power, data-pipeline, anomaly, reward, and 33D RL observation contract, while the environment exposes per-satellite `SatelliteState` and reward dictionaries for the multi-agent bridge.
 
 ### Implementation
 

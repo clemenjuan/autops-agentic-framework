@@ -15,6 +15,7 @@ import numpy as np
 
 from src.eventsat.rl_obs_encoder import (
     ACTION_DIMS,
+    EVENTSAT_OBS_SCHEMA_ID,
     MODE_LIST,
     OBS_DIM,
     _DEFAULT_JETSON_CAPACITY_MB,
@@ -58,6 +59,7 @@ _EVENTSAT_RL_SPEC = RLSpec(
     OBS_DIM,
     list(ACTION_DIMS),
     encode_eventsat_rl_obs,
+    EVENTSAT_OBS_SCHEMA_ID,
 )
 _SSA_RL_SPEC = RLSpec(
     "ssa",

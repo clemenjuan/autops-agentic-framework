@@ -37,6 +37,7 @@ from src.core.representation import Representation
 from src.eventsat.neural_policy import RandomPolicy
 from src.eventsat.rl_obs_encoder import (
     ACTION_DIMS,
+    EVENTSAT_OBS_SCHEMA_ID,
     MODE_LIST,
     OBS_DIM,
     _DEFAULT_JETSON_CAPACITY_MB,
@@ -121,6 +122,7 @@ class SubsymbolicEventSat(Representation):
         if mock_mode:
             self._policy = RandomPolicy(action_dims=self._action_dims)
         elif checkpoint_path:
+            self._validate_checkpoint_manifest(checkpoint_path)
             try:
                 from src.eventsat.rllib_policy_adapter import RLLibPolicyAdapter
 
@@ -381,6 +383,49 @@ class SubsymbolicEventSat(Representation):
             self.close()
         except Exception:
             pass
+
+    def _validate_checkpoint_manifest(self, checkpoint_path: str | Path) -> None:
+        """Fail clearly when a checkpoint was trained on another observation MDP."""
+        path = Path(checkpoint_path).expanduser()
+        candidates = [path / "manifest.json", path.parent / "manifest.json"]
+        experiment_id = self.config.get("experiment_id")
+        trained_model_dir = self.config.get(
+            "trained_model_dir",
+            f"data/trained_models/{experiment_id}" if experiment_id else None,
+        )
+        if trained_model_dir:
+            candidates.append(Path(str(trained_model_dir)).expanduser() / "manifest.json")
+        manifest_path = next(
+            (candidate for candidate in candidates if candidate.is_file()),
+            None,
+        )
+        if manifest_path is None:
+            raise RuntimeError(
+                "EventSat RL checkpoint manifest is missing; checkpoints must declare "
+                f"observation schema '{EVENTSAT_OBS_SCHEMA_ID}' and policy shape."
+            )
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"EventSat RL checkpoint manifest is unreadable: {manifest_path}"
+            ) from exc
+
+        actual_schema = manifest.get("observation_schema_id")
+        if actual_schema != EVENTSAT_OBS_SCHEMA_ID:
+            raise RuntimeError(
+                "EventSat RL checkpoint observation schema mismatch: "
+                f"expected '{EVENTSAT_OBS_SCHEMA_ID}', got {actual_schema!r}. "
+                "Retrain the checkpoint with the current observation encoder."
+            )
+        shapes = manifest.get("policy_observation_shapes", {}) or {}
+        actual_shape = shapes.get(self._policy_id)
+        expected_shape = [self._obs_dim]
+        if list(actual_shape or []) != expected_shape:
+            raise RuntimeError(
+                "EventSat RL checkpoint observation shape mismatch for policy "
+                f"'{self._policy_id}': expected {expected_shape}, got {actual_shape!r}."
+            )
 
     def _find_default_checkpoint(self) -> Optional[str]:
         experiment_id = self.config.get("experiment_id")

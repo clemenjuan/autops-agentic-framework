@@ -1636,7 +1636,7 @@ def test_eventsat_rl_spec_is_mode_only() -> None:
     spec = get_rl_spec("eventsat")
     assert len(spec.mode_list) == 7 and "isl_share" not in spec.mode_list
     assert spec.action_dims == [7]
-    assert spec.obs_dim == 25
+    assert spec.obs_dim == 33
     # multieventsat reuses the same RL contract.
     assert get_rl_spec("multieventsat") is spec
 
@@ -1895,7 +1895,7 @@ def test_eventsat_encoder_parity_adapter_vs_representation() -> None:
     )
     adapter_vec = adapter.encode_observation(obs)
     rep_vec = rep.encode_observation(obs)["_obs_vector"]
-    assert adapter_vec.shape == rep_vec.shape == (25,)
+    assert adapter_vec.shape == rep_vec.shape == (33,)
     assert np.allclose(adapter_vec, rep_vec)
 
 

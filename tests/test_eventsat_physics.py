@@ -305,6 +305,70 @@ class TestModeTransition:
         assert productive.info["in_transition"] is False
         assert productive.info["observation_accepted"] is True
 
+    def test_transition_target_is_visible_only_while_settling(self):
+        env = self._make_env_with_transition(settling_steps=2)
+
+        def state():
+            meta = env.get_observation().constellation_state.satellites["eventsat_0"].metadata
+            return (
+                meta["transition_steps_remaining"],
+                meta["transition_target_mode"],
+                meta["previous_mode"],
+            )
+
+        assert state() == (0, None, "charging")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert state() == (1, "payload_observe", "charging")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert state() == (0, None, "payload_observe")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        # Leaving an attitude mode is also a commanded slew.
+        env.step({"eventsat_0": {"mode": "payload_compress"}})
+        assert state() == (1, "payload_compress", "payload_observe")
+        env.reset(seed=0)
+        assert env.transition_target_mode is None
+
+    def test_one_step_transition_never_exposes_stale_target(self):
+        env = self._make_env_with_transition(settling_steps=1)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert env.transition_target_mode is None
+
+    @pytest.mark.parametrize("legacy_features,observes", [(False, True), (True, False)])
+    def test_settling_features_let_memoryless_rule_finish_slew(
+        self, legacy_features, observes
+    ):
+        """Only features 25-32 distinguish an ongoing slew from idle charging."""
+        from src.eventsat.rl_obs_encoder import MODE_TO_IDX, encode_eventsat_rl_obs
+
+        env = self._make_env_with_transition(settling_steps=2)
+        observe_pointing = 26 + MODE_TO_IDX["payload_observe"]
+
+        def rule(vec):
+            continuing = vec[25] > 0.0 or vec[observe_pointing] == 1.0
+            # Command the slew only at step 0; afterwards rely on the observation.
+            return "payload_observe" if continuing or vec[9] == 0.0 else "charging"
+
+        for _ in range(4):
+            sat = env.get_observation().constellation_state.satellites["eventsat_0"]
+            vec = encode_eventsat_rl_obs(
+                sat.resources,
+                sat.metadata,
+                sat.status,
+                obc_cap=env.storage_capacity_mb,
+                jetson_cap=env.jetson_capacity_mb,
+                orbital_period=env.orbital_period_steps,
+                max_steps=env.max_steps,
+                compression_time=env.compression_time_factor,
+                detection_steps=env.detection_steps,
+                current_step=env.current_step,
+                detection_progress=env.detection_progress,
+            )
+            if legacy_features:
+                vec[25:] = 0.0
+            env.step({"eventsat_0": {"mode": rule(vec)}})
+
+        assert (env.total_observation_s > 0.0) is observes
+
     def test_no_transition_for_same_mode(self):
         """Staying in same mode incurs no overhead."""
         env = self._make_env_with_transition(settling_steps=2)

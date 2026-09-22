@@ -17,7 +17,7 @@ class AUTOPSActorCriticModel(TorchModelV2, nn.Module):
     """RLlib model matching the legacy ``representation.neural_policy.ActorCritic``.
 
     Architecture:
-    - Shared trunk: 25 -> 256 -> 256 with Tanh activations
+    - Shared trunk: obs_dim (EventSat: 33) -> 256 -> 256 with Tanh activations
     - One actor head per categorical action dimension (EventSat: one 7-logit head)
     - One critic head: scalar value
     - Orthogonal init: sqrt(2) trunk, 0.01 actor heads, 1.0 critic

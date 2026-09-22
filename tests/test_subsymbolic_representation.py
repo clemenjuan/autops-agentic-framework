@@ -606,7 +606,7 @@ class TestSubsymbolicEventSatBasic(unittest.TestCase):
     def test_obs_vector_shape(self):
         state = self.repr.encode_observation(self.obs)
         vec = state["_obs_vector"]
-        self.assertEqual(vec.shape, (25,))
+        self.assertEqual(vec.shape, (33,))
         self.assertEqual(vec.dtype, np.float32)
 
     def test_obs_vector_finite(self):
@@ -932,6 +932,7 @@ def test_all_eventsat_encoders_respect_declared_space_when_saturated():
     )
     from src.eventsat.gymnasium_wrapper import EventSatGymnasium
     from src.eventsat.rl import SubsymbolicEventSat
+    from src.eventsat.rl_obs_encoder import OBS_DIM
     from src.eventsat.world_model import eventsat_observation_to_vector
     from src.rl import observation_within_bounds
     from src.rl.space_adapters import EventSatSpaceAdapter, GYMNASIUM_AVAILABLE
@@ -1007,9 +1008,11 @@ def test_all_eventsat_encoders_respect_declared_space_when_saturated():
         "deployment": deployment.encode_observation(observation)["_obs_vector"],
         "world_model": eventsat_observation_to_vector(observation).obs25,
     }
+    # Option (a): RL encoders use the 33D schema, legacy encoders stay 25D.
+    sizes = {"space_adapter": OBS_DIM, "gym_wrapper": 25, "deployment": OBS_DIM, "world_model": 25}
     for name, vector in vectors.items():
         assert observation_within_bounds(
-            vector, size=25, signed_indices=(4, 5)
+            vector, size=sizes[name], signed_indices=(4, 5)
         ), name
         assert vector[17] == 2.0, name
 
@@ -1022,7 +1025,7 @@ def test_all_eventsat_encoders_respect_declared_space_when_saturated():
     }
     for name, vector in zero_capacity_vectors.items():
         assert observation_within_bounds(
-            vector, size=25, signed_indices=(4, 5)
+            vector, size=sizes[name], signed_indices=(4, 5)
         ), name
         assert vector[17] == 2.0, name
     if GYMNASIUM_AVAILABLE:
@@ -1032,8 +1035,159 @@ def test_all_eventsat_encoders_respect_declared_space_when_saturated():
         ).observation_space
         assert all(
             declared_space.contains(vector)
-            for vector in (*vectors.values(), *zero_capacity_vectors.values())
+            for source in (vectors, zero_capacity_vectors)
+            for vector in (source["space_adapter"], source["deployment"])
         )
+
+
+def test_rl_encoder_uses_log_product_scale_separately_from_world_model():
+    import math
+
+    import pytest
+
+    from src.core.satellite_env import (
+        ConstellationState,
+        EnvironmentObservation,
+        SatelliteState,
+    )
+    from src.eventsat.rl_obs_encoder import encode_eventsat_rl_obs
+    from src.eventsat.world_model import eventsat_observation_to_vector
+
+    compressed_mb = 9.41 / 5.11
+    metadata = {
+        "storage_capacity_mb": 4096.0,
+        "jetson_capacity_mb": 249036.8,
+        "observation_size_mb": 9.41,
+        "compression_ratio": 5.11,
+        "jetson_raw_mb": 9.41,
+        "jetson_compressed_mb": compressed_mb,
+        "max_achievable_downlink_mb": 1.8,
+    }
+
+    def encode(obc_mb, downlinked_mb):
+        resources = {
+            "battery_soc": 0.8,
+            "obc_data_mb": obc_mb,
+            "data_downlinked_mb": downlinked_mb,
+        }
+        return encode_eventsat_rl_obs(
+            resources,
+            metadata,
+            "charging",
+            obc_cap=4096.0,
+            jetson_cap=249036.8,
+            orbital_period=94.0,
+            max_steps=10080.0,
+            compression_time=2.0,
+            detection_steps=5.0,
+            current_step=0,
+            detection_progress=0.0,
+        ), resources
+
+    vec, resources = encode(compressed_mb, compressed_mb)
+    one_product = math.log(2.0)
+    assert vec[1] == pytest.approx(one_product / math.log1p(4096.0 / compressed_mb), rel=1e-5)
+    assert vec[2] == pytest.approx(one_product / math.log1p(249036.8 / 9.41), rel=1e-5)
+    assert vec[3] == pytest.approx(one_product / math.log1p(249036.8 / compressed_mb), rel=1e-5)
+    assert vec[17] == pytest.approx(vec[1])
+    # One product must be distinguishable from an empty buffer.
+    assert min(vec[1], vec[2], vec[3], vec[17]) > 0.05
+    two_products, _ = encode(2.0 * compressed_mb, 2.0 * compressed_mb)
+    assert two_products[1] > vec[1] and two_products[17] > vec[17]
+    empty, _ = encode(0.0, 0.0)
+    assert empty[1] == empty[17] == 0.0
+
+    sat = SatelliteState(
+        satellite_id="eventsat_0",
+        resources=resources,
+        status="charging",
+        metadata=metadata,
+    )
+    observation = EnvironmentObservation(
+        constellation_state=ConstellationState(
+            timestep=0,
+            epoch_seconds=0.0,
+            satellites={"eventsat_0": sat},
+            global_info={"max_steps": 10080},
+        )
+    )
+    # Option (a): world-model traces keep the legacy linear capacity fraction.
+    legacy = eventsat_observation_to_vector(observation).obs25
+    assert legacy[3] == pytest.approx(compressed_mb / 249036.8, rel=1e-5)
+
+
+def test_rl_encoder_distinguishes_attitude_settling_from_idle():
+    from src.eventsat.rl_obs_encoder import MODE_TO_IDX, OBS_DIM, encode_eventsat_rl_obs
+
+    def encode(**meta):
+        return encode_eventsat_rl_obs(
+            {"battery_soc": 0.8},
+            {"settling_time_steps": 2, **meta},
+            "charging",
+            obc_cap=4096.0,
+            jetson_cap=249036.8,
+            orbital_period=94.0,
+            max_steps=10080.0,
+            compression_time=2.0,
+            detection_steps=5.0,
+            current_step=0,
+            detection_progress=0.0,
+        )
+
+    idle = encode(transition_steps_remaining=0, previous_mode="charging", transition_target_mode=None)
+    slewing = encode(
+        transition_steps_remaining=1,
+        previous_mode="charging",
+        transition_target_mode="payload_observe",
+    )
+    latched = encode(
+        transition_steps_remaining=0,
+        previous_mode="payload_observe",
+        transition_target_mode=None,
+    )
+    observe = 26 + MODE_TO_IDX["payload_observe"]
+
+    assert idle.shape == (OBS_DIM,) == (33,)
+    # The legacy 25 features cannot tell these three decision states apart.
+    assert np.array_equal(idle[:25], slewing[:25])
+    assert np.array_equal(idle[:25], latched[:25])
+    assert (idle[25], idle[26 + MODE_TO_IDX["charging"]]) == (0.0, 1.0)
+    assert (slewing[25], slewing[observe]) == (0.5, 1.0)
+    assert (latched[25], latched[observe]) == (0.0, 1.0)
+
+
+def test_rl_deployment_rejects_checkpoint_from_other_observation_schema(tmp_path):
+    import json
+
+    import pytest
+
+    from src.eventsat.rl import SubsymbolicEventSat
+    from src.eventsat.rl_obs_encoder import EVENTSAT_OBS_SCHEMA_ID
+
+    deployment = SubsymbolicEventSat({"rl_mock": True})
+    checkpoint = tmp_path / "checkpoint_000001"
+    checkpoint.mkdir()
+    with pytest.raises(RuntimeError, match="manifest is missing"):
+        deployment._validate_checkpoint_manifest(checkpoint)
+
+    manifest_path = tmp_path / "manifest.json"
+    manifest = {
+        "observation_schema_id": None,
+        "policy_observation_shapes": {"shared_policy": [33]},
+    }
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="schema mismatch"):
+        deployment._validate_checkpoint_manifest(checkpoint)
+
+    manifest["observation_schema_id"] = EVENTSAT_OBS_SCHEMA_ID
+    manifest["policy_observation_shapes"] = {"shared_policy": [25]}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="shape mismatch"):
+        deployment._validate_checkpoint_manifest(checkpoint)
+
+    manifest["policy_observation_shapes"] = {"shared_policy": [33]}
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    deployment._validate_checkpoint_manifest(checkpoint)
 
 
 def test_rl_deployment_uses_environment_orbital_period_metadata():
@@ -1055,7 +1209,90 @@ def test_rl_deployment_uses_environment_orbital_period_metadata():
         SimpleNamespace(timestep=0),
     )
 
-    np.testing.assert_allclose(vector[[6, 7]], [0.5, 0.25])
+    # Eclipse timing stays linear; pass timing uses the v4 log scale over 92 steps.
+    np.testing.assert_allclose(
+        vector[[6, 7]], [0.5, np.log1p(23.0) / np.log1p(92.0)], rtol=1e-5
+    )
+
+
+def test_rl_pass_feature_uses_log_scale_over_orbital_period():
+    import math
+
+    import pytest
+
+    from src.eventsat.rl_obs_encoder import encode_eventsat_rl_obs
+
+    def feature(**meta):
+        return encode_eventsat_rl_obs(
+            {},
+            meta,
+            "charging",
+            obc_cap=4096.0,
+            jetson_cap=249036.8,
+            orbital_period=92.0,
+            max_steps=10080.0,
+            compression_time=2.0,
+            detection_steps=5.0,
+            current_step=0,
+            detection_progress=0.0,
+        )[7]
+
+    scale = math.log1p(92.0)
+    assert feature(time_to_next_pass=0) == 0.0
+    for steps in (1, 2, 3, 10):
+        assert feature(time_to_next_pass=steps) == pytest.approx(math.log1p(steps) / scale, rel=1e-5)
+    # The environment caps t at the orbital period; in-pass values refer to the next pass.
+    assert feature(time_to_next_pass=92) == pytest.approx(1.0)
+    assert feature(time_to_next_pass=551) == pytest.approx(1.0)
+    assert feature() == pytest.approx(1.0)
+    # Pre-pointing decision: 2 vs 3 steps must differ by far more than the old 0.011.
+    assert feature(time_to_next_pass=3) - feature(time_to_next_pass=2) > 0.06
+
+
+def test_rl_pass_feature_counts_down_to_real_contact():
+    import math
+
+    import pytest
+
+    from src.eventsat.env import EventSatEnvironment
+    from src.eventsat.rl_obs_encoder import encode_eventsat_rl_obs
+
+    env = EventSatEnvironment(
+        {
+            "scenario_config": "configs/scenarios/eventsat.yaml",
+            "max_steps": 2000,
+            "step_duration_s": 60,
+        }
+    )
+    env.reset(seed=42)
+    first = next(gp for gp in env._orbital_ctx.ground_passes if gp.start_step >= 5)
+    period = env.orbital_period_steps
+
+    values = {}
+    while env.current_step <= first.start_step:
+        remaining = first.start_step - env.current_step
+        if remaining <= 4:
+            sat = env.get_observation().constellation_state.satellites["eventsat_0"]
+            values[remaining] = encode_eventsat_rl_obs(
+                sat.resources,
+                sat.metadata,
+                sat.status,
+                obc_cap=env.storage_capacity_mb,
+                jetson_cap=env.jetson_capacity_mb,
+                orbital_period=period,
+                max_steps=env.max_steps,
+                compression_time=env.compression_time_factor,
+                detection_steps=env.detection_steps,
+                current_step=env.current_step,
+                detection_progress=env.detection_progress,
+            )[7]
+            assert bool(sat.metadata["contact_window_active"]) is (remaining == 0)
+        env.step({"eventsat_0": {"mode": "charging"}})
+
+    for steps in (1, 2, 3, 4):
+        assert values[steps] == pytest.approx(math.log1p(steps) / math.log1p(period), rel=1e-5)
+    # At contact the value refers to the following pass, far from the countdown.
+    assert values[0] > 0.95
 
 
 def test_ssa_encoder_respects_declared_space_for_full_pipeline_and_zero_pass_capacity():

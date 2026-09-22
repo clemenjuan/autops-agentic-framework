@@ -245,14 +245,15 @@ Single-satellite and one-agent-per-satellite cases preserve the legacy
     OpportunityProperties lookahead; semi-MDP variable-duration actions; modular obs
   - Wang et al. 2022 [RRFQ6WCN] — Resource state (battery, memory) + visibility windows;
     encoder-decoder for task scheduling
-- **Observation space (25D)**:
-  - Group 1 (4D) — Resource fill fractions: battery_soc, obc_fill, jetson_raw_fill, jetson_compressed_fill
-  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass, remaining_pass_duration, episode_progress
+- **Observation space (33D)**:
+  - Group 1 (4D) — Resources: battery_soc plus log-scaled obc_fill, jetson_raw_fill, jetson_compressed_fill
+  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass (log-scaled), remaining_pass_duration, episode_progress
   - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
-  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
+  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, log-scaled delivered downlink
   - Group 5 (7D) — Current mode one-hot
+  - Group 6 (8D) — Attitude settling: remaining settling fraction, slew-target one-hot (schema below)
 - **Action space**: `MultiDiscrete([7])` — one categorical operational-mode decision, matching the mode-only EventSat environment. The list-valued contract stays extensible: a future categorical action dimension can be added to the scenario spec without changing the generic RLlib model/space machinery.
-- **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 25->256->256 (Tanh, orthogonal init), one 7-logit actor head, one critic head. The implementation still builds one head per declared categorical action dimension.
+- **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 33->256->256 (Tanh, orthogonal init), one 7-logit actor head, one critic head. The implementation still builds one head per declared categorical action dimension.
 - **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-lambda (lambda=0.95) and a categorical mode log-probability.
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
 - **RL safety grounding**:
@@ -270,6 +271,19 @@ Single-satellite and one-agent-per-satellite cases preserve the legacy
 - **Evaluation mode**: canonical RL experiment configs use `deterministic: true`, so
   `autops run` evaluates the greedy checkpoint policy. PPO exploration during
   `autops train` is controlled independently by RLlib and is unchanged.
+- **Observation schema `eventsat_log_pipeline_attitude_pass_v4`** (33D): RL-only
+  vectorisation of the shared metadata; symbolic and LLM cells see the same information.
+  - Pipeline fills (1–3) and delivered downlink (17): `log(1 + x/u) / log(1 + C/u)`, with
+    `u` one raw or compressed product and `C` the OBC/Jetson capacity; linear fractions put
+    one observation at ~1e-5 (observation scaling, Andrychowicz et al., 2021).
+  - Time to next pass (7): `log(1 + t) / log(1 + T_orbit)`, resolving the 2-step slew lead
+    needed before 2–6-step passes.
+  - Attitude settling (25–32): remaining settling fraction and one-hot of the slew target
+    (`transition_target_mode`), else the latched mode. Settling executes as charging, so
+    without them an ongoing slew looks like idle charging (delayed-action MDP,
+    Katsikopoulos & Engelbrecht, 2003).
+  - Manifests record the schema; `SubsymbolicEventSat` rejects a missing manifest or another
+    schema/shape. World-model and Gymnasium encoders keep the legacy 25D vector.
 - **reason()**: Returns top mode probabilities as structured explanation steps
 - **update()**: Backward-compatible hook; PPO training is offline via `RLLibPPOTrainer`
 - **Orthogonality**: Works with the fixed SDA decision driver and all configured ops paradigms
