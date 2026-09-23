@@ -9,6 +9,54 @@ from src.core.decision_procedure.context import DecisionContext
 from src.eventsat.env import EventSatEnvironment
 
 
+def test_preloaded_obc_reset_preserves_provenance():
+    env = EventSatEnvironment(config={"initial_obc_data_mb": 20.0})
+    env.reset(seed=42)
+    assert env.obc_data_mb == env.data_stored_mb == 20.0
+    assert env.obc_raw_equivalent_mb == pytest.approx(20 * env.compression_ratio)
+    assert env.total_raw_captured_mb == env.data_downlinked_mb == 0.0
+    env.obc_data_mb = 0.0
+    env.reset(seed=42)
+    assert env.obc_data_mb == 20.0
+    default = EventSatEnvironment(config={})
+    default.reset(seed=42)
+    assert default.obc_data_mb == 0.0
+
+
+@pytest.mark.parametrize("amount", [-1, float("nan"), float("inf"), 1e9])
+def test_preloaded_obc_rejects_invalid_amount(amount):
+    with pytest.raises(ValueError, match="initial_obc_data_mb"):
+        EventSatEnvironment(config={"initial_obc_data_mb": amount})
+
+
+def test_preloaded_jetson_products_can_be_processed():
+    env = EventSatEnvironment(config={"initial_jetson_compressed_mb": 20,
+                                     "initial_raw_observations": 12})
+    env.reset(seed=42)
+    assert env.uncompressed_observations == 12
+    assert env.jetson_raw_mb == pytest.approx(12 * env.observation_size_mb)
+    assert env.jetson_compressed_mb == 20
+    assert env.data_stored_mb == pytest.approx(20 + 12 * env.observation_size_mb)
+    assert env.total_raw_captured_mb == env.data_downlinked_mb == 0
+    from src.eventsat.transitions import apply_compress, apply_can_transfer
+    compressed = apply_compress(env._pipeline_state(), env._pipeline_parameters())
+    assert compressed.accepted
+    sent = apply_can_transfer(compressed.state, env._pipeline_parameters())
+    assert sent.accepted and sent.state["obc_data_mb"] > 0
+
+
+@pytest.mark.parametrize("config", [
+    {"initial_raw_observations": -1}, {"initial_raw_observations": 0.5},
+    {"initial_raw_observations": float("nan")},
+    {"initial_jetson_compressed_mb": -1},
+    {"initial_jetson_compressed_mb": float("inf")},
+    {"initial_raw_observations": 10**9},
+])
+def test_preloaded_jetson_rejects_invalid_products(config):
+    with pytest.raises(ValueError):
+        EventSatEnvironment(config=config)
+
+
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------
@@ -257,6 +305,168 @@ class TestModeTransition:
         assert productive.info["in_transition"] is False
         assert productive.info["observation_accepted"] is True
 
+    def test_transition_target_is_visible_only_while_settling(self):
+        env = self._make_env_with_transition(settling_steps=2)
+
+        def state():
+            meta = env.get_observation().constellation_state.satellites["eventsat_0"].metadata
+            return (
+                meta["transition_steps_remaining"],
+                meta["transition_target_mode"],
+                meta["previous_mode"],
+            )
+
+        assert state() == (0, None, "charging")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert state() == (1, "payload_observe", "charging")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert state() == (0, None, "payload_observe")
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        # Leaving an attitude mode is also a commanded slew.
+        env.step({"eventsat_0": {"mode": "payload_compress"}})
+        assert state() == (1, "payload_compress", "payload_observe")
+        env.reset(seed=0)
+        assert env.transition_target_mode is None
+
+    def test_slew_keeps_initial_target_when_command_changes(self):
+        """A retarget during settling is ignored: no settling time is reused."""
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        ignored = env.step({"eventsat_0": {"mode": "communication"}})
+
+        assert ignored.info["command_ignored"] is True
+        assert ignored.info["forced"] is False
+        assert env.previous_mode == "payload_observe"
+        productive = env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert productive.info["resolved_mode"] == "payload_observe"
+        assert productive.info["observation_accepted"] is True
+        # The command changed during settling was not queued.
+        retarget = env.step({"eventsat_0": {"mode": "communication"}})
+        assert retarget.info["in_transition"] is True
+        assert env.transition_target_mode == "communication"
+
+    def test_requested_safe_during_slew_is_ignored(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        result = env.step({"eventsat_0": {"mode": "safe"}})
+
+        assert result.info["resolved_mode"] == "charging"
+        assert result.info["in_transition"] is True
+        assert result.info["safety_safe"] == 0.0
+        assert env.previous_mode == "payload_observe"
+
+    @pytest.mark.parametrize("settling_steps", [2, 3])
+    def test_forced_safe_aborts_slew_immediately(self, settling_steps):
+        env = self._make_env_with_transition(settling_steps=settling_steps)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = env.min_soc
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["resolved_mode"] == "safe"
+        assert result.info["in_transition"] is False
+        assert result.info["safety_safe"] == 1.0
+        assert result.info["constraint_violation"] is False
+        assert env.transition_steps_remaining == 0
+        assert env.transition_target_mode is None
+        assert env.previous_mode == "safe"
+
+    def test_forced_safe_is_not_delayed_by_leaving_attitude_mode(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        for _ in range(3):
+            env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = env.min_soc
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["resolved_mode"] == "safe"
+        assert result.info["in_transition"] is False
+
+    def test_invalid_command_during_slew_is_not_a_violation(self):
+        env = self._make_env_with_transition(settling_steps=2)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        env.battery_soc = 0.35  # above min_soc, below the observe threshold
+        result = env.step({"eventsat_0": {"mode": "payload_observe"}})
+
+        assert result.info["command_ignored"] is True
+        assert result.info["forced"] is False
+        assert result.info["constraint_violation"] is False
+        assert env.previous_mode == "payload_observe"
+
+    @pytest.mark.parametrize("commands,forced_safe_at", [
+        (["payload_observe", "communication", "payload_observe", "communication"], None),
+        (["payload_observe", "safe", "payload_observe", "payload_compress"], None),
+        (["payload_observe", "payload_observe", "payload_observe"], 1),
+    ])
+    def test_world_model_surrogate_matches_environment_slew_rule(
+        self, commands, forced_safe_at
+    ):
+        from src.eventsat.world_model import _WorldModelPlanner
+
+        env = self._make_env_with_transition(settling_steps=2)
+        planner = _WorldModelPlanner({}, method="cem")
+        sim = {
+            "battery_soc": env.battery_soc,
+            "battery_min_soc": env.min_soc,
+            "health_status": "nominal",
+            "mode_min_battery_soc": {"payload_observe": 0.4, "payload_compress": 0.3},
+            "settling_time_steps": env.settling_time_steps,
+            "transition_steps_remaining": 0,
+            "attitude_maneuver_modes": sorted(env.attitude_maneuver_modes),
+            "previous_mode": "charging",
+            "transition_target_mode": None,
+        }
+        for step, command in enumerate(commands):
+            if step == forced_safe_at:
+                env.battery_soc = env.min_soc
+            sim["battery_soc"] = env.battery_soc
+            result = env.step({"eventsat_0": {"mode": command}})
+            effective, _, in_transition, _ = planner._resolve_surrogate_step(sim, command)
+            assert effective == result.info["resolved_mode"]
+            assert in_transition == result.info["in_transition"]
+            assert sim["previous_mode"] == env.previous_mode
+            assert sim["transition_target_mode"] == env.transition_target_mode
+            assert sim["transition_steps_remaining"] == env.transition_steps_remaining
+
+    def test_one_step_transition_never_exposes_stale_target(self):
+        env = self._make_env_with_transition(settling_steps=1)
+        env.step({"eventsat_0": {"mode": "payload_observe"}})
+        assert env.transition_target_mode is None
+
+    @pytest.mark.parametrize("legacy_features,observes", [(False, True), (True, False)])
+    def test_settling_features_let_memoryless_rule_finish_slew(
+        self, legacy_features, observes
+    ):
+        """Only features 25-32 distinguish an ongoing slew from idle charging."""
+        from src.eventsat.rl_obs_encoder import MODE_TO_IDX, encode_eventsat_rl_obs
+
+        env = self._make_env_with_transition(settling_steps=2)
+        observe_pointing = 26 + MODE_TO_IDX["payload_observe"]
+
+        def rule(vec):
+            continuing = vec[25] > 0.0 or vec[observe_pointing] == 1.0
+            # Command the slew only at step 0; afterwards rely on the observation.
+            return "payload_observe" if continuing or vec[9] == 0.0 else "charging"
+
+        for _ in range(4):
+            sat = env.get_observation().constellation_state.satellites["eventsat_0"]
+            vec = encode_eventsat_rl_obs(
+                sat.resources,
+                sat.metadata,
+                sat.status,
+                obc_cap=env.storage_capacity_mb,
+                jetson_cap=env.jetson_capacity_mb,
+                orbital_period=env.orbital_period_steps,
+                max_steps=env.max_steps,
+                compression_time=env.compression_time_factor,
+                detection_steps=env.detection_steps,
+                current_step=env.current_step,
+                detection_progress=env.detection_progress,
+            )
+            if legacy_features:
+                vec[25:] = 0.0
+            env.step({"eventsat_0": {"mode": rule(vec)}})
+
+        assert (env.total_observation_s > 0.0) is observes
+
     def test_no_transition_for_same_mode(self):
         """Staying in same mode incurs no overhead."""
         env = self._make_env_with_transition(settling_steps=2)
@@ -343,12 +553,14 @@ class TestDataPipeline:
         # No pass active in default fallback, so test with manual obc manipulation
         env.obc_data_mb = 5.0
         env.data_stored_mb = 15.0
-        # With no ground pass, comm falls back to charging
+        # Without a pass, the radio attempt cannot deliver either pool.
         result = env.step({"eventsat_0": {"mode": "communication"}})
-        # Resolved to charging (no pass), so no data downlinked; physical gate is counted.
+        # No command override: the failed attempt keeps its communication cost.
         assert env.data_downlinked_mb == pytest.approx(initial_dl, abs=0.01)
-        assert result.info["forced"] is True
-        assert result.info["forced_mode"] == pytest.approx(1.0)
+        assert result.info["forced"] is False
+        assert result.info["forced_mode"] == pytest.approx(0.0)
+        assert result.info["communication_failure"] == "no_contact"
+        assert env.obc_data_mb == 5.0
 
     def test_data_stored_mb_is_total(self):
         """data_stored_mb = jetson_raw + jetson_compressed + obc_data."""

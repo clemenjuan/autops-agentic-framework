@@ -1,0 +1,97 @@
+experiment_id: eventsat_sas_ao_rl_legacy_reward
+description: >
+  Diagnostic twin of eventsat_sas_ao_rl_shaped that keeps the legacy
+  Slurm reward: scenario-default resource, failed-action, safe and mission
+  penalties (Oliver et al., EUCASS 2025) at reward_scale 0.01, no pipeline
+  shaping, with the Slurm clip (0.3) and entropy (0.001). Observation (33D,
+  schema eventsat_log_pipeline_attitude_pass_v4), physics, battery, learning
+  rate and batch match eventsat_sas_ao_rl_shaped. The training budget is set
+  by the executor.
+seed: 42
+agent_organization: sas
+decision_procedure: sda
+representation: rl
+behaviour: emergent
+operations_paradigm: autonomous_onboard
+agent_organization_config: {}
+decision_procedure_config:
+  sense_encode: true
+  decide_act: true
+representation_config:
+  rl_mock: false
+  # PPO learns a stochastic policy; evaluate it as in eventsat_sas_ao_rl_shaped.
+  deterministic: false
+  checkpoint_path: ''
+  orbital_period_steps: 94
+  max_steps: 10080
+  compression_time_factor: 2.0
+  detection_steps: 5
+  jetson_capacity_mb: 249036.8
+behaviour_config:
+  # PPO: Schulman et al. (2017), arXiv:1707.06347.
+  # Local diagnostic settings are a tuning hypothesis, not validated optima.
+  timesteps: 100000
+  # Intermediate checkpoints under data/trained_models/<id>/step_<sampled_steps>.
+  checkpoint_every_timesteps: 50000
+  mechanism: ppo
+  mode: emergent
+  rollout_fragment: 128
+  train_batch_size: 16384
+  num_env_runners: 0
+  num_gpus: 0
+  lr: 0.001
+  lr_schedule:
+  - - 0
+    - 0.001
+  - - 1000000
+    - 0.001
+  gamma: 0.999
+  gae_lambda: 0.98
+  # Clip and entropy of the earlier Slurm run.
+  clip_ratio: 0.3
+  ppo_epochs: 10
+  entropy_coef: 0.001
+  value_coef: 1.0
+  max_grad_norm: 0.5
+  minibatch_size: 256
+operations_paradigm_config: {}
+environment:
+  constellation_size: 1
+  timestep_seconds: 60
+  max_steps: 10080
+  scenario: eventsat
+  scenario_config:
+    scenario_file: configs/scenarios/eventsat.yaml
+    # Same diagnostic battery as eventsat_sas_ao_rl_shaped (canonical: 70 Wh).
+    scenario_overrides:
+      power:
+        battery:
+          capacity_wh: 400.0
+    reward_config:
+      # Legacy Slurm reward, written out so scenario-default changes cannot
+      # silently alter it (values equal configs/scenarios/eventsat.yaml).
+      reward_scale: 0.01
+      failed_action_penalty: 0.1
+      safe_penalty: 0.3
+      standby_penalty: 0.0
+      mission_scale: 1.0
+      resource_penalty_factor: 1.0
+      comm_reward_factor: 1.0
+      comm_reward_cap: 5.0
+      pipeline_shaping:
+        enabled: false
+memory_config:
+  history_depth: 100
+num_episodes: 5
+max_steps: 10080
+metrics:
+  enabled:
+  - utility
+  - latency
+  - resource_efficiency
+  - operator_load
+  - explainability
+  collection_frequency: per_step
+output_dir: data/results/${experiment_id}
+save_checkpoints: false
+log_level: INFO

@@ -32,6 +32,7 @@ class GroundKnowledge:
     current_mode: str = "charging"
     previous_mode: str = "charging"
     transition_steps_remaining: int = 0
+    transition_target_mode: Optional[str] = None
     health_status: str = "nominal"
     observation_hours: float = 0.0
     staleness_steps: int = 0
@@ -225,6 +226,7 @@ class OperationsParadigm(ABC):
             "undetected_observations": gk.undetected_observations,
             "transition_steps_remaining": gk.transition_steps_remaining,
             "previous_mode": gk.previous_mode,
+            "transition_target_mode": gk.transition_target_mode,
             # Backward-compatible planner field. It deliberately follows the
             # paradigm-specific schedule horizon (N+1 for AG/AH, N+2 for CG)
             # so older scheduler substrates receive the same honest capacity.
@@ -366,6 +368,9 @@ class OperationsParadigm(ABC):
                 sat.metadata.get(
                     "transition_steps_remaining", gk.transition_steps_remaining
                 )
+            )
+            gk.transition_target_mode = sat.metadata.get(
+                "transition_target_mode", gk.transition_target_mode
             )
             gk.health_status = sat.metadata.get("health_status", "nominal")
             gk.observation_hours = sat.metadata.get("total_observation_s", 0.0) / 3600.0

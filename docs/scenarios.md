@@ -72,7 +72,7 @@ Seven operational modes (from PDR Chapter 3 & Table 3.1):
 | `payload_send` | CAN-bus Jetson→OBC transfer (~8 Mbps; up to ~60 MB/step) | SoC > 0.3 |
 | `safe` | UHF only; entered via FDIR on anomaly | — |
 
-Mode transitions to `payload_observe` or `communication` incur 135s ADCS attitude settling overhead (P2, from ADCS thesis).
+Mode transitions to or from `payload_observe` or `communication` incur 135s ADCS attitude settling overhead (P2, from ADCS thesis), executed as charging. A slew keeps its initial target: ordinary commands during settling are ignored and not queued, while environment-enforced safe mode aborts the slew immediately.
 
 ### Data Pipeline
 
@@ -135,7 +135,7 @@ No operations paradigm or environment wrapper forces a communication action at a
 
 **Status:** implemented | **Scale:** configurable N satellites | **Primary use:** multi-agent RL / RLlib bridge validation
 
-MultiEventsat composes N EventSat-class satellites (`sat_0` ... `sat_{N-1}`) inside one integrated environment. Each satellite keeps the EventSat power, data-pipeline, anomaly, reward, and 25D RL observation contract, while the environment exposes per-satellite `SatelliteState` and reward dictionaries for the multi-agent bridge.
+MultiEventsat composes N EventSat-class satellites (`sat_0` ... `sat_{N-1}`) inside one integrated environment. Each satellite keeps the EventSat power, data-pipeline, anomaly, reward, and 33D RL observation contract, while the environment exposes per-satellite `SatelliteState` and reward dictionaries for the multi-agent bridge.
 
 ### Implementation
 

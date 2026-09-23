@@ -38,6 +38,7 @@ Data transfer (payload_send):
 """
 from __future__ import annotations
 import logging, random
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
@@ -140,6 +141,21 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.observation_size_mb = stor.get("observation_size_mb", 9.41)  # Raw data size per observation (PDR measurement)
         # P3: compression ratio 
         self.compression_ratio = stor.get("compression_ratio", 1)  # For compatibility, but PDR measurement: 6.64 MB raw → 1.84 MB compressed = 5.11
+        # Diagnostic initial condition: preloaded compressed science data, not
+        # observations acquired in this episode. Canonical episodes start empty.
+        self.initial_obc_data_mb = float(config.get("initial_obc_data_mb", 0.0))
+        if not math.isfinite(self.initial_obc_data_mb) or not 0 <= self.initial_obc_data_mb <= self.storage_capacity_mb:
+            raise ValueError("initial_obc_data_mb must be finite and within OBC capacity")
+        self.initial_jetson_compressed_mb = float(config.get("initial_jetson_compressed_mb", 0.0))
+        raw_count = float(config.get("initial_raw_observations", 0))
+        if not math.isfinite(raw_count) or raw_count < 0 or not raw_count.is_integer():
+            raise ValueError("initial_raw_observations must be a non-negative integer")
+        self.initial_raw_observations = int(raw_count)
+        initial_jetson_mb = self.initial_jetson_compressed_mb + raw_count * self.observation_size_mb
+        if (not math.isfinite(self.initial_jetson_compressed_mb)
+                or self.initial_jetson_compressed_mb < 0
+                or initial_jetson_mb > self.jetson_capacity_mb):
+            raise ValueError("initial Jetson data must be finite and within capacity")
         # P3: Jetson→OBC transfer rate (CAN bus, ~1 MB/s by default).
         self.jetson_to_obc_rate_kbps = stor.get("jetson_to_obc_rate_kbps", 8000)
 
@@ -199,6 +215,8 @@ class EventSatEnvironment(SatelliteEnvironment):
         # P2: transition state
         self.transition_steps_remaining = 0
         self.previous_mode = "charging"
+        # Commanded attitude target while settling; flight software knows it.
+        self.transition_target_mode: Optional[str] = None
         # Misc
         self._orbital_ctx: Optional[OrbitalContext] = None
         self._onboard_contact_plan: tuple[Dict[str, Any], ...] = ()
@@ -221,7 +239,10 @@ class EventSatEnvironment(SatelliteEnvironment):
             self.scenario.get("rewards", {}),
             config.get("reward_config", {}),
         )
-        self.reward_fn = EventSatRewardFunction(reward_cfg)
+        self.reward_fn = EventSatRewardFunction(
+            reward_cfg,
+            discount_factor=float(config.get("reward_discount_factor", 1.0)),
+        )
 
         # Mission targets (scaled to episode length)
         objectives = self.scenario.get("objectives", {})
@@ -251,24 +272,27 @@ class EventSatEnvironment(SatelliteEnvironment):
         self.current_step = 0
         self.battery_soc = self.initial_soc
         # 3-pool storage reset
-        self.jetson_raw_mb = 0.0
-        self.jetson_compressed_mb = 0.0
-        self.obc_data_mb = 0.0
-        self.data_stored_mb = 0.0
+        self.jetson_raw_mb = self.initial_raw_observations * self.observation_size_mb
+        self.jetson_compressed_mb = self.initial_jetson_compressed_mb
+        self.obc_data_mb = self.initial_obc_data_mb
+        self.data_stored_mb = self.obc_data_mb + self.jetson_raw_mb + self.jetson_compressed_mb
         self.data_downlinked_mb = 0.0
         self.total_raw_captured_mb = 0.0
-        self.obc_raw_equivalent_mb = 0.0
+        self.obc_raw_equivalent_mb = self.initial_obc_data_mb * self.compression_ratio
         self.downlink_raw_equivalent_mb = 0.0
-        self.uncompressed_observations = 0
+        self.uncompressed_observations = self.initial_raw_observations
         self.total_observation_s = 0.0
         self.current_mode = "charging"
         self.compression_progress = 0
         self.detection_progress = 0
-        self.undetected_observations = 0
+        self.undetected_observations = int(
+            self.initial_jetson_compressed_mb * self.compression_ratio / self.observation_size_mb
+        )
         self.total_detections = 0
         self.total_pass_duration_s = 0.0
         self.transition_steps_remaining = 0
         self.previous_mode = "charging"
+        self.transition_target_mode = None
         self.active_anomaly = None
         self.forced_safe_steps = 0
         self._last_anomaly_duration_steps = 0
@@ -356,34 +380,53 @@ class EventSatEnvironment(SatelliteEnvironment):
             # an OBC-priced analytic rollout never silently inherits +7 W.
             self._jetson_active_this_step = False
         resolved_mode = self._resolve_mode(requested_mode)
-        forced = resolved_mode != requested_mode
+        safety_forced = self._safety_forces_safe()
 
-        # P2: Mode transition overhead
+        # P2: Mode transition overhead. A slew keeps the target commanded when
+        # it started: ordinary commands during settling are ignored and not
+        # queued, so a retarget cannot reuse settling time already spent.
+        # Safety interventions (anomaly, critical battery) preempt settling.
         in_transition = False
-        if self.settling_time_steps > 0:
+        ignored_command = False
+        if safety_forced:
+            self.transition_steps_remaining = 0
+            self.transition_target_mode = None
+            effective_mode = "safe"
+        elif self.settling_time_steps > 0:
             if self.transition_steps_remaining > 0:
                 # Already mid-transition: execute as charging (non-productive)
+                ignored_command = True
                 effective_mode = "charging"
                 self.transition_steps_remaining -= 1
                 in_transition = True
-                # On the last transition step, mark previous_mode as the target
-                # so the next step doesn't re-trigger the transition
+                # The completed slew reaches its initial target, so the next
+                # step doesn't re-trigger the transition.
                 if self.transition_steps_remaining == 0:
-                    self.previous_mode = resolved_mode
+                    self.previous_mode = self.transition_target_mode or self.previous_mode
+                    self.transition_target_mode = None
             elif self._requires_attitude_maneuver(self.previous_mode, resolved_mode):
                 # New transition needed: start it, first step is non-productive
                 self.transition_steps_remaining = max(0, self.settling_time_steps - 1)
                 effective_mode = "charging"
                 in_transition = True
+                self.transition_target_mode = resolved_mode
                 # A one-step transition has no later countdown branch in which
                 # to latch the target. Without this, settling_time_steps == 1
                 # restarted forever and the productive mode was unreachable.
                 if self.transition_steps_remaining == 0:
                     self.previous_mode = resolved_mode
+                    self.transition_target_mode = None
             else:
                 effective_mode = resolved_mode
         else:
             effective_mode = resolved_mode
+
+        # An ignored command has no effect, so it is neither forced nor a
+        # violation. An invalid executed request clamped to charging remains a
+        # failed action for reward purposes; safety-forced ``safe`` mode is an
+        # exogenous protection response scored by ``safe_penalty`` instead.
+        forced = resolved_mode != requested_mode and not ignored_command
+        constraint_violation = forced and resolved_mode != "safe"
 
         in_sun = self._is_in_sunlight()
         pass_active = self._is_ground_pass_active()
@@ -397,7 +440,12 @@ class EventSatEnvironment(SatelliteEnvironment):
         # pipeline efficiency / max-achievable downlink.
         if pass_active:
             self.total_pass_duration_s += self._contact_seconds()
-        reward, action_info = self._apply_mode_effects(effective_mode, in_sun, pass_active)
+        reward, action_info = self._apply_mode_effects(
+            effective_mode,
+            in_sun,
+            pass_active,
+            constraint_violation=constraint_violation,
+        )
         anomaly_event = self._maybe_inject_anomaly()
 
         self.current_mode = effective_mode
@@ -451,11 +499,13 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "requested_mode": requested_mode,
                 "forced": forced,
                 # Pre-transition safety classification: resolved_mode BEFORE the
-                # transition/settling mask (which reports effective_mode="charging"
-                # during a forced-safe step's settling window). M-05/M-13 key off this
-                # so an anomaly/critical-battery safe step is scored as a safety
+                # settling mask (a requested safe that starts a slew executes as
+                # charging). Forced safe preempts settling, and a command ignored
+                # during settling is no safe step. M-05/M-13 key off this so an
+                # anomaly/critical-battery safe step is scored as a safety
                 # override, never as a charging constraint violation.
-                "safety_safe": float(resolved_mode == "safe"),
+                "safety_safe": float(resolved_mode == "safe" and not ignored_command),
+                "command_ignored": ignored_command,
                 "anomaly": anomaly_event,
                 **action_info,           # per-step values (e.g. data_downlinked_mb per step)
                 **self._step_metrics,    # cumulative values overwrite — data_downlinked_mb is always cumulative here
@@ -530,6 +580,9 @@ class EventSatEnvironment(SatelliteEnvironment):
                 "battery_min_soc": self.min_soc,
                 "settling_time_steps": self.settling_time_steps,
                 "transition_steps_remaining": self.transition_steps_remaining,
+                # Mode the in-progress slew was commanded towards (None when
+                # not settling): onboard ADCS mode-manager state.
+                "transition_target_mode": self.transition_target_mode,
                 "attitude_maneuver_modes": sorted(self.attitude_maneuver_modes),
                 "previous_mode": self.previous_mode,
                 "mode_min_battery_soc": {
@@ -715,6 +768,10 @@ class EventSatEnvironment(SatelliteEnvironment):
             return False
         return to_mode in self.attitude_maneuver_modes or from_mode in self.attitude_maneuver_modes
 
+    def _safety_forces_safe(self) -> bool:
+        """Anomaly or critical battery: safe mode preempts any command or slew."""
+        return self.active_anomaly is not None or self.battery_soc <= self.min_soc
+
     def _resolve_mode(self, requested):
         if requested not in VALID_MODES:
             requested = "charging"
@@ -732,8 +789,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             return "charging"
         if requested == "payload_send" and self.battery_soc < self.send_min_soc:
             return "charging"
-        if requested == "communication" and not self._is_ground_pass_active():
-            return "charging"
+        # Contact gates delivery, not radio activation. An out-of-contact attempt
+        # pays communication power after settling and reports a failed action.
         return requested
 
     def _update_battery(self, mode, in_sun) -> Dict[str, float]:
@@ -808,6 +865,18 @@ class EventSatEnvironment(SatelliteEnvironment):
             "total_detections": self.total_detections,
         }
 
+    def _pipeline_potential_state(self) -> Dict[str, Any]:
+        """Physical pipeline state plus the derived fields read by
+        ``EventSatRewardFunction.pipeline_potential``."""
+        return {
+            **self._pipeline_state(),
+            "observation_size_mb": self.observation_size_mb,
+            "compression_progress_fraction": min(
+                1.0,
+                self.compression_progress / max(1, math.ceil(self.compression_time_factor)),
+            ),
+        }
+
     def _accept_pipeline_state(self, state: Dict[str, Any]) -> None:
         """Commit a state previously projected by the pure transition helper."""
 
@@ -859,8 +928,20 @@ class EventSatEnvironment(SatelliteEnvironment):
             self._accept_pipeline_state(outcome.state)
         return outcome.transferred_mb
 
-    def _apply_mode_effects(self, mode, in_sun, pass_active):
+    def _apply_mode_effects(
+        self,
+        mode,
+        in_sun,
+        pass_active,
+        *,
+        constraint_violation=False,
+    ):
         """Apply state transitions and compute structured reward."""
+        pipeline_state_before = (
+            self._pipeline_potential_state()
+            if self.reward_fn.pipeline_shaping_enabled
+            else None
+        )
         # Explicit outcome contracts let higher-level scenarios distinguish an
         # action that merely resolved to a mode from one whose physical state
         # transition was actually admitted.  In particular, SSA must never
@@ -869,6 +950,7 @@ class EventSatEnvironment(SatelliteEnvironment):
             "pass_active": pass_active,
             "observation_accepted": False,
             "contact_seconds": 0.0,
+            "constraint_violation": bool(constraint_violation),
         }
         storage_overflow = False
 
@@ -891,6 +973,7 @@ class EventSatEnvironment(SatelliteEnvironment):
 
         elif mode == "payload_compress":
             had_data = self.uncompressed_observations > 0
+            action_info["data_compressed_mb"] = 0.0
             if had_data:
                 # P1: multi-step compression
                 self.compression_progress += 1
@@ -899,9 +982,14 @@ class EventSatEnvironment(SatelliteEnvironment):
                         self._pipeline_state(), self._pipeline_parameters()
                     )
                     if outcome.accepted:
+                        compressed_before_mb = self.jetson_compressed_mb
                         self._accept_pipeline_state(outcome.state)
                         self.compression_progress = 0
                         action_info["compression_completed"] = True
+                        action_info["data_compressed_mb"] = max(
+                            0.0,
+                            self.jetson_compressed_mb - compressed_before_mb,
+                        )
                     else:
                         # The product remains untouched; retry after the
                         # inconsistent/capacity condition is cleared.
@@ -943,6 +1031,8 @@ class EventSatEnvironment(SatelliteEnvironment):
             action_info["data_sent_mb"] = sent_mb
 
         elif mode == "communication":
+            action_info["data_downlinked_mb"] = 0.0
+            action_info["communication_failure"] = "no_contact"
             if pass_active:
                 # P3: downlink from OBC at the S-band protocol rate, over only the
                 # seconds actually in contact this step (short passes downlink less).
@@ -956,17 +1046,19 @@ class EventSatEnvironment(SatelliteEnvironment):
                 if outcome.accepted:
                     self._accept_pipeline_state(outcome.state)
                 action_info["data_downlinked_mb"] = outcome.transferred_mb
+                action_info["communication_failure"] = (
+                    None if outcome.transferred_mb > 0.0 else outcome.reason
+                )
 
         # --- Reward computation ---
         obs_hours = self.total_observation_s / 3600.0
         is_final = (self.current_step + 1) >= self.max_steps
         # Use OBC data for storage resource penalty (OBC is the downlink bottleneck)
-        total_data = self.jetson_raw_mb + self.jetson_compressed_mb + self.obc_data_mb
 
         reward = self.reward_fn.compute(
             mode=mode,
             battery_soc=self.battery_soc,
-            data_stored_mb=total_data,
+            data_stored_mb=self.obc_data_mb,
             storage_capacity_mb=self.storage_capacity_mb,
             action_info=action_info,
             obs_hours=obs_hours,
@@ -976,6 +1068,23 @@ class EventSatEnvironment(SatelliteEnvironment):
             episode_step=self.current_step,
             max_steps=self.max_steps,
             is_final_step=is_final,
+            pipeline_state_before=pipeline_state_before,
+            pipeline_state_after=(
+                self._pipeline_potential_state()
+                if self.reward_fn.pipeline_shaping_enabled
+                else None
+            ),
+            compression_ratio=self.compression_ratio,
+        )
+        # Signed contribution in the same units as the returned reward; exclude
+        # safe-mode and resource penalties even when their magnitudes coincide.
+        # The flag is reward-independent, so it holds even when the penalty is 0.
+        failed_action = self.reward_fn.is_failed_action(mode, action_info)
+        action_info["failed_action"] = failed_action
+        action_info["failed_action_penalty"] = (
+            -self.reward_fn.reward_scale * self.reward_fn.failed_action_penalty
+            if failed_action
+            else 0.0
         )
         return reward, action_info
 

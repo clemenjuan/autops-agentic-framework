@@ -5,6 +5,7 @@ work with rich domain objects and satellite-keyed action dictionaries. Adapters
 own that translation and apply each logical agent's observation and actuation
 scopes consistently in training and evaluation.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -14,10 +15,12 @@ import numpy as np
 
 from src.eventsat.rl_obs_encoder import (
     ACTION_DIMS,
+    EVENTSAT_OBS_SCHEMA_ID,
     MODE_LIST,
     OBS_DIM,
     _DEFAULT_JETSON_CAPACITY_MB,
     encode_eventsat_rl_obs,
+    ground_eventsat_mode,
 )
 from src.rl import observation_bounds
 from src.ssa.rl_features import (
@@ -56,6 +59,7 @@ _EVENTSAT_RL_SPEC = RLSpec(
     OBS_DIM,
     list(ACTION_DIMS),
     encode_eventsat_rl_obs,
+    EVENTSAT_OBS_SCHEMA_ID,
 )
 _SSA_RL_SPEC = RLSpec(
     "ssa",
@@ -87,9 +91,7 @@ def _coerce_id_list(value: Any) -> List[str]:
     return [str(item) for item in value]
 
 
-def _configured_id_source(
-    config: Dict[str, Any], *keys: str, default: Any
-) -> Any:
+def _configured_id_source(config: Dict[str, Any], *keys: str, default: Any) -> Any:
     for key in keys:
         if key in config and config[key] is not None:
             return config[key]
@@ -171,6 +173,13 @@ class RLSpaceAdapter:
     def decode_action(self, action: Any, agent_id: str | None = None) -> Dict[str, Any]:
         raise NotImplementedError
 
+    def ground_decoded_action(self, action: Dict[str, Any], observation: Any) -> Dict[str, Any]:
+        """Apply scenario-specific controller-visible action grounding.
+
+        Adapters without a symbolic safety shield preserve the decoded action.
+        """
+        return action
+
     def scalar_reward(self, rewards: Dict[str, float]) -> float:
         if not rewards:
             return 0.0
@@ -182,7 +191,7 @@ class RLSpaceAdapter:
 
 
 class EventSatSpaceAdapter(RLSpaceAdapter):
-    """Joint EventSat observation and factored action adapter."""
+    """Joint EventSat observation and mode-only action adapter."""
 
     def __init__(
         self,
@@ -207,9 +216,7 @@ class EventSatSpaceAdapter(RLSpaceAdapter):
         )
         self._include_messages = bool(self.config.get("include_peer_messages", False))
 
-        base_low, base_high = observation_bounds(
-            OBS_DIM, signed_indices=(4, 5)
-        )
+        base_low, base_high = observation_bounds(OBS_DIM, signed_indices=(4, 5))
         low_parts = [base_low.copy() for _ in self._observe_ids]
         high_parts = [base_high.copy() for _ in self._observe_ids]
         if self._include_messages:
@@ -253,16 +260,11 @@ class EventSatSpaceAdapter(RLSpaceAdapter):
             return np.zeros(expected_dim or 1, dtype=np.float32)
 
         parts = [
-            self._encode_satellite(raw_observation, satellite_id)
-            for satellite_id in observe_ids
+            self._encode_satellite(raw_observation, satellite_id) for satellite_id in observe_ids
         ]
         if getattr(self, "_include_messages", False):
             parts.append(_message_vector(messages, observe_ids, list(MODE_LIST)))
-        return (
-            np.concatenate(parts).astype(np.float32)
-            if parts
-            else np.zeros(1, dtype=np.float32)
-        )
+        return np.concatenate(parts).astype(np.float32) if parts else np.zeros(1, dtype=np.float32)
 
     def decode_action(self, action: Any, agent_id: str | None = None) -> Dict[str, Any]:
         action_vector = np.asarray(action, dtype=int).reshape(-1)
@@ -271,19 +273,45 @@ class EventSatSpaceAdapter(RLSpaceAdapter):
         for satellite_idx, satellite_id in enumerate(self.act_ids):
             start = satellite_idx * width
             mode_idx = int(action_vector[start]) if action_vector.size > start else 0
-            data_idx = start + 1
-            routing_idx = start + 2
-            data_priority = int(action_vector[data_idx]) if action_vector.size > data_idx else 0
-            pipeline_routing = (
-                int(action_vector[routing_idx]) if action_vector.size > routing_idx else 0
-            )
             mode_idx = max(0, min(mode_idx, len(MODE_LIST) - 1))
-            decoded[satellite_id] = {
-                "mode": MODE_LIST[mode_idx],
-                "data_priority": max(0, min(data_priority, 1)),
-                "pipeline_routing": max(0, min(pipeline_routing, 1)),
-            }
+            decoded[satellite_id] = {"mode": MODE_LIST[mode_idx]}
         return decoded
+
+    def ground_decoded_action(self, action: Dict[str, Any], observation: Any) -> Dict[str, Any]:
+        """Ground EventSat modes using the same state visible to the policy."""
+        raw_observation = observation
+        if hasattr(observation, "local_state") and isinstance(observation.local_state, dict):
+            raw_observation = observation.local_state.get("full_observation", observation)
+        if not hasattr(raw_observation, "constellation_state"):
+            return action
+
+        grounded: Dict[str, Any] = {}
+        for satellite_id, payload in action.items():
+            if not isinstance(payload, dict):
+                grounded[satellite_id] = payload
+                continue
+            satellite = raw_observation.constellation_state.satellites.get(satellite_id)
+            if satellite is None:
+                grounded[satellite_id] = dict(payload)
+                continue
+            resources = satellite.resources or {}
+            metadata = satellite.metadata or {}
+            grounded[satellite_id] = {
+                **payload,
+                "mode": ground_eventsat_mode(
+                    str(payload.get("mode", "charging")),
+                    battery_soc=float(resources.get("battery_soc", 0.5)),
+                    health_status=str(metadata.get("health_status", "nominal")),
+                    ground_pass_active=bool(
+                        metadata.get(
+                            "contact_window_active",
+                            metadata.get("ground_pass_active", False),
+                        )
+                    ),
+                    battery_min_soc=float(metadata.get("battery_min_soc", 0.20)),
+                ),
+            }
+        return grounded
 
     def _env_or_config(self, name: str, default: float) -> float:
         if self.env is not None and hasattr(self.env, name):
@@ -297,9 +325,7 @@ class EventSatSpaceAdapter(RLSpaceAdapter):
             return np.zeros(OBS_DIM, dtype=np.float32)
         resources = satellite.resources or {}
         metadata = satellite.metadata or {}
-        current_step = int(
-            getattr(constellation, "timestep", getattr(self.env, "current_step", 0))
-        )
+        current_step = int(getattr(constellation, "timestep", getattr(self.env, "current_step", 0)))
         detection_progress = float(
             getattr(
                 self.env,
@@ -315,9 +341,7 @@ class EventSatSpaceAdapter(RLSpaceAdapter):
                 "storage_capacity_mb",
                 metadata.get("storage_capacity_mb", 512.0),
             ),
-            jetson_cap=self._env_or_config(
-                "jetson_capacity_mb", _DEFAULT_JETSON_CAPACITY_MB
-            ),
+            jetson_cap=self._env_or_config("jetson_capacity_mb", _DEFAULT_JETSON_CAPACITY_MB),
             orbital_period=self._env_or_config("orbital_period_steps", 94.0),
             max_steps=self._env_or_config("max_steps", 10080.0),
             compression_time=self._env_or_config("compression_time_factor", 2.0),
@@ -393,8 +417,7 @@ class SSASpaceAdapter(RLSpaceAdapter):
             target_count = configured_target_count
             if target_count <= 0:
                 target_count = (
-                    len((satellite.metadata or {}).get("ssa_detection_row", []) or [])
-                    or 1
+                    len((satellite.metadata or {}).get("ssa_detection_row", []) or []) or 1
                 )
             parts.append(
                 build_ssa_obs_vector(
@@ -405,11 +428,7 @@ class SSASpaceAdapter(RLSpaceAdapter):
                     config=self.config,
                 )
             )
-        return (
-            np.concatenate(parts).astype(np.float32)
-            if parts
-            else np.zeros(1, dtype=np.float32)
-        )
+        return np.concatenate(parts).astype(np.float32) if parts else np.zeros(1, dtype=np.float32)
 
     def decode_action(self, action: Any, agent_id: str | None = None) -> Dict[str, Any]:
         action_vector = np.asarray(action, dtype=int).reshape(-1)

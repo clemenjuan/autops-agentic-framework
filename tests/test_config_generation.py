@@ -58,6 +58,41 @@ def test_ah_pairs_are_dual_core() -> None:
         assert cfg["onboard"]["representation"] in ("symb", "rl", "hrl")  # no LLM onboard
 
 
+def test_rl_cells_use_deterministic_evaluation() -> None:
+    """Canonical RL runs evaluate the greedy policy; PPO explores during training."""
+    for experiment_id, cfg in gen.build_matrix().items():
+        cores = [
+            (cfg.get("representation"), cfg.get("representation_config", {})),
+            *[
+                (
+                    cfg[role]["representation"],
+                    cfg[role].get("representation_config", {}),
+                )
+                for role in ("onboard", "ground")
+                if role in cfg
+            ],
+        ]
+        for representation, representation_config in cores:
+            if representation == "rl":
+                assert representation_config["deterministic"] is True, experiment_id
+
+
+def test_learned_rl_cells_use_canonical_training_resources() -> None:
+    """EventSat PPO configs keep the canonical batch and server resources explicit."""
+    expected = {
+        "train_batch_size": 4096,
+        "num_env_runners": 4,
+        "num_gpus": 1,
+    }
+    for experiment_id, cfg in gen.build_matrix().items():
+        behaviour_config = cfg["behaviour_config"]
+        if behaviour_config.get("mechanism") == "ppo":
+            assert {
+                key: behaviour_config.get(key)
+                for key in expected
+            } == expected, experiment_id
+
+
 def test_placeholder_cells_present_and_flagged() -> None:
     import src.eventsat.placeholders  # noqa: F401
     import src.eventsat.agentic_scheduler  # noqa: F401  (real llm-a/hllm-a)

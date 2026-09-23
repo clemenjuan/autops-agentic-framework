@@ -460,9 +460,39 @@ def check_constraints(
     previous_mode = str(
         state.get("previous_mode", state.get("current_mode", "charging"))
     )
+    safety_forced = health != "nominal" or soc <= critical_soc
+    if safety_forced:
+        # Safety interventions preempt attitude settling in the environment.
+        transition_remaining = 0
+    elif settling_steps > 0 and transition_remaining > 0:
+        # An ongoing slew keeps its initial target: this command is ignored,
+        # not queued, and therefore neither a violation nor productive.
+        target = state.get("transition_target_mode") or "its initial target"
+        return {
+            "proposed_mode": proposed_mode,
+            "feasible": proposed_mode in VALID_MODES,
+            "resolved_mode_this_step": "charging",
+            "productive_this_step": False,
+            "transition_steps_required": transition_remaining,
+            "transition_target_mode": state.get("transition_target_mode"),
+            "command_ignored": True,
+            "violations": [] if proposed_mode in VALID_MODES else [{
+                "constraint": "invalid_mode",
+                "reason": f"'{proposed_mode}' is not a valid EventSat mode.",
+            }],
+            "warnings": [{
+                "constraint": "attitude_settling",
+                "reason": (
+                    f"Slew toward {target} in progress ({transition_remaining} "
+                    "settling step(s) left); this command is ignored and not "
+                    "queued; this step resolves to charging."
+                ),
+            }],
+        }
     attitude_modes = set(state.get("attitude_maneuver_modes") or [])
     starts_transition = (
-        settling_steps > 0
+        not safety_forced
+        and settling_steps > 0
         and previous_mode != resolved_mode
         and (resolved_mode in attitude_modes or previous_mode in attitude_modes)
     )
@@ -478,8 +508,9 @@ def check_constraints(
         warnings.append({
             "constraint": "attitude_settling",
             "reason": (
-                f"Request starts/continues {transition_steps_required} non-productive "
-                "settling step(s); this step resolves to charging."
+                f"Request starts {transition_steps_required} non-productive "
+                f"settling step(s) toward {resolved_mode}; this step resolves "
+                "to charging and later commands cannot retarget the slew."
             ),
         })
 
@@ -515,6 +546,8 @@ def check_constraints(
         "resolved_mode_this_step": resolved_mode_this_step,
         "productive_this_step": productive_this_step,
         "transition_steps_required": transition_steps_required,
+        "transition_target_mode": resolved_mode if starts_transition else None,
+        "command_ignored": False,
         "violations": violations,
         "warnings": warnings,
     }
@@ -787,6 +820,9 @@ def evaluate_plan(
         useful_progress = _float_state(state, "battery_soc", 0.5) < _SOC_PREFERRED
     elif proposed_mode == "safe":
         useful_progress = state.get("health_status", "nominal") != "nominal"
+    if constraints["command_ignored"]:
+        # Every valid command is equivalent while an ongoing slew completes.
+        useful_progress = True
     recommendation = (
         "proceed"
         if constraints["feasible"] and useful_progress
@@ -804,6 +840,7 @@ def evaluate_plan(
         "productive_this_step": constraints["productive_this_step"],
         "resolved_mode_this_step": constraints["resolved_mode_this_step"],
         "transition_steps_required": constraints["transition_steps_required"],
+        "command_ignored": constraints["command_ignored"],
         "risk_factors": risk_factors,
         "recommendation": recommendation,
     }

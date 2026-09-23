@@ -61,6 +61,7 @@ class ExperimentRunner:
         "autonomous_hybrid",
     }
     _NATIVE_MULTI_SAT_SCENARIOS = {"multieventsat", "ssa"}
+    _RLLIB_POLICY_TYPES = {"subsymbolic_eventsat", "subsymbolic_ssa"}
 
     def __init__(
         self,
@@ -106,6 +107,9 @@ class ExperimentRunner:
         # Optional full world-model trace writer for offline LeWM/Dreamer data.
         self._world_model_trace: Any = None
         self._log_handlers: List[logging.Handler] = []
+        # A live RLlib policy starts Ray. Track ownership so an experiment only
+        # shuts down a runtime it created itself.
+        self._owns_ray_runtime = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -121,7 +125,10 @@ class ExperimentRunner:
         try:
             return self._run()
         finally:
-            self._teardown_logging()
+            try:
+                self._teardown_components()
+            finally:
+                self._teardown_logging()
 
     def _run(self) -> Dict[str, Any]:
         """Execute an experiment after its scoped log handlers are installed."""
@@ -240,6 +247,11 @@ class ExperimentRunner:
             self.config.operations_paradigm,
         )
 
+        # Live RLlib policies start a process-based Ray runtime. Do this before
+        # the environment loader imports EventSat's Orekit/JPype stack: a JVM
+        # must not already exist when Ray creates its worker processes.
+        self._initialize_runtime_prerequisites()
+
         # ----------------------------------------------------------
         # Component instantiation stubs
         # Replace with factory calls as implementations are added.
@@ -288,6 +300,75 @@ class ExperimentRunner:
 
         logger.info("All components initialised.")
 
+    def _initialize_runtime_prerequisites(self) -> None:
+        """Start process runtimes before any scenario can initialise a JVM."""
+        candidates = [
+            (
+                self.config.onboard_representation_config,
+                self.config.resolved_onboard_type
+                or self.config.resolved_representation_type,
+            )
+        ]
+        if self.config.operations_paradigm == "autonomous_hybrid":
+            candidates.append(
+                (
+                    self.config.ground_representation_config,
+                    self.config.resolved_ground_planner_type,
+                )
+            )
+
+        uses_live_rllib = any(
+            str(repr_config.get("type") or repr_type) in self._RLLIB_POLICY_TYPES
+            and not bool(repr_config.get("rl_mock", False))
+            for repr_config, repr_type in candidates
+            if repr_type is not None
+        )
+        if not uses_live_rllib:
+            return
+
+        try:
+            import ray
+        except ImportError as exc:
+            raise ImportError(
+                "A live RL policy requires ray[rllib]. Install with: "
+                "uv sync --extra rl"
+            ) from exc
+
+        if not ray.is_initialized():
+            ray.init(
+                ignore_reinit_error=True,
+                include_dashboard=False,
+                log_to_driver=False,
+            )
+            self._owns_ray_runtime = True
+            logger.info("Started Ray before Orekit/JVM initialisation.")
+
+    def _teardown_components(self) -> None:
+        """Close active reasoning cores, then any Ray runtime owned here."""
+        for representation in self._core_representations():
+            close = getattr(representation, "close", None)
+            if close is None:
+                continue
+            try:
+                close()
+            except Exception:
+                logger.exception(
+                    "Failed to close representation %s.",
+                    type(representation).__name__,
+                )
+
+        if not self._owns_ray_runtime:
+            return
+        try:
+            import ray
+
+            if ray.is_initialized():
+                ray.shutdown()
+        except Exception:
+            logger.exception("Failed to shut down the runner-owned Ray runtime.")
+        finally:
+            self._owns_ray_runtime = False
+
     def _ensure_contact_gating_supported(self) -> None:
         """Reject ground/hybrid runs on scenarios with native action schemas.
 
@@ -319,6 +400,9 @@ class ExperimentRunner:
             "max_steps": self.config.max_steps,
             "scenario": scenario,
             "seed": self.config.seed,
+            "reward_discount_factor": float(
+                self.config.behaviour_config.get("gamma", 1.0)
+            ),
         }
 
         # anomaly_requires_ground_pass is derived from the paradigm's

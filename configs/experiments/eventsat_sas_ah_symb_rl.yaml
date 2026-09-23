@@ -42,7 +42,7 @@ ground:
   representation: rl
   representation_config:
     rl_mock: false
-    deterministic: false
+    deterministic: true
     checkpoint_path: ''
     orbital_period_steps: 94
     max_steps: 10080

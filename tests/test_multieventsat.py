@@ -360,7 +360,7 @@ class TestMultiEventsatRLLibIntegration:
         env = AUTOPSRLLibMultiAgentEnv({"experiment_config": self._config(n=3)})
         obs, _ = env.reset(seed=0)
         assert set(obs) == {"sat_agent_0", "sat_agent_1", "sat_agent_2"}
-        assert obs["sat_agent_0"].shape == (25,)
+        assert obs["sat_agent_0"].shape == (33,)
         action = {a: env.action_space.sample() for a in env.possible_agents}
         next_obs, rewards, terminateds, truncateds, infos = env.step(action)
         assert set(rewards) == {"sat_agent_0", "sat_agent_1", "sat_agent_2"}

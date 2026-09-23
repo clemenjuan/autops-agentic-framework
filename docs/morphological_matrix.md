@@ -100,6 +100,10 @@ schedule).
   layer. Contact-window timing remains visible, but the representation/scheduler must
   choose `communication` during a pass for a downlink; only counted safety or physical
   gates may override actions.
+  Contact gates data delivery, not radio activation: an EventSat communication
+  command outside contact still incurs normal settling and then radio power,
+  with zero delivery and an explicit failed-action outcome. Battery/anomaly
+  protections remain in force. This physical rule is representation-independent.
 - **Autonomous Onboard** has no LLM core on EventSat — the platform cannot sustain
   per-step LLM inference — so onboard is restricted to `symb`, `rl`, `hrl`.
 - **Autonomous Hybrid** is a **dual-core architecture**: an onboard core *and* a

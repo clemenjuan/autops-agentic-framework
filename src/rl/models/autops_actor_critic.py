@@ -17,8 +17,8 @@ class AUTOPSActorCriticModel(TorchModelV2, nn.Module):
     """RLlib model matching the legacy ``representation.neural_policy.ActorCritic``.
 
     Architecture:
-    - Shared trunk: 25 -> 256 -> 256 with Tanh activations
-    - Three independent actor heads: 7, 2, 2 logits
+    - Shared trunk: obs_dim (EventSat: 33) -> 256 -> 256 with Tanh activations
+    - One actor head per categorical action dimension (EventSat: one 7-logit head)
     - One critic head: scalar value
     - Orthogonal init: sqrt(2) trunk, 0.01 actor heads, 1.0 critic
 
@@ -103,7 +103,7 @@ class AUTOPSActorCriticModel(TorchModelV2, nn.Module):
             return self._validate_action_dims(configured)
         if hasattr(action_space, "nvec"):
             return self._validate_action_dims(list(action_space.nvec))
-        return self._validate_action_dims([7, 2, 2])
+        return self._validate_action_dims([7])
 
     def _validate_action_dims(self, action_dims: Sequence[Any]) -> List[int]:
         dims = [int(dim) for dim in action_dims]

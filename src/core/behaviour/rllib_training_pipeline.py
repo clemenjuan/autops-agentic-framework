@@ -20,9 +20,18 @@ from typing import Any, Dict
 
 from src.core.config_loader import ExperimentConfig
 from src.rl.policy_mapping import PolicySharingConfig, build_policy_specs
-from src.rl.rllib_env import AUTOPSRLLibMultiAgentEnv
+from src.rl.rllib_env import AUTOPSEpisodeDiagnostics, AUTOPSRLLibMultiAgentEnv
 
 logger = logging.getLogger(__name__)
+
+# EventSat episode diagnostics echoed on the progress line; all counters are in
+# TensorBoard ``hist_stats/eventsat_*`` (written by AUTOPSEpisodeDiagnostics).
+_LOGGED_EVENTSAT_METRICS = (
+    "downlinked_mb",
+    "failed_action_penalty",
+    "observations",
+    "comm_steps_in_contact",
+)
 
 DEFAULT_MODEL_ARCHITECTURE = "autops_actor_critic_v1"
 
@@ -44,6 +53,11 @@ class RLLibPPOTrainer:
         self.checkpoint_dir = Path(
             checkpoint_dir or f"data/trained_models/{self.config.experiment_id}"
         )
+        # 0 keeps the single final checkpoint.
+        self._checkpoint_every = int(
+            self.training_config.get("checkpoint_every_timesteps", 0)
+        )
+        self._next_checkpoint_step = self._checkpoint_every
         self._last_result: Dict[str, Any] = {}
         self._policy_observation_shapes: Dict[str, list[int]] = {}
         self._policy_action_nvec: Dict[str, list[int]] = {}
@@ -104,6 +118,7 @@ class RLLibPPOTrainer:
         config = self._configure_rollouts(config)
         config = self._configure_resources(config)
         config = self._configure_training(config)
+        config = config.callbacks(AUTOPSEpisodeDiagnostics)
         config = config.multi_agent(
             policies=policies,
             policy_mapping_fn=sharing.mapping_fn(),
@@ -119,6 +134,7 @@ class RLLibPPOTrainer:
             max_iterations = int(self.training_config.get("max_iterations", 10_000))
             iterations = 0
             sampled_steps = 0
+            last_episode_metrics = None
             while (
                 (sampled_steps < target_timesteps or iterations < min_iterations)
                 and iterations < max_iterations
@@ -126,26 +142,40 @@ class RLLibPPOTrainer:
                 self._last_result = algo.train()
                 iterations += 1
                 sampled_steps = self._sampled_steps(self._last_result)
+                self._maybe_save_intermediate_checkpoint(
+                    algo, sharing, policies.keys(), sampled_steps, target_timesteps
+                )
                 progress = (
                     min(100.0, 100.0 * sampled_steps / target_timesteps)
                     if target_timesteps > 0
                     else 100.0
                 )
-                episode_reward = self._episode_reward_mean(self._last_result)
-                reward_text = "n/a" if episode_reward is None else f"{episode_reward:.3f}"
+                episode_metrics = self._episode_metrics_last(self._last_result)
+                if episode_metrics is not None:
+                    last_episode_metrics = episode_metrics
+                metric_names = ["reward"]
+                if self.config.environment.scenario == "eventsat":
+                    metric_names += list(_LOGGED_EVENTSAT_METRICS)
+                metric_fields = []
+                for name in metric_names:
+                    value = (last_episode_metrics or {}).get(name)
+                    value_text = "n/a" if value is None else f"{value:.3f}"
+                    metric_fields.append(f"last_episode_{name}={value_text}")
                 logger.info(
-                    "RLlib PPO iteration %d: sampled_steps=%d/%d (%.1f%%) episode_reward=%s",
+                    "RLlib PPO iteration %d: sampled_steps=%d/%d (%.1f%%) %s",
                     iterations,
                     sampled_steps,
                     target_timesteps,
                     progress,
-                    reward_text,
+                    " ".join(metric_fields),
                 )
 
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             checkpoint = algo.save(str(self.checkpoint_dir))
             checkpoint_path = self._checkpoint_to_path(checkpoint)
-            self._write_manifest(checkpoint_path, sharing, policies.keys())
+            self._write_manifest(
+                checkpoint_path, sharing, policies.keys(), sampled_steps=sampled_steps
+            )
             return checkpoint_path
         finally:
             probe_env.close()
@@ -303,15 +333,25 @@ class RLLibPPOTrainer:
                     return int(env_runner[key])
         return 0
 
-    def _episode_reward_mean(self, result: Dict[str, Any]) -> float | None:
-        value = result.get("episode_reward_mean")
-        if value is None:
-            env_runner = result.get("env_runners")
-            if isinstance(env_runner, dict):
-                value = env_runner.get("episode_reward_mean")
-                if value is None:
-                    value = env_runner.get("episode_return_mean")
-        return None if value is None else float(value)
+    def _episode_metrics_last(self, result: Dict[str, Any]) -> Dict[str, Any] | None:
+        """Read reward and diagnostics for the same last completed episode.
+
+        RLlib appends newly reported episodes after its smoothing history. With
+        multiple runners this is reporting order, not global completion order.
+        """
+        for metrics in (result, result.get("env_runners"), result.get("sampler_results")):
+            if not isinstance(metrics, dict):
+                continue
+            history = metrics.get("hist_stats", {})
+            rewards = history.get("episode_reward", [])
+            if len(rewards):
+                latest = {"reward": float(rewards[-1])}
+                for name in _LOGGED_EVENTSAT_METRICS:
+                    values = history.get(f"eventsat_{name}", [])
+                    # Missing history must not reuse a previous episode's totals.
+                    latest[name] = float(values[-1]) if len(values) == len(rewards) else None
+                return latest
+        return None
 
     def _checkpoint_to_path(self, checkpoint: Any) -> str:
         if isinstance(checkpoint, str):
@@ -322,11 +362,53 @@ class RLLibPPOTrainer:
             return str(checkpoint.path)
         return str(checkpoint)
 
+    def _maybe_save_intermediate_checkpoint(
+        self,
+        algo: Any,
+        sharing: PolicySharingConfig,
+        policy_ids: Any,
+        sampled_steps: int,
+        target_timesteps: int,
+    ) -> str | None:
+        """Save a snapshot every ``checkpoint_every_timesteps`` sampled steps.
+
+        Snapshots let evaluation select an earlier policy. The final
+        save still covers the end of training, so no snapshot is taken there.
+        """
+        every = self._checkpoint_every
+        if (
+            every <= 0
+            or sampled_steps < self._next_checkpoint_step
+            or sampled_steps >= target_timesteps
+        ):
+            return None
+        # One snapshot even when an iteration crosses several thresholds.
+        self._next_checkpoint_step = (sampled_steps // every + 1) * every
+        target_dir = self.checkpoint_dir / f"step_{sampled_steps:07d}"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = self._checkpoint_to_path(algo.save(str(target_dir)))
+        self._write_manifest(
+            checkpoint_path,
+            sharing,
+            policy_ids,
+            manifest_dir=target_dir,
+            sampled_steps=sampled_steps,
+        )
+        logger.info(
+            "Saved intermediate RLlib checkpoint at %d sampled steps: %s",
+            sampled_steps,
+            checkpoint_path,
+        )
+        return checkpoint_path
+
     def _write_manifest(
         self,
         checkpoint_path: str,
         sharing: PolicySharingConfig,
         policy_ids: Any,
+        *,
+        manifest_dir: Path | None = None,
+        sampled_steps: int | None = None,
     ) -> None:
         from src.rl.space_adapters import get_rl_spec
 
@@ -336,6 +418,7 @@ class RLLibPPOTrainer:
             "mechanism": "ppo",
             "implementation": "rllib",
             "checkpoint_path": checkpoint_path,
+            "sampled_steps": sampled_steps,
             "policy_sharing": sharing.mode,
             "policy_ids": list(policy_ids),
             "model_architecture": self._model_architecture(),
@@ -352,7 +435,9 @@ class RLLibPPOTrainer:
                 if isinstance(value, (str, int, float, bool, type(None)))
             },
         }
-        with open(self.checkpoint_dir / "manifest.json", "w", encoding="utf-8") as f:
+        with open(
+            (manifest_dir or self.checkpoint_dir) / "manifest.json", "w", encoding="utf-8"
+        ) as f:
             json.dump(manifest, f, indent=2)
 
     def _model_architecture(self) -> str:

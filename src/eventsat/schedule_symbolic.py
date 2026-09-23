@@ -126,6 +126,7 @@ class ScheduleBasedEventSat(Representation):
                     "attitude_maneuver_modes", []
                 ),
                 "previous_mode": meta.get("previous_mode", sat.status),
+                "transition_target_mode": meta.get("transition_target_mode"),
                 "remaining_pass_duration_s": meta.get(
                     "remaining_pass_duration_s", 0.0
                 ),

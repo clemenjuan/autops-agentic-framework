@@ -1,13 +1,16 @@
 """RLlib MultiAgentEnv bridge for AUTOPS experiments."""
+
 from __future__ import annotations
 
 from typing import Any, Dict, List, Tuple
 
 try:
+    from ray.rllib.algorithms.callbacks import DefaultCallbacks
     from ray.rllib.env.multi_agent_env import MultiAgentEnv
 
     RLLIB_AVAILABLE = True
 except ImportError:
+    DefaultCallbacks = object  # type: ignore[misc,assignment]
     MultiAgentEnv = object  # type: ignore[misc,assignment]
     RLLIB_AVAILABLE = False
 
@@ -19,8 +22,70 @@ from src.core.organization.base import (
 from src.core.config_loader import ExperimentConfig, validate_runtime_support
 from src.rl.space_adapters import RLSpaceAdapter, make_space_adapter
 
-
 _GROUND_ONLY_PARADIGMS = {"autonomous_ground", "conventional_ground"}
+
+# Per-episode EventSat behaviour counters for training logs. Physical contact
+# truth is used only here, never as a policy input.
+_FAILED_MODE_KEYS = {
+    "payload_observe": "failed_observe",
+    "payload_compress": "failed_compress",
+    "payload_detect": "failed_detect",
+    "payload_send": "failed_send",
+    "communication": "failed_comm",
+}
+
+
+def _empty_eventsat_diagnostics() -> Dict[str, float]:
+    keys = (
+        "downlinked_mb",
+        "failed_action_penalty",
+        "observations",
+        "compressions",
+        "settling_steps",
+        "comm_steps_in_contact",
+        "comm_steps_no_contact",
+        *_FAILED_MODE_KEYS.values(),
+        "failed_clamped",
+        "final_raw_mb",
+        "final_compressed_mb",
+        "final_obc_mb",
+    )
+    return {key: 0.0 for key in keys}
+
+
+def _accumulate_eventsat_diagnostics(
+    diagnostics: Dict[str, float], info: Dict[str, Any]
+) -> None:
+    """Add one EventSat step; downlink and buffer levels in ``info`` are totals."""
+    diagnostics["downlinked_mb"] = float(info["data_downlinked_mb"])
+    penalty = float(info["failed_action_penalty"])
+    diagnostics["failed_action_penalty"] += penalty
+    mode = info.get("resolved_mode")
+    diagnostics["observations"] += float(bool(info.get("observation_accepted")))
+    diagnostics["compressions"] += float(bool(info.get("compression_completed")))
+    diagnostics["settling_steps"] += float(bool(info.get("in_transition")))
+    if mode == "communication":
+        if info.get("communication_failure") == "no_contact":
+            diagnostics["comm_steps_no_contact"] += 1.0
+        elif info.get("pass_active"):
+            diagnostics["comm_steps_in_contact"] += 1.0
+    if info.get("failed_action"):
+        # A failed charging step is an operational command clamped to charging.
+        diagnostics[_FAILED_MODE_KEYS.get(mode, "failed_clamped")] += 1.0
+    diagnostics["final_raw_mb"] = float(info.get("jetson_raw_mb", 0.0))
+    diagnostics["final_compressed_mb"] = float(info.get("jetson_compressed_mb", 0.0))
+    diagnostics["final_obc_mb"] = float(info.get("obc_data_mb", 0.0))
+
+
+class AUTOPSEpisodeDiagnostics(DefaultCallbacks):
+    """Attach EventSat totals to each completed RLlib episode (PPO, Schulman 2017)."""
+
+    def on_episode_end(self, *, episode, base_env, env_index, **kwargs) -> None:
+        if isinstance(episode, Exception):
+            return
+        env = base_env.get_sub_environments()[env_index]
+        for key, value in env.get_episode_diagnostics().items():
+            episode.hist_data[f"eventsat_{key}"] = [value]
 
 
 class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
@@ -78,9 +143,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             self.config.environment.scenario,
         )
         bind_communication_topology(self._organization, self._environment)
-        self._adapters: Dict[str, RLSpaceAdapter] = self._create_adapters(
-            self.possible_agents
-        )
+        self._adapters: Dict[str, RLSpaceAdapter] = self._create_adapters(self.possible_agents)
         self._space_adapter: RLSpaceAdapter = (
             self._adapters[self.possible_agents[0]]
             if self.possible_agents
@@ -96,10 +159,10 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             for agent_id in self.possible_agents
         }
         self.action_spaces = {
-            agent_id: self._adapter_for(agent_id).action_space
-            for agent_id in self.possible_agents
+            agent_id: self._adapter_for(agent_id).action_space for agent_id in self.possible_agents
         }
         self._last_observation: Any = None
+        self._episode_diagnostics: Dict[str, float] = {}
 
     def reset(
         self,
@@ -114,6 +177,11 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             self._operations_paradigm.reset()
         self.agents = list(self.possible_agents)
         self._last_observation = self._environment.reset(seed=seed)
+        self._episode_diagnostics = (
+            _empty_eventsat_diagnostics()
+            if self.config.environment.scenario == "eventsat"
+            else {}
+        )
         bind_communication_topology(self._organization, self._environment)
         self._last_observation = self._environment.get_observation()
         observations = self._encode_current_observations(done=False)
@@ -131,25 +199,31 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         Dict[str, Dict[str, Any]],
     ]:
         active_agents = list(self.agents)
+        step_idx = self._current_step()
+        policy_observation = self._operations_paradigm.filter_observation(
+            self._last_observation,
+            step_idx,
+        )
+        agent_observations = self._organization.distribute_observation(
+            policy_observation,
+        )
         agent_actions: Dict[str, AgentAction] = {}
         for agent_id in active_agents:
             if agent_id not in action_dict:
                 continue
+            adapter = self._adapter_for(agent_id)
+            decoded_action = adapter.decode_action(action_dict[agent_id], agent_id=agent_id)
             agent_actions[agent_id] = AgentAction(
                 agent_id=agent_id,
-                action=self._adapter_for(agent_id).decode_action(
-                    action_dict[agent_id], agent_id=agent_id
+                action=adapter.ground_decoded_action(
+                    decoded_action,
+                    agent_observations.get(agent_id),
                 ),
             )
 
-        step_idx = self._current_step()
         ground_pass_active = self._ground_pass_active(self._last_observation)
         env_actions = self._organization.collect_actions(agent_actions)
-        if (
-            self._ground_planner_loops
-            and ground_pass_active
-            and self._last_observation is not None
-        ):
+        if self._ground_planner_loops and ground_pass_active and self._last_observation is not None:
             stale_obs = self._operations_paradigm.ground_planner_view(
                 self._last_observation,
                 step_idx,
@@ -165,6 +239,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             ground_pass_active,
         )
         step_result = self._environment.step(env_actions)
+        if self._episode_diagnostics:
+            # Read before dropping terminal observations/infos.
+            _accumulate_eventsat_diagnostics(self._episode_diagnostics, step_result.info)
         self._last_observation = step_result.observation
         done = bool(self._environment.is_done())
 
@@ -187,13 +264,15 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         terminateds["__all__"] = done
         truncateds["__all__"] = False
         infos = {
-            agent_id: {"agent_id": agent_id, **dict(step_result.info)}
-            for agent_id in observations
+            agent_id: {"agent_id": agent_id, **dict(step_result.info)} for agent_id in observations
         }
         return observations, rewards, terminateds, truncateds, infos
 
     def render(self) -> None:
         return None
+
+    def get_episode_diagnostics(self) -> Dict[str, float]:
+        return dict(self._episode_diagnostics)
 
     def close(self) -> None:
         return None
@@ -206,9 +285,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
     # Reward resolution
     # ------------------------------------------------------------------
 
-    def _resolve_agent_reward(
-        self, agent_id: str, raw_rewards: Dict[str, float]
-    ) -> float:
+    def _resolve_agent_reward(self, agent_id: str, raw_rewards: Dict[str, float]) -> float:
         """Map an environment reward dict to a single per-agent reward.
 
         The organisation's action scope is authoritative. For multi-satellite
@@ -249,9 +326,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         )
         agent_obs = self._organization.distribute_observation(filtered)
         return {
-            agent_id: self._adapter_for(agent_id).encode_observation(
-                agent_obs.get(agent_id)
-            )
+            agent_id: self._adapter_for(agent_id).encode_observation(agent_obs.get(agent_id))
             for agent_id in self.agents
         }
 
@@ -279,6 +354,9 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             "max_steps": self.config.max_steps,
             "scenario": scenario,
             "seed": self.config.seed,
+            "reward_discount_factor": float(
+                self.config.behaviour_config.get("gamma", 1.0)
+            ),
         }
         from src.core.scenario_registry import get_scenario_spec
 
@@ -299,9 +377,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
             from src.core.operations.autonomous_hybrid import AutonomousHybrid
 
             return AutonomousHybrid(config=paradigm_config)
-        raise ValueError(
-            f"Unsupported RLlib operations_paradigm: {paradigm_type!r}"
-        )
+        raise ValueError(f"Unsupported RLlib operations_paradigm: {paradigm_type!r}")
 
     def _create_memory(self) -> Any:
         from src.core.memory.fixed_memory import FixedMemory
@@ -445,10 +521,7 @@ class AUTOPSRLLibMultiAgentEnv(MultiAgentEnv):  # type: ignore[misc]
         return org
 
     def _create_adapters(self, agent_ids: List[str]) -> Dict[str, RLSpaceAdapter]:
-        return {
-            agent_id: self._build_adapter(agent_id=agent_id)
-            for agent_id in agent_ids
-        }
+        return {agent_id: self._build_adapter(agent_id=agent_id) for agent_id in agent_ids}
 
     def _build_adapter(self, agent_id: str | None = None) -> RLSpaceAdapter:
         adapter_cfg = dict(self.config.representation_config)

@@ -8,8 +8,8 @@ technical backend used by ``autops train``. During ``autops run`` the policy is
 kept frozen for evaluation. ``rl_mock`` uses ``RandomPolicy`` for local smoke
 runs and CI.
 
-The policy operates on the 25D EventSat observation vector and outputs
-MultiDiscrete([7, 2, 2]) actions: mode, data priority, and pipeline routing. The
+The policy operates on the 25D EventSat observation vector and outputs one
+categorical operational-mode action through ``MultiDiscrete([7])``.  The
 selected mode is still passed through symbolic safety grounding before being
 returned to the environment.
 
@@ -37,10 +37,12 @@ from src.core.representation import Representation
 from src.eventsat.neural_policy import RandomPolicy
 from src.eventsat.rl_obs_encoder import (
     ACTION_DIMS,
+    EVENTSAT_OBS_SCHEMA_ID,
     MODE_LIST,
     OBS_DIM,
     _DEFAULT_JETSON_CAPACITY_MB,
     encode_eventsat_rl_obs,
+    ground_eventsat_mode,
 )
 
 if TYPE_CHECKING:
@@ -105,9 +107,7 @@ class SubsymbolicEventSat(Representation):
         )
         self._include_messages = bool(self.config.get("include_peer_messages", False))
         self._message_dim = (
-            len(self._observe_ids) * len(self._mode_list)
-            if self._include_messages
-            else 0
+            len(self._observe_ids) * len(self._mode_list) if self._include_messages else 0
         )
         self._action_dims = self._base_action_dims * len(self._act_ids)
         if not self._action_dims:
@@ -122,6 +122,7 @@ class SubsymbolicEventSat(Representation):
         if mock_mode:
             self._policy = RandomPolicy(action_dims=self._action_dims)
         elif checkpoint_path:
+            self._validate_checkpoint_manifest(checkpoint_path)
             try:
                 from src.eventsat.rllib_policy_adapter import RLLibPolicyAdapter
 
@@ -210,26 +211,28 @@ class SubsymbolicEventSat(Representation):
         meta = sat.metadata or {}
         constellation = raw_observation.constellation_state
         satellite_states = {
-            sat_id: self._satellite_state(raw_observation, sat_id)
-            for sat_id in self._act_ids
+            sat_id: self._satellite_state(raw_observation, sat_id) for sat_id in self._act_ids
         }
 
         return {
             "battery_soc": res.get("battery_soc", 0.5),
             "current_mode": sat.status,
             "in_sunlight": meta.get("in_sunlight", False),
-            "ground_pass_active": meta.get("contact_window_active", meta.get("ground_pass_active", False)),
+            "ground_pass_active": meta.get(
+                "contact_window_active", meta.get("ground_pass_active", False)
+            ),
             "data_stored_mb": res.get("data_stored_mb", 0.0),
             "obc_data_mb": res.get("obc_data_mb", meta.get("obc_data_mb", 0.0)),
             "jetson_raw_mb": meta.get("jetson_raw_mb", 0.0),
             "jetson_compressed_mb": meta.get("jetson_compressed_mb", 0.0),
             "storage_capacity_mb": meta.get("storage_capacity_mb", 4096.0),
+            "battery_min_soc": meta.get("battery_min_soc", 0.20),
             "uncompressed_observations": meta.get("uncompressed_observations", 0),
             "compression_progress": meta.get("compression_progress", 0),
             "total_observation_s": meta.get("total_observation_s", 0.0),
             "health_status": meta.get("health_status", "nominal"),
             "undetected_observations": meta.get("undetected_observations", 0),
-                        "orbital_phase": meta.get("orbital_phase", 0.0),
+            "orbital_phase": meta.get("orbital_phase", 0.0),
             "time_to_next_eclipse": meta.get("time_to_next_eclipse", self._orbital_period_steps),
             "time_to_next_pass": meta.get("time_to_next_pass", self._orbital_period_steps),
             "remaining_pass_duration": meta.get("remaining_pass_duration", 0),
@@ -242,10 +245,7 @@ class SubsymbolicEventSat(Representation):
         """Select mode via RL policy plus symbolic grounding."""
         state = context.state
         if not state:
-            return {
-                sat_id: {"mode": "charging"}
-                for sat_id in self._act_ids
-            }
+            return {sat_id: {"mode": "charging"} for sat_id in self._act_ids}
 
         obs_vec = state.get("_obs_vector")
         if obs_vec is None:
@@ -268,11 +268,7 @@ class SubsymbolicEventSat(Representation):
         first_mode_idx = 0
         for sat_idx, sat_id in enumerate(self._act_ids):
             start = sat_idx * width
-            mode_idx = self._clip_action_component(
-                action_arr, start, len(self._mode_list) - 1
-            )
-            data_priority = self._clip_action_component(action_arr, start + 1, 1)
-            pipeline_routing = self._clip_action_component(action_arr, start + 2, 1)
+            mode_idx = self._clip_action_component(action_arr, start, len(self._mode_list) - 1)
             mode = self._mode_list[mode_idx]
             sat_state = satellite_states.get(sat_id, state)
             if len(self._act_ids) <= 1:
@@ -283,11 +279,7 @@ class SubsymbolicEventSat(Representation):
             mode = grounded_mode
             if sat_idx == 0:
                 first_mode_idx = mode_idx
-            actions[sat_id] = {
-                "mode": mode,
-                "data_priority": data_priority,
-                "pipeline_routing": pipeline_routing,
-            }
+            actions[sat_id] = {"mode": mode}
             rationale_parts.append(f"{sat_id}={mode}")
 
         self._last_action_vec = action_arr
@@ -300,8 +292,7 @@ class SubsymbolicEventSat(Representation):
 
         top_mode_prob = (
             float(self._last_mode_probs[first_mode_idx])
-            if self._last_mode_probs is not None
-            and self._last_mode_probs.size > first_mode_idx
+            if self._last_mode_probs is not None and self._last_mode_probs.size > first_mode_idx
             else 0.0
         )
         source = "RLlib PPO" if not self._mock else "RandomPolicy"
@@ -393,13 +384,54 @@ class SubsymbolicEventSat(Representation):
         except Exception:
             pass
 
+    def _validate_checkpoint_manifest(self, checkpoint_path: str | Path) -> None:
+        """Fail clearly when a checkpoint was trained on another observation MDP."""
+        path = Path(checkpoint_path).expanduser()
+        candidates = [path / "manifest.json", path.parent / "manifest.json"]
+        experiment_id = self.config.get("experiment_id")
+        trained_model_dir = self.config.get(
+            "trained_model_dir",
+            f"data/trained_models/{experiment_id}" if experiment_id else None,
+        )
+        if trained_model_dir:
+            candidates.append(Path(str(trained_model_dir)).expanduser() / "manifest.json")
+        manifest_path = next(
+            (candidate for candidate in candidates if candidate.is_file()),
+            None,
+        )
+        if manifest_path is None:
+            raise RuntimeError(
+                "EventSat RL checkpoint manifest is missing; checkpoints must declare "
+                f"observation schema '{EVENTSAT_OBS_SCHEMA_ID}' and policy shape."
+            )
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise RuntimeError(
+                f"EventSat RL checkpoint manifest is unreadable: {manifest_path}"
+            ) from exc
+
+        actual_schema = manifest.get("observation_schema_id")
+        if actual_schema != EVENTSAT_OBS_SCHEMA_ID:
+            raise RuntimeError(
+                "EventSat RL checkpoint observation schema mismatch: "
+                f"expected '{EVENTSAT_OBS_SCHEMA_ID}', got {actual_schema!r}. "
+                "Retrain the checkpoint with the current observation encoder."
+            )
+        shapes = manifest.get("policy_observation_shapes", {}) or {}
+        actual_shape = shapes.get(self._policy_id)
+        expected_shape = [self._obs_dim]
+        if list(actual_shape or []) != expected_shape:
+            raise RuntimeError(
+                "EventSat RL checkpoint observation shape mismatch for policy "
+                f"'{self._policy_id}': expected {expected_shape}, got {actual_shape!r}."
+            )
+
     def _find_default_checkpoint(self) -> Optional[str]:
         experiment_id = self.config.get("experiment_id")
         if not experiment_id:
             return None
-        root = Path(
-            self.config.get("trained_model_dir", f"data/trained_models/{experiment_id}")
-        )
+        root = Path(self.config.get("trained_model_dir", f"data/trained_models/{experiment_id}"))
         if not root.exists():
             return None
 
@@ -457,6 +489,7 @@ class SubsymbolicEventSat(Representation):
             "current_mode": sat.status,
             "ground_pass_active": meta.get("ground_pass_active", False),
             "health_status": meta.get("health_status", "nominal"),
+            "battery_min_soc": meta.get("battery_min_soc", 0.20),
         }
 
     def _encode_messages(self, messages: List[Dict[str, Any]]) -> np.ndarray:
@@ -505,7 +538,8 @@ class SubsymbolicEventSat(Representation):
             current_mode,
             obc_cap=float(meta.get("storage_capacity_mb", 4096.0)),
             jetson_cap=float(self._jetson_capacity_mb),
-            orbital_period=float(self._orbital_period_steps) or 1.0,
+            orbital_period=float(meta.get("orbital_period_steps", self._orbital_period_steps))
+            or 1.0,
             max_steps=float(self._max_steps),
             compression_time=float(self._compression_time_factor),
             detection_steps=float(self._detection_steps),
@@ -519,14 +553,14 @@ class SubsymbolicEventSat(Representation):
         return max(0, min(value, max_value))
 
     def _apply_grounding(self, mode: str, state: Dict[str, Any]) -> str:
-        if state.get("health_status", "nominal") != "nominal":
-            return "safe"
-        if mode == "communication" and not state.get("ground_pass_active", False):
-            return "charging"
-        soc = float(state.get("battery_soc", 0.5))
-        if soc < 0.20 and mode != "charging":
-            return "charging"
-        return mode
+        """Apply the shared controller-visible EventSat RL safety shield."""
+        return ground_eventsat_mode(
+            mode,
+            battery_soc=float(state.get("battery_soc", 0.5)),
+            health_status=str(state.get("health_status", "nominal")),
+            ground_pass_active=bool(state.get("ground_pass_active", False)),
+            battery_min_soc=float(state.get("battery_min_soc", 0.20)),
+        )
 
     @staticmethod
     def _coerce_id_list(value: Any) -> List[str]:

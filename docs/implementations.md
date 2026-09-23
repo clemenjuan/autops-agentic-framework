@@ -245,27 +245,77 @@ Single-satellite and one-agent-per-satellite cases preserve the legacy
     OpportunityProperties lookahead; semi-MDP variable-duration actions; modular obs
   - Wang et al. 2022 [RRFQ6WCN] — Resource state (battery, memory) + visibility windows;
     encoder-decoder for task scheduling
-- **Observation space (25D)**:
-  - Group 1 (4D) — Resource fill fractions: battery_soc, obc_fill, jetson_raw_fill, jetson_compressed_fill
-  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass, remaining_pass_duration, episode_progress
+- **Observation space (33D)**:
+  - Group 1 (4D) — Resources: battery_soc plus log-scaled obc_fill, jetson_raw_fill, jetson_compressed_fill
+  - Group 2 (6D) — Orbital phase & timing: sin/cos(orbital_phase), time_to_eclipse, time_to_pass (log-scaled), remaining_pass_duration, episode_progress
   - Group 3 (3D) — Binary environment flags: in_sunlight, ground_pass_active, health_nominal
-  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, downlink_utilization
+  - Group 4 (5D) — Pipeline state: uncompressed_obs, compression_progress, undetected_obs, detection_progress, log-scaled delivered downlink
   - Group 5 (7D) — Current mode one-hot
-- **Action space**: `MultiDiscrete([7, 2, 2])` — operational mode, data priority, and pipeline routing. EventSat currently consumes the mode and preserves the extra components for RL policy compatibility and future pipeline policies.
-- **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 25->256->256 (Tanh, orthogonal init), three actor heads (7, 2, 2 logits), one critic head.
-- **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-lambda (lambda=0.95), factored joint log-prob over the MultiDiscrete heads.
+  - Group 6 (8D) — Attitude settling: remaining settling fraction, slew-target one-hot (schema below)
+- **Action space**: `MultiDiscrete([7])` — one categorical operational-mode decision, matching the mode-only EventSat environment. The list-valued contract stays extensible: a future categorical action dimension can be added to the scenario spec without changing the generic RLlib model/space machinery.
+- **Architecture**: RLlib `autops_actor_critic_v1` — shared trunk 33->256->256 (Tanh, orthogonal init), one 7-logit actor head, one critic head. The implementation still builds one head per declared categorical action dimension.
+- **Training**: PPO (Schulman et al. 2017) through RLlib with GAE-lambda (lambda=0.95) and a categorical mode log-probability.
 - **Hyperparameters** (Oliver et al. EUCASS 2025): lr=1e-4→1e-5, gamma=0.97, clip=0.3, 30 SGD epochs, batch=4096, minibatch=256
-- **Symbolic grounding** (same constraints as LLMEventSat):
+- **RL safety grounding**:
   - Anomaly → forced safe (cannot be overridden)
   - SoC < 0.20 → forced charging
-  - Communication without active pass → forced charging
+  - Communication without an active pass is a radio attempt, not a clamp: it settles,
+    pays radio power, delivers nothing and reports `communication_failure: no_contact`
+    as a failed action (not an M-13 charging clamp). No action mask is added.
+  - The controller-visible shield is a shared EventSat RL action-contract helper:
+    it is applied after PPO action decoding in both the RLlib training bridge and
+    checkpoint evaluation. The environment still applies its representation-neutral
+    physical constraints as the final authority, so training and evaluation share
+    the same constrained-action MDP without granting RL a physical-contact oracle.
 - **Mock mode**: `rl_mock: true` uses `RandomPolicy` for CI/smoke tests without loading an RLlib checkpoint
+- **Evaluation mode**: canonical RL experiment configs use `deterministic: true`, so
+  `autops run` evaluates the greedy checkpoint policy. PPO exploration during
+  `autops train` is controlled independently by RLlib and is unchanged.
+- **Observation schema `eventsat_log_pipeline_attitude_pass_v4`** (33D): RL-only
+  vectorisation of the shared metadata; symbolic and LLM cells see the same information.
+  - Pipeline fills (1–3) and delivered downlink (17): `log(1 + x/u) / log(1 + C/u)`, with
+    `u` one raw or compressed product and `C` the OBC/Jetson capacity; linear fractions put
+    one observation at ~1e-5 (observation scaling, Andrychowicz et al., 2021).
+  - Time to next pass (7): `log(1 + t) / log(1 + T_orbit)`, resolving the 2-step slew lead
+    needed before 2–6-step passes.
+  - Attitude settling (25–32): remaining settling fraction and one-hot of the slew target
+    (`transition_target_mode`), else the latched mode. Settling executes as charging, so
+    without them an ongoing slew looks like idle charging (delayed-action MDP,
+    Katsikopoulos & Engelbrecht, 2003).
+  - Manifests record the schema; `SubsymbolicEventSat` rejects a missing manifest or another
+    schema/shape. World-model and Gymnasium encoders keep the legacy 25D vector.
+- **Pipeline shaping** (diagnostic; disabled in canonical configs): potential-based
+  `k * (gamma * Phi(s') - Phi(s))` with the PPO gamma and zero terminal potential (Ng,
+  Harada & Russell, 1999). `potential: delivery` credits compressed/OBC/ground at 1/3,
+  2/3, 1; `raw_progress` credits raw/compressed/OBC/ground at 1/4, 1/2, 3/4, 1
+  (compression interpolated and retracted if interrupted). `scale` sets k (default 1).
+  Stage weights are experimental choices, not a learnability guarantee.
+- **Failed-action classification**: `is_failed_action` is shared by the reward and the
+  `failed_action_penalty` step info. `empty_downlink_is_failure` (default true, Oliver et
+  al. EUCASS 2025) can make an in-contact downlink of an empty OBC neutral; out-of-contact
+  attempts always fail.
+- **Reward configuration**: the reward terms are individually configurable, from a
+  natural reward (all penalty terms 0: only ground-delivered MB, so wasted actions cost
+  only the time and energy the physics charges) to the scenario default with explicit
+  feedback (resource, failed-action, safe and mission penalties; Oliver et al., EUCASS
+  2025), either optionally with pipeline shaping. The benchmark choice is still under
+  evaluation; asymmetric outcome penalties can be exploited (specification gaming,
+  Amodei et al., 2016).
+- **Energy feasibility**: with the Jetson-based onboard core (+7 W outside Jetson modes),
+  even always-charging drains the canonical 70 Wh battery to unrecoverable safe mode in
+  ~33 h, so Jetson-based onboard cells are energy-infeasible on the canonical battery
+  regardless of reward. RL diagnostics use an enlarged battery; the canonical value is an
+  open benchmark-level decision.
 - **reason()**: Returns top mode probabilities as structured explanation steps
 - **update()**: Backward-compatible hook; PPO training is offline via `RLLibPPOTrainer`
 - **Orthogonality**: Works with the fixed SDA decision driver and all configured ops paradigms
 - **Training command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml` or the MultiEventsat config for multi-agent PPO
 - **Gymnasium wrapper**: `src/eventsat/gymnasium_wrapper.py` (single-agent EventSat smoke wrapper)
 - **Supporting modules**: `src/core/behaviour/rllib_training_pipeline.py`, `src/rl/rllib_env.py`, `src/rl/space_adapters.py`, `src/rl/policy_mapping.py`, `src/rl/models/autops_actor_critic.py`
+- **Runtime lifecycle**: live RL evaluation starts Ray before the EventSat environment can
+  initialise Orekit/JPype, avoiding process creation after a JVM exists. The runner closes
+  restored policies and shuts down Ray only when it owns that runtime; `rl_mock: true` does
+  not start Ray.
 - **Architecture note**: Current MLP baseline; RNN (LSTM/GRU) is a known improvement direction for partial observability — subject to optimization by Giulio Vaccari (exchange PhD)
 - **Configs** (rl cell): `eventsat_sas_ao_rl.yaml`, `eventsat_sas_ag_rl.yaml`, `eventsat_sas_ah_rl_rl.yaml`
 
@@ -648,6 +698,18 @@ Maps to the **Behaviour** overlay ([morphological_matrix.md](morphological_matri
 - **Mechanism**: `behaviour_config.mechanism = "ppo"`
 - **Command**: `uv run autops train configs/experiments/eventsat_sas_ao_rl.yaml`
 - **Output**: `data/trained_models/<experiment_id>/` containing an RLlib checkpoint and manifest
+- **Training progress**: the log line shows `last_episode_reward` (undiscounted return of
+  the last completed episode, `n/a` before the first) and, for EventSat, the episode's
+  delivered MB, failed-action penalty, observations and in-contact communication steps.
+  Display only; PPO updates are unchanged.
+- **EventSat episode counters**: `AUTOPSEpisodeDiagnostics` writes per-episode totals to
+  `hist_stats.eventsat_*` (downlink, observations, compressions, settling steps,
+  communication in/out of contact, failed actions by mode, final buffers). They read step
+  `info` only, never a policy input; failed actions use the reward-independent
+  `info["failed_action"]` flag (`is_failed_action`), so they are counted under any reward.
+- **Intermediate checkpoints**: `checkpoint_every_timesteps` (default 0) saves
+  `step_<sampled_steps>` snapshots with their own manifest; evaluate one by setting
+  `representation_config.checkpoint_path`, to evaluate policies other than the final one.
 - **Bridge**: `src/rl/rllib_env.py` exposes AUTOPS as an RLlib `MultiAgentEnv`; `src/rl/policy_mapping.py` controls shared, role-based, or per-agent policies.
 - **Schema contract**: manifests include the observation schema identifier plus each policy's observation shape and action `nvec`. SSA inference requires `ssa_local_compact_v1` with the exact expected shape, so pre-30D checkpoints fail with an explicit compatibility error.
 
@@ -881,6 +943,27 @@ is a separate research question on optimal uplink timing.
 - **Experiment log** (`data/results/<exp_id>/experiment.log`): Full timestamped
   log including anomaly injection/clearance, component initialization, and
   (at DEBUG level) LLM prompt summaries and responses.
+
+### EventSat attitude slews (all cells)
+
+Switching to or from `payload_observe`/`communication` costs 135 s of ADCS settling,
+executed as charging. A slew keeps the target commanded when it started, so a retarget
+cannot reuse elapsed settling time (trained PPO policies exploited this on 72–79% of
+slews; Amodei et al., 2016). Ordinary commands during settling, including a requested
+`safe`, are ignored, not queued and not counted as forced or M-13 violations
+(`info["command_ignored"]`); environment-enforced safe mode (anomaly, SoC ≤ `min_soc`)
+preempts settling immediately. The world-model surrogate, `check_constraints`/
+`evaluate_plan` and the LLM/agentic prompts apply the same rule (environment parity test).
+
+### EventSat diagnostic initial conditions
+
+`environment.scenario_config` accepts `initial_obc_data_mb`,
+`initial_jetson_compressed_mb` and integer `initial_raw_observations` (all default 0)
+to start an episode with preloaded science data. Values must be finite and within
+OBC/Jetson capacity; reset restores product counters and raw-equivalent provenance
+without counting the preloaded data as capture or delivery. They are engineering
+diagnostics (e.g. isolating the downlink stage), not O-framework components, and are
+unused by the benchmark configs.
 
 ---
 
