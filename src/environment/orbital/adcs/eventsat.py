@@ -369,8 +369,9 @@ for name, mission_cfg in MISSION_CONFIGS.items():
 _reward_weights = {
     "pointing_error_penalty": 1.0,
     "boundary_layer_reward": 1.0,
-    "rw_saturation_reward": 0.1,        # -0.4 with all four wheels saturated
-    "slew_rate_boundary_reward": 10.0,  # -0.4 at 0.3 rad/s against the 0.1 rad/s threshold
+    "roll_rate_penalty": 1.0,
+    "rw_saturation_penalty": 0.1,        
+    "slew_rate_boundary_penalty": 10.0,  
     "target_cleared_bonus": 100.0,
     "mission_done_bonus": 500.0,
 }
@@ -382,7 +383,7 @@ _reward_weights = {
 # TODO max_body_rate had some consideration, but still needs to be fixed with a concrete calculation 
 env = AdcsEnvConfig(
     body_rate_thresh=0.1, # raise it to 0.184 if preferred
-    max_body_rate=0.4,
+    max_body_rate=0.4, #Unused 
     start_step=0,
     seed=None,
     reward_weights=_reward_weights,

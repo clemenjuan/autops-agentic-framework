@@ -123,7 +123,7 @@ def estimate_return_bound(config) -> float:
         return abs(float(weights.get(name) or 0.0))
 
     # Worst dense step: full pointing error plus every wheel at saturation.
-    worst_step = weight("pointing_error_penalty") + weight("rw_saturation_reward") * n_wheels
+    worst_step = weight("pointing_error_penalty") + weight("rw_saturation_penalty") * n_wheels
     # Best dense step: sitting inside the boundary layer.
     best_step = weight("boundary_layer_reward")
 

@@ -10,8 +10,9 @@ import numpy as np
 REWARD_COMPONENTS = (
     "pointing_error_penalty",
     "boundary_layer_reward",
-    "rw_saturation_reward",
-    "slew_rate_boundary_reward",
+    "roll_rate_penalty",
+    "rw_saturation_penalty",
+    "slew_rate_boundary_penalty",
 )
 
 # Sparse components, paid only on the step where the corresponding event fires.
@@ -60,6 +61,7 @@ def get_total_reward(
         [
             pointing_error_penalty(e_current),
             boundary_layer_reward(e_current, sigma),
+            roll_rate_penalty(omega_body[2], omega_body_thresh),
             rw_saturation_penalty(omega_wheels, omega_wheels_max),
             slew_rate_boundary_penalty(omega_body, omega_body_thresh),
         ],
@@ -129,6 +131,8 @@ def boundary_layer_reward(e_current: float, sigma: float) -> float:
     """
     return float(np.exp(-(e_current**2) / (2.0 * sigma**2)))
 
+def roll_rate_penalty(roll_rate, roll_rate_max):
+    return -float((roll_rate/roll_rate_max) ** 2)
 
 def rw_saturation_penalty(rw_speeds: np.ndarray, rw_max_speed: float) -> float:
     """Quadratic penalty that grows as reaction wheel speeds approach saturation."""
