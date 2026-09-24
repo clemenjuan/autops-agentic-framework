@@ -143,9 +143,9 @@ from scripts.episode_io import (  # noqa: F401
 from src.environment.orbital.adcs.configs import AdcsEnvConfig
 from src.environment.orbital.adcs.eventsat import(
     env as EVENTSAT_ENV_CONFIG, 
-    sim as EVENTSAT_SIM,DEFAULT_MISSION, 
+    DEFAULT_MISSION, 
     MISSION_CONFIGS,
-    _WHEEL_MAX_SPEED)
+    )
 from src.mission.registry import MISSION_TYPES
 
 # Repo root is two levels up: scripts -> root. Artifacts belong in the
@@ -791,7 +791,7 @@ def build_meta(
         "termination_reason": reason,
 
         # config
-        "step_s": EVENTSAT_SIM.step_s,
+        "step_s": env.sim.step_s,
         "start_step": config.start_step,
         "body_rate_thresh": config.body_rate_thresh,
         "max_body_rate": config.max_body_rate,
@@ -811,7 +811,7 @@ def build_meta(
         # keeps the action vector's own layout: wheel torque [N*m] first, MTQ
         # dipole [A*m^2] after. `Recording` slices it into the two limits.
         "max_action": env.max_action.tolist(),
-        "wheel_max_speed": float(_WHEEL_MAX_SPEED),
+        "wheel_max_speed": float(env.wheel_max_speed),
         "wheel_axes": env.satellite.wheel_axes.tolist(),
         "wheel_inertia": env.satellite.wheel_inertia.tolist(),
 

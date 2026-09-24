@@ -474,6 +474,12 @@ class AdcsEnvConfig:
             adcs_rewards.REWARD_COMPONENTS and EVENT_COMPONENTS. The dense
             components are already normalised by their own functions, so these
             set relative importance rather than scale.
+        mission: Type of mission to be executed 
+        orbit: OrbitConfig that describes the satellites orbit 
+        satellite: Contains the physical parameters of the satellite 
+        sim: Configures the step size and seed of simulation
+        actuators: Contains the set of actuators used 
+        sensors: Contains the set of sensors used 
     """
 
     body_rate_thresh: float
@@ -482,6 +488,11 @@ class AdcsEnvConfig:
     seed: Optional[int]
     reward_weights: Dict[str, float]
     mission: MissionConfig
+    orbit:OrbitConfig
+    satellite:SatelliteConfig
+    sim:SimulationConfig
+    actuators: ActuatorSuite
+    sensors: SensorSuite
 
     def with_overrides(self, overrides: Optional[Dict[str, Any]]) -> "AdcsEnvConfig":
         """Copy with the given fields replaced, taking them as a plain dict.

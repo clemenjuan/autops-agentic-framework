@@ -57,7 +57,6 @@ from src.environment.orbital.adcs.configs import AdcsEnvConfig, MissionConfig
 from src.environment.orbital.adcs.eventsat import (
     DEFAULT_MISSION,
     MISSION_CONFIGS,
-    actuators,
     env as EVENTSAT_ENV_CONFIG,
 )
 from src.mission.registry import MISSION_TYPES
@@ -104,7 +103,7 @@ def checkpoint_dir(mission: str) -> Path:
 # Reward bound and PPO hyperparameters
 # =============================================================================
 
-def estimate_return_bound(config) -> float:
+def estimate_return_bound(config: AdcsEnvConfig) -> float:
     """Rough bound on |episode return|, used to size vf_clip_param.
 
     PPO clips value targets to +/- vf_clip_param, so it has to cover the actual
@@ -117,7 +116,7 @@ def estimate_return_bound(config) -> float:
     episode can exceed it. The 1.5x margin below absorbs some of that.
     """
     weights = config.reward_weights
-    n_wheels = len(actuators.reaction_wheels)
+    n_wheels = len(config.actuators.reaction_wheels)
 
     def weight(name: str) -> float:
         return abs(float(weights.get(name) or 0.0))

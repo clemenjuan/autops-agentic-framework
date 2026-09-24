@@ -26,7 +26,6 @@ from dataclasses import replace
 from src.environment.orbital.propagator import get_environment, configure
 
 from src.environment.orbital.adcs.simulation import (step, initial_state)
-from src.environment.orbital.adcs.eventsat import (_WHEEL_MAX_TORQUE, _MTQ_MAX_DIPOLE, _WHEEL_MAX_SPEED, satellite, sim, actuators, sensors, env, orbit)
 from src.environment.orbital.adcs.estimator import initial_estimator_state
 from src.environment.orbital.adcs.sensors import initial_sensor_state
 from src.environment.orbital.adcs.actuators import ControlCommand
@@ -37,7 +36,6 @@ from src.environment.orbital.adcs.adcs_rewards import (
 )
 from src.environment.orbital.adcs.configs import(
     AdcsEnvConfig,
-    ReactionWheelConfig,
 )
 from src.mission.registry import build_mission
 
@@ -53,29 +51,34 @@ register(
 
 class EventSatEnv(gym.Env):
 
-    def __init__(self, config:Optional[AdcsEnvConfig] = None)->None:
-        self.cfg = config or env
+    def __init__(self, config:AdcsEnvConfig)->None:
+        self.cfg = config
         
-        self.max_action = np.concatenate([np.repeat([_WHEEL_MAX_TORQUE], 4), 
-                                          np.repeat([_MTQ_MAX_DIPOLE], 3)])
+        self.max_action = np.concatenate([
+            np.array([wheel.max_torque for wheel in self.cfg.actuators.reaction_wheels]), 
+            np.array([torquer.max_dipole for torquer in self.cfg.actuators.magnetorquers])
+            ])
 
-        self.satellite = satellite
-        self.sim = replace(sim, seed= self.cfg.seed)
-        self.actuators = actuators
-        self.sensors = sensors
-        configure(orbit)
+        self.wheel_max_speed = self.cfg.actuators.reaction_wheels[0].max_speed
+
+        self.satellite = self.cfg.satellite
+        self.sim = replace(self.cfg.sim, seed= self.cfg.seed)
+        self.actuators = self.cfg.actuators
+        self.sensors = self.cfg.sensors
+        configure(self.cfg.orbit)
 
         # After configure(): a mission may build Orekit objects from `orbit`.
-        self.mission = build_mission(cfg= self.cfg.mission, orbit=orbit)
+        self.mission = build_mission(cfg= self.cfg.mission, orbit=self.cfg.orbit)
 
         self.action_space = spaces.Box(
             low=-1,
             high=1,
-            shape=(7,),
+            shape=(len(self.cfg.actuators.reaction_wheels) + len(self.cfg.actuators.magnetorquers),),
             dtype=np.float32
         )
 
-        high=np.ones(11, dtype=np.float32)
+        obs_space_size = 4 + 3 + len(self.cfg.actuators.reaction_wheels)
+        high=np.ones(obs_space_size, dtype=np.float32)
         low = -high
 
         self.observation_space = spaces.Box(
@@ -100,7 +103,7 @@ class EventSatEnv(gym.Env):
         t0 = self.cfg.start_step * self.sim.step_s
         env0 = get_environment(t0)
         self.state = replace(
-            initial_state(t0, len(actuators.reaction_wheels)),
+            initial_state(t0, len(self.actuators.reaction_wheels)),
             r_eci=env0.r_eci,
             v_eci=env0.v_eci,
         )
@@ -127,8 +130,8 @@ class EventSatEnv(gym.Env):
         """
         action = np.clip(action, self.action_space.low, self.action_space.high)
         physical_torques = np.multiply(action, self.max_action)
-        command = ControlCommand(wheel_commands=physical_torques[0:4],
-                                mtq_commands=physical_torques[4:7],)
+        command = ControlCommand(wheel_commands=physical_torques[0:len(self.cfg.actuators.reaction_wheels)],
+                                mtq_commands=physical_torques[len(self.cfg.actuators.reaction_wheels):],)
 
         self.state, self.sensor_state, self.estimator = step(self.state, self.sensor_state, self.estimator, self.sensors,
                                                               self.actuators,self.satellite, self.mission_state.setpoint, self.sim, self.np_random, 
@@ -157,7 +160,7 @@ class EventSatEnv(gym.Env):
         reward_info = get_total_reward(
             err_quat = true_error_quaternion,
             omega_wheels = self.state.wheel_speeds,
-            omega_wheels_max = _WHEEL_MAX_SPEED,    
+            omega_wheels_max = self.wheel_max_speed,
             omega_body = self.state.omega_body,
             omega_body_thresh = self.cfg.body_rate_thresh,
             sigma = self.cfg.mission.sigma,
@@ -211,7 +214,7 @@ class EventSatEnv(gym.Env):
             """
         q_error = self._compute_error_quat(estimator.q_estimate, setpoint) 
         omega_body = estimator.omega_estimate / self.cfg.max_body_rate
-        wheel_speeds = state.wheel_speeds / _WHEEL_MAX_SPEED
+        wheel_speeds = state.wheel_speeds / self.wheel_max_speed
         obs = np.concatenate([q_error, omega_body, wheel_speeds]).astype(np.float32)
         obs = np.clip(obs, -1.0, 1.0)
         return obs
@@ -252,7 +255,7 @@ class EventSatEnv(gym.Env):
             "adcs/body_rate": float(np.linalg.norm(self.state.omega_body)),
             # Max rather than mean: one saturated wheel already costs an axis.
             "adcs/wheel_speed_frac": float(
-                np.max(np.abs(self.state.wheel_speeds)) / _WHEEL_MAX_SPEED
+                np.max(np.abs(self.state.wheel_speeds)) / self.wheel_max_speed
             ),
         })
 

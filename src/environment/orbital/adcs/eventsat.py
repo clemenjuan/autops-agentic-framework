@@ -387,5 +387,10 @@ env = AdcsEnvConfig(
     start_step=0,
     seed=None,
     reward_weights=_reward_weights,
-    mission=MISSION_CONFIGS[DEFAULT_MISSION]
+    mission=MISSION_CONFIGS[DEFAULT_MISSION],
+    orbit=orbit,
+    satellite=satellite,
+    sim=sim,
+    actuators=actuators,
+    sensors=sensors,
 )
