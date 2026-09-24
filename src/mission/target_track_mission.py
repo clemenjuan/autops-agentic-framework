@@ -85,7 +85,7 @@ from src.mission.adcs_mission_base import Mission, MissionState, MissionEvents
 from src.environment.orbital.adcs.configs import TargetTrackConfig, OrbitConfig
 from src.environment.orbital.adcs.state import SatState
 from src.environment.orbital.adcs.control import Setpoint
-from src.environment.orbital.adcs.dynamics import dcm_eci_to_body
+from src.environment.orbital.adcs.dynamics import dcm_eci_to_body, quat_multiply
 from src.environment.orbital.adcs.constants import R_EARTH, MU_EARTH
 
 
@@ -128,101 +128,6 @@ PHASE_TARGETS_INTO_VIEW = True
 # true anomaly, well inside the field of view at these altitudes. Unused when
 # PHASE_TARGETS_INTO_VIEW is False.
 PHASE_SAMPLES = 72
-
-
-# =============================================================================
-# Attitude helpers
-# =============================================================================
-
-def _triad_dcm(
-    primary_a: np.ndarray,
-    secondary_a: np.ndarray,
-    primary_b: np.ndarray,
-    secondary_b: np.ndarray,
-) -> np.ndarray:
-    """Rotation taking frame B to frame A, from two vector pairs (TRIAD).
-
-    ``primary_a`` is matched to ``primary_b`` exactly; the secondary pair only
-    resolves the rotation about that axis, so it need not be perpendicular to
-    the primary and is used only through its component across it.
-
-    Args:
-        primary_a: Primary direction in frame A.
-        secondary_a: Secondary direction in frame A, pinning the roll.
-        primary_b: The same primary direction expressed in frame B.
-        secondary_b: The same secondary direction expressed in frame B.
-
-    Returns:
-        The 3x3 matrix C with ``v_a = C @ v_b``.
-
-    Raises:
-        ValueError: If either pair is parallel, which leaves the rotation about
-            the primary axis undetermined.
-    """
-    def _triad(primary: np.ndarray, secondary: np.ndarray, name: str) -> np.ndarray:
-        e1 = primary / np.linalg.norm(primary)
-        cross = np.cross(e1, secondary)
-        norm = np.linalg.norm(cross)
-        if norm < 1e-9:
-            raise ValueError(
-                f"{name} vectors are parallel, so the roll about the primary "
-                f"axis is undetermined: primary={primary}, secondary={secondary}"
-            )
-        e2 = cross / norm
-        return np.column_stack([e1, e2, np.cross(e1, e2)])
-
-    return _triad(primary_a, secondary_a, "body") @ _triad(
-        primary_b, secondary_b, "reference"
-    ).T
-
-
-def _quat_from_dcm(dcm: np.ndarray) -> np.ndarray:
-    """Scalar-first quaternion for an ECI->body DCM.
-
-    Inverse of ``dcm_eci_to_body``: that builds the Hamilton body->ECI matrix
-    and transposes it, so the extraction here runs on the transpose to match.
-    Branches on the largest diagonal term, the standard guard against dividing
-    by a near-zero square root when the rotation approaches 180 degrees.
-
-    Args:
-        dcm: 3x3 rotation with ``v_body = dcm @ v_eci``.
-
-    Returns:
-        The quaternion [w, x, y, z], normalised, with a non-negative scalar part.
-    """
-    m = np.asarray(dcm, dtype=float).T          # body->ECI, the Hamilton form
-    trace = m[0, 0] + m[1, 1] + m[2, 2]
-
-    if trace > 0.0:
-        s = 2.0 * np.sqrt(1.0 + trace)
-        q = np.array([0.25 * s,
-                      (m[2, 1] - m[1, 2]) / s,
-                      (m[0, 2] - m[2, 0]) / s,
-                      (m[1, 0] - m[0, 1]) / s])
-    elif m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2])
-        q = np.array([(m[2, 1] - m[1, 2]) / s,
-                      0.25 * s,
-                      (m[0, 1] + m[1, 0]) / s,
-                      (m[0, 2] + m[2, 0]) / s])
-    elif m[1, 1] > m[2, 2]:
-        s = 2.0 * np.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2])
-        q = np.array([(m[0, 2] - m[2, 0]) / s,
-                      (m[0, 1] + m[1, 0]) / s,
-                      0.25 * s,
-                      (m[1, 2] + m[2, 1]) / s])
-    else:
-        s = 2.0 * np.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1])
-        q = np.array([(m[1, 0] - m[0, 1]) / s,
-                      (m[0, 2] + m[2, 0]) / s,
-                      (m[1, 2] + m[2, 1]) / s,
-                      0.25 * s])
-
-    q = q / np.linalg.norm(q)
-    # q and -q are the same rotation; fixing the sign keeps the setpoint from
-    # flipping representation between steps, which the error quaternion would
-    # otherwise have to undo every time.
-    return -q if q[0] < 0.0 else q
 
 
 # =============================================================================
@@ -614,14 +519,15 @@ class TargetTrackMission(Mission):
         return self._pointing_setpoint(state, los_hat)
 
     def _pointing_setpoint(
-        self, state: SatState, direction_eci: np.ndarray
+        self, state: SatState, los_eci: np.ndarray
     ) -> Setpoint:
         """Setpoint putting the boresight on ``direction_eci``.
 
-        Aiming the boresight leaves roll about it free, and the reward reads the
-        full attitude error, so the roll is pinned by aligning
-        ``cfg.reference_body`` with the orbit normal -- an orbit-frame-like
-        attitude that varies smoothly rather than an arbitrary constant.
+        The roll does not contribute to the error. By directly giving the quaternion error
+        as the shortest possible transformation from current attitude to target.
+        This is expressed by '''q_slew'''. The shortest path is given by a rotation
+        around the axis perpendicular to the camera direction and line of sight.
+        This leads to the fact that the roll axis is not contributing to the error.
 
         The target rate is left at zero deliberately, and unlike
         SlewSequenceMission that is not because the target holds still. These
@@ -634,25 +540,29 @@ class TargetTrackMission(Mission):
         pointing-rate note in the module docstring.
 
         Args:
-            state: Current state; supplies position and velocity for the orbit
-                normal.
-            direction_eci: Unit vector the boresight should point along, ECI.
+            state: Current state; supplies the current attitude quaternion
+            los_eci: Unit vector the boresight should point along, ECI.
 
         Returns:
             The setpoint attitude, at zero target rate.
         """
-        orbit_normal_eci = np.cross(state.r_eci, state.v_eci)
-        orbit_normal_eci = orbit_normal_eci / np.linalg.norm(orbit_normal_eci)
+        # Compute target direction in body frame 
+        los_body = dcm_eci_to_body(state.q_eci_body) @ los_eci 
 
-        eci_to_body = _triad_dcm(
-            primary_a=self.cfg.boresight_body,
-            secondary_a=self.cfg.reference_body,
-            primary_b=direction_eci,
-            secondary_b=orbit_normal_eci,
-        )
+        # Compute the error angle 
+        rotation_axis = np.cross(self.cfg.boresight_body, los_body)
+        cos_angle = np.dot(self.cfg.boresight_body, los_body)
+        
+        #Give direction at a 180 degree offset
+        if 1 + cos_angle < 1e-9:
+            rotation_axis = np.cross(self.cfg.boresight_body, [0.0, 1.0, 0.0])
+
+        # Compute slew quaternion
+        q_slew = np.concatenate([[1+cos_angle], rotation_axis])
+        q_slew = q_slew / np.linalg.norm(q_slew)
 
         return Setpoint(
-            target_q_eci_body=_quat_from_dcm(eci_to_body),
+            target_q_eci_body= quat_multiply(state.q_eci_body, q_slew),
             target_omega_body=np.zeros(3),
         )
 
