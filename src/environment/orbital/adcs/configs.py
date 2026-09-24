@@ -437,19 +437,13 @@ class TargetTrackConfig(MissionConfig):
             A target counts as visible while it lies inside this cone about the
             boresight.
         boresight_body: Unit vector along the camera boresight in the BODY
-            frame, shape (3,).
-        reference_body: Unit vector giving the camera's roll reference in the
-            BODY frame, shape (3,); must not be parallel to boresight_body.
-            Pointing the boresight somewhere fixes only two of the three
-            attitude degrees of freedom, and the pointing error the reward sees
-            is the full attitude error, roll included. So the remaining freedom
-            has to be pinned to something physical rather than left arbitrary:
-            this axis is aligned with the orbit normal.
+            frame, shape (3,). Roll about this axis is left free: the setpoint
+            is the shortest rotation onto the line of sight, so roll never
+            enters the pointing error.
     """
     num_targets: int
     fov_half_angle: float
     boresight_body: np.ndarray
-    reference_body: np.ndarray
 
     
 # =============================================================================

@@ -337,12 +337,12 @@ sim = SimulationConfig(
 
 DEFAULT_MISSION = "slew"
 
+# FOV angles sourced as horizontal field of view @ Max Sensor Format
 MISSION_CONFIGS: Dict[str,MissionConfig] = {
-    "slew": SlewSequenceConfig(type="slew", tolerance_deg=5.0, hold_time=2.0, max_steps=2000, num_targets=1),
-    "target_track": TargetTrackConfig(type="target_track", tolerance_deg=5.0, hold_time=2.0, max_steps=2000, num_targets=1,
-                                        fov_half_angle= np.deg2rad(45.0),
-                                        boresight_body= np.array([1.0, 0.0, 0.0]), #TODO PLACEHOLDER adjust to actual camera facing, currently facing forward
-                                        reference_body= np.array([0.0, 1.0, 0.0]) #TODO PLACEHOLDER
+    "slew": SlewSequenceConfig(type="slew", tolerance_deg=22.9/2, hold_time=20.0, max_steps=2000, num_targets=1),
+    "target_track": TargetTrackConfig(type="target_track", tolerance_deg=22.9/2, hold_time=20.0, max_steps=2000, num_targets=1,
+                                        fov_half_angle= np.deg2rad(22.9/2),
+                                        boresight_body= np.array([0.0, 0.0, -1.0]), #Fixed in place
                                         ) 
 }
 for name, mission_cfg in MISSION_CONFIGS.items():
